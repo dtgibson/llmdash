@@ -1,5 +1,19 @@
 # Decisions — llmdash
 
+## Codex provides limits only; quota display hardened — 2026-06-16 (fix)
+**Bug:** Codex activity showed fake `0`/`$0`; a maxed weekly quota wasn't
+surfaced (burn said "on pace to stay under the 5-hour"); the headroom strip never
+appeared.
+**Cause:** Codex (this build) records no per-token usage anywhere readable — no
+session rollout logs, and its internal `threads`/`thread_goals` tables are empty
+(verified via a WAL-merged snapshot). Separately, the maxed-window display and the
+headroom logic only ever considered the 5-hour window.
+**Resolution:** Show Codex token activity as "not available" (no fabricated
+zeros), and Codex trends as limits-only. A maxed window (≈0 remaining) now reads
+"limit reached" and is the binding signal in the burn callout. `computeHeadroom`
+and the limit display consider **both** windows. If a future Codex version
+populates `threads.tokens_used`, activity could be revisited.
+
 ## Scope: Claude Code + Codex only; Kagi dropped — 2026-06-16
 **Decision:** Track Claude Code now and Codex next; do not include Kagi.
 **Rationale:** Feasibility research showed Kagi Ultimate is unlimited (no meter),

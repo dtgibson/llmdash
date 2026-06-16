@@ -28,6 +28,12 @@
   set** so nothing silently drops.
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path).
+- Limit and headroom logic consider **all windows** (5-hour and weekly), not just
+  one. A maxed window (≈0 remaining) reads "limit reached" and is the binding
+  signal.
+- A tool may expose limits but not token activity (Codex here records none) —
+  render an honest "not available" state, never fabricated zeros, and omit its
+  activity-derived charts.
 
 ## Serving & UI
 - Responses carry baseline security headers. The CSP allows `style-src

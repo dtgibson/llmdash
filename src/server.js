@@ -69,17 +69,27 @@ function toolWrap(source, label, plan, live, activity, nowMs) {
   return { source, label, plan, haveLimits: !!(windows.five_hour || windows.seven_day), limits: windows, projection, activity, dataAt };
 }
 
-// The cross-tool "where do I switch" cue: fires only when a tool's 5-hour window
-// is low and another tool has more headroom.
+// The cross-tool "where do I switch" cue: fires when a tool's tightest window
+// (5-hour OR weekly) is low or maxed and another tool has more headroom.
 export function computeHeadroom(tools) {
-  const withFive = tools.filter(t => t.limits.five_hour);
-  if (withFive.length < 2) return null;
-  const low = withFive.reduce((a, b) => b.limits.five_hour.remainingPct < a.limits.five_hour.remainingPct ? b : a);
-  const best = withFive.reduce((a, b) => b.limits.five_hour.remainingPct > a.limits.five_hour.remainingPct ? b : a);
-  if (low.limits.five_hour.remainingPct >= 20 || best.source === low.source) return null;
+  const summarize = (t) => {
+    let tightest = null, windowName = '';
+    for (const [w, name] of [['five_hour', '5-hour'], ['seven_day', 'weekly']]) {
+      const win = t.limits[w];
+      if (!win) continue;
+      if (tightest == null || win.remainingPct < tightest) { tightest = win.remainingPct; windowName = name; }
+    }
+    return tightest == null ? null : { label: t.label, source: t.source, tightest, windowName };
+  };
+  const withData = tools.map(summarize).filter(Boolean);
+  if (withData.length < 2) return null;
+  const low = withData.reduce((a, b) => b.tightest < a.tightest ? b : a);
+  const best = withData.reduce((a, b) => b.tightest > a.tightest ? b : a);
+  if (low.tightest >= 20 || best.source === low.source) return null;
   return {
-    lowLabel: low.label, lowRemaining: Math.floor(low.limits.five_hour.remainingPct),
-    bestLabel: best.label, bestRemaining: Math.floor(best.limits.five_hour.remainingPct),
+    lowLabel: low.label, lowWindow: low.windowName, lowRemaining: Math.floor(low.tightest),
+    bestLabel: best.label, bestRemaining: Math.floor(best.tightest),
+    maxed: low.tightest <= 0,
   };
 }
 

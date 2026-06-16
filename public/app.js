@@ -39,17 +39,25 @@ function gaugeHtml(win, label) {
       + `<div class="bar"><div class="bar-fill" style="width:0"></div></div></div>`;
   }
   const rem = Math.floor(win.remainingPct), used = Math.ceil(win.usedPct), cls = statusClass(rem);
+  const maxed = win.remainingPct <= 0;
   const resetIn = win.resetsAt ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : '—';
+  const sub = maxed ? `<span class="is-crit">limit reached</span>` : `remaining · ${used}% used`;
   return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">resets in ${resetIn}</span></div>`
-    + `<div class="remaining is-${cls}">${rem}<span class="unit">%</span></div><div class="sub">remaining · ${used}% used</div>`
+    + `<div class="remaining is-${cls}">${rem}<span class="unit">%</span></div><div class="sub">${sub}</div>`
     + `<div class="bar"><div class="bar-fill fill-${cls}" style="width:${win.remainingPct}%"></div></div></div>`;
 }
 
 function burnHtml(tool) {
-  const a = tool.activity, proj = tool.projection, five = tool.limits.five_hour;
-  const rate = a ? fmtTokensHtml(a.burnTokensPerHour) : '—';
+  const a = tool.activity, proj = tool.projection, five = tool.limits.five_hour, seven = tool.limits.seven_day;
+  const hasActivity = a && a.hasData !== false;
+  const dur = (win) => (win && win.resetsAt) ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : '—';
   let projHtml;
-  if (proj && proj.etaMs != null && five && five.resetsAt) {
+  // A maxed window is the binding constraint — surface it instead of a 5-hour projection.
+  if (seven && seven.remainingPct <= 0) {
+    projHtml = `<span class="is-crit">Weekly limit reached</span><span class="burn-cap">resets in ${dur(seven)}</span>`;
+  } else if (five && five.remainingPct <= 0) {
+    projHtml = `<span class="is-crit">5-hour limit reached</span><span class="burn-cap">resets in ${dur(five)}</span>`;
+  } else if (proj && proj.etaMs != null && five && five.resetsAt) {
     const resetMs = Date.parse(five.resetsAt) - Date.now();
     projHtml = proj.hitsBeforeReset
       ? `On pace to hit the 5-hour limit in <strong>~${fmtDur(proj.etaMs - Date.now())}</strong><span class="burn-cap">before it resets in ${fmtDur(resetMs)}</span>`
@@ -57,7 +65,8 @@ function burnHtml(tool) {
   } else {
     projHtml = `<span class="burn-cap">limit data not available yet</span>`;
   }
-  return `<div class="burn"><div class="burn-rate">${rate}<span class="u">tokens / hr</span></div><div class="burn-proj">${projHtml}</div></div>`;
+  const rateHtml = hasActivity ? `<div class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr</span></div>` : '';
+  return `<div class="burn">${rateHtml}<div class="burn-proj">${projHtml}</div></div>`;
 }
 
 const tile = (label, valHtml, note) =>
@@ -96,19 +105,24 @@ function mixHtml(a) {
 function toolHtml(tool) {
   const a = tool.activity;
   const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}`;
-  const empty = a && a.hasData === false
-    ? `<div class="empty-note">Codex activity fills in as you use it — these grow with your sessions.</div>` : '';
+  const hasActivity = a && a.hasData !== false;
+  const activityBlock = hasActivity
+    ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
+    : `<div class="empty-note">Token activity isn't available for ${esc(tool.label)} — it doesn't record usage locally. The limits above are live.</div>`;
   return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + burnHtml(tool) + tilesHtml(a) + mixHtml(a) + tiles2Html(a) + empty + `</section>`;
+    + burnHtml(tool) + activityBlock + `</section>`;
 }
 
 function renderHeadroom(h) {
   const el = document.getElementById('headroom');
   if (!h) { el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = `<span class="lead is-crit">${esc(h.lowLabel)} is nearly out</span><span class="arrow">→</span>`
-    + `<span>switch to <strong>${esc(h.bestLabel)}</strong>, <span class="room">${h.bestRemaining}% left</span> on the 5-hour</span>`;
+  const lead = h.maxed
+    ? `${esc(h.lowLabel)}'s ${esc(h.lowWindow)} limit is maxed`
+    : `${esc(h.lowLabel)} is low on its ${esc(h.lowWindow)} (${h.lowRemaining}%)`;
+  el.innerHTML = `<span class="lead is-crit">${lead}</span><span class="arrow">→</span>`
+    + `<span>switch to <strong>${esc(h.bestLabel)}</strong>, <span class="room">${h.bestRemaining}% left</span></span>`;
 }
 
 function render() {
@@ -204,27 +218,34 @@ function chartCard(title, src, svg, legend) {
 
 function trendToolHtml(t, range) {
   const fh = t.limits.five_hour || [], sd = t.limits.seven_day || [], daily = t.daily || [];
-  if (fh.length < 2 && sd.length < 2 && daily.length < 1) {
+  const hasLimits = fh.length >= 2 || sd.length >= 2;
+  const hasActivity = daily.length >= 1;
+  if (!hasLimits && !hasActivity) {
     return `<div class="tool-name">${esc(t.label)}</div><div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div>`;
   }
   const pct = (v) => Math.round(v) + '%';
   const usd = (v) => '$' + Math.round(v);
-  const now = Date.now();
-  const xDomain = [now - rangeToMs(range), now];
+  const xDomain = [Date.now() - rangeToMs(range), Date.now()];
+  const cards = [];
   const burn = lineSVG([
     { pts: fh.map((p) => [Date.parse(p.t), p.remaining]), color: 'var(--accent)' },
     { pts: sd.map((p) => [Date.parse(p.t), p.remaining]), color: 'var(--teal)' },
   ], 100, pct, { xDomain });
-  const tokens = barsSVG(daily, fmtNum);
-  const rate = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cacheHitRate * 100]), color: 'var(--good)' }], 100, pct, { xDomain });
-  const valMax = Math.max(0.01, ...daily.map((d) => d.cost));
-  const value = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cost]), color: 'var(--accent)' }], valMax, usd, { xDomain, pointLabel: usd });
-  return `<div class="tool-name">${esc(t.label)}</div><div class="charts">`
-    + chartCard('Limit remaining', 'account-wide · snapshots', burn, legendHtml([['var(--accent)', '5-hour'], ['var(--teal)', 'Weekly']]))
-    + chartCard('Tokens per day', 'local logs', tokens, legendHtml([['var(--cr)', 'Cache'], ['var(--in)', 'Input'], ['var(--out)', 'Output']]))
-    + chartCard('Cache hit rate', 'local logs', rate, '')
-    + chartCard('Est. value / day', 'local logs · API rates', value, '')
-    + `</div>`;
+  cards.push(chartCard('Limit remaining', 'account-wide · snapshots', burn, legendHtml([['var(--accent)', '5-hour'], ['var(--teal)', 'Weekly']])));
+  // Only show the log-derived charts for tools that actually record activity.
+  if (hasActivity) {
+    const tokens = barsSVG(daily, fmtNum);
+    const rate = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cacheHitRate * 100]), color: 'var(--good)' }], 100, pct, { xDomain });
+    const valMax = Math.max(0.01, ...daily.map((d) => d.cost));
+    const value = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cost]), color: 'var(--accent)' }], valMax, usd, { xDomain, pointLabel: usd });
+    cards.push(chartCard('Tokens per day', 'local logs', tokens, legendHtml([['var(--cr)', 'Cache'], ['var(--in)', 'Input'], ['var(--out)', 'Output']])));
+    cards.push(chartCard('Cache hit rate', 'local logs', rate, ''));
+    cards.push(chartCard('Est. value / day', 'local logs · API rates', value, ''));
+  }
+  const note = (hasLimits && !hasActivity)
+    ? `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`
+    : '';
+  return `<div class="tool-name">${esc(t.label)}</div><div class="charts">${cards.join('')}</div>${note}`;
 }
 
 async function fetchTrends() {
