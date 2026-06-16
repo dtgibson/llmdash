@@ -1,0 +1,26 @@
+{
+  "name": "llmdash",
+  "type": "web-app",
+  "description": "Personal dashboard showing remaining AI coding usage (Claude Code now, Codex next) for the 5-hour and weekly limit windows, served locally over Tailscale.",
+  "persona": "engineer",
+  "entryPath": "new",
+  "stack": {
+    "language": "javascript",
+    "runtime": "node",
+    "packageManager": "npm",
+    "frontend": "vanilla (HTML/CSS/JS, no framework, no build step)",
+    "bundler": null,
+    "styling": "plain CSS",
+    "componentLibrary": null,
+    "charting": "vanilla SVG (decided at the charts feature)",
+    "backend": "node http (minimal, few dependencies)",
+    "database": "sqlite",
+    "orm": null,
+    "testing": "node:test"
+  },
+  "hosting": "local process, served over the user's Tailscale network",
+  "deployment": null,
+  "repository": null,
+  "createdAt": "2026-06-16T04:22:52Z",
+  "updatedAt": "2026-06-16T05:06:45Z"
+}

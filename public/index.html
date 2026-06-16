@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="wordmark">llmdash<span class="dot">·</span><span class="scope">Claude Code</span></div>
+    <div class="freshness" id="freshness"><span class="pulse"></span><span id="age">connecting…</span></div>
+  </header>
+
+  <div class="section-label">Limits</div>
+  <main>
+    <section class="panel" data-window="five_hour">
+      <div class="panel-head">
+        <span class="win-label">5-hour window</span>
+        <span class="win-reset">resets in <span class="reset">—</span></span>
+      </div>
+      <div class="figure"><span class="remaining"><span class="rem-val">—</span><span class="unit">%</span></span></div>
+      <div class="sub">remaining</div>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="meta"><span><span class="used">—</span>% used</span><span class="reset-at">—</span></div>
+    </section>
+
+    <section class="panel" data-window="seven_day">
+      <div class="panel-head">
+        <span class="win-label">Weekly window</span>
+        <span class="win-reset">resets in <span class="reset">—</span></span>
+      </div>
+      <div class="figure"><span class="remaining"><span class="rem-val">—</span><span class="unit">%</span></span></div>
+      <div class="sub">remaining</div>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="meta"><span><span class="used">—</span>% used</span><span class="reset-at">—</span></div>
+    </section>
+  </main>
+
+  <div class="section-label">Activity</div>
+  <div class="burn">
+    <div><div class="burn-rate" id="burnRate"><span class="v">—</span><span class="u">tokens / hr</span></div></div>
+    <div class="burn-proj" id="burnProj">—</div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="tile">
+      <div class="tile-label">Tokens · 5h</div>
+      <div class="tile-val" id="tok5h">—</div>
+      <div class="tile-note"><span id="tokWeek">—</span> this week</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Tokens · today</div>
+      <div class="tile-val" id="tokToday">—</div>
+      <div class="tile-note">across <span id="sessions">—</span> sessions</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Cache hit rate</div>
+      <div class="tile-val" id="cacheRate">—</div>
+      <div class="tile-note">why limits last</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Est. value · week</div>
+      <div class="tile-val" id="estValue">—</div>
+      <div class="tile-note">at API pay-as-you-go rates</div>
+    </div>
+  </div>
+
+  <div class="section-label">Token mix · this week</div>
+  <div class="mix">
+    <div class="mix-bar">
+      <span class="seg seg-cr"></span><span class="seg seg-in"></span><span class="seg seg-cw"></span><span class="seg seg-out"></span>
+    </div>
+    <div class="mix-legend">
+      <span><i class="dot dot-cr"></i>Cache read <b id="mixCr">—</b></span>
+      <span><i class="dot dot-in"></i>Input <b id="mixIn">—</b></span>
+      <span><i class="dot dot-cw"></i>Cache write <b id="mixCw">—</b></span>
+      <span><i class="dot dot-out"></i>Output <b id="mixOut">—</b></span>
+    </div>
+  </div>
+
+  <div class="stat-grid grid2">
+    <div class="tile">
+      <div class="tile-label">Cache saved · week</div>
+      <div class="tile-val" id="cacheSaved">—</div>
+      <div class="tile-note">vs full input price</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Est. value · today</div>
+      <div class="tile-val" id="estToday">—</div>
+      <div class="tile-note">at API rates</div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Limits: account-wide · Activity: from local session logs</span>
+    <span>served over Tailscale</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
