@@ -75,6 +75,22 @@ systemctl --user enable --now llmdash.service
 loginctl enable-linger "$USER"   # so it runs without an active login
 ```
 
+## Running on macOS (launchd)
+The app itself is cross-platform (Node + a vanilla web UI); only the
+background-service setup differs from Linux. On a Mac:
+
+1. **Node 24+** is required (for the built-in SQLite): `node -v`.
+2. Clone the repo (e.g. `~/llmdash`) and run it once with `npm start`, then open
+   <http://localhost:8787> or `http://<your-mac's-tailscale-name>:8787`.
+3. Point Claude Code's statusline at *your* path in `~/.claude/settings.json`:
+   `"command": "node /Users/you/llmdash/scripts/statusline.js"`.
+4. To run it in the background (the launchd equivalent of the systemd service),
+   use the template at `macos/com.llmdash.dashboard.plist.example` — fill in your
+   `node`, project, and `codex` paths, copy it to `~/Library/LaunchAgents/`, and
+   `launchctl load -w` it. Full steps are in that file's comments.
+
+Codex limits work the same way as on Linux (via the `codex app-server`).
+
 ## Configuration
 All optional, via environment variables:
 - `LLMDASH_PORT` (default `8787`)

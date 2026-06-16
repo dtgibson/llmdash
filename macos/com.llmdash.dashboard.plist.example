@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  llmdash LaunchAgent for macOS — the launchd equivalent of the Linux systemd unit.
+
+  Setup:
+    1. Find your Node path:   which node    (e.g. /usr/local/bin/node or /opt/homebrew/bin/node or an nvm path)
+    2. Find your codex path:  which codex
+    3. Replace the THREE placeholders below: NODE_PATH, PROJECT_DIR, CODEX_PATH
+    4. Copy this file (without the .example suffix) to ~/Library/LaunchAgents/:
+         cp macos/com.llmdash.dashboard.plist.example ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+    5. Load it (starts now + at every login, restarts on crash):
+         launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+    To stop:  launchctl unload -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.llmdash.dashboard</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>NODE_PATH</string>
+    <string>src/server.js</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>PROJECT_DIR</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>LLMDASH_PORT</key>
+    <string>8787</string>
+    <!-- so the agent can run the codex app-server for Codex limits -->
+    <key>LLMDASH_CODEX_CMD</key>
+    <string>CODEX_PATH</string>
+    <!-- optional: restrict strictly to the tailnet by setting your Tailscale IP
+    <key>LLMDASH_HOST</key>
+    <string>100.x.y.z</string>
+    -->
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/llmdash.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/llmdash.err</string>
+</dict>
+</plist>
