@@ -35,7 +35,7 @@ export function readClaudeLimits() {
     const usedNum = Number(w.used_percentage ?? w.usedPercentage ?? w.utilization);
     if (!Number.isFinite(usedNum)) continue; // skip missing or garbage windows
     windows[key] = {
-      usedPct: usedNum,
+      usedPct: Math.min(100, Math.max(0, usedNum)), // clamp to 0–100
       resetsAt: toIso(w.resets_at ?? w.resetsAt),
     };
   }

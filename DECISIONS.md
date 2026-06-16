@@ -28,6 +28,15 @@ the explicit goal.
 **Rationale:** Neither data source provides limit history.
 **Implications:** Trend charts start empty and fill forward.
 
+## Multi-source architecture — 2026-06-16
+**Decision:** The dashboard is source-aware — each tool is a `source` in one
+schema and one set of UI components, with a cross-tool headroom cue. Codex limits
+come from its app-server (polled); Claude from its statusline.
+**Rationale:** Adding tools should be additive, not a fork; the product's value
+is cross-tool comparison ("switch when one maxes out").
+**Implications:** A third tool slots in as a new source + reader, with no schema
+or UI redesign.
+
 ## Don't reproduce /usage's "what's contributing" insights — 2026-06-16
 **Decision:** Exclude the subagent-heavy / high-context / long-session
 percentages.

@@ -27,12 +27,29 @@ export const config = {
   statsTtlMs: 30_000,
   uiRefreshMs: 60_000,
 
-  // Approximate pay-as-you-go API rates, USD per 1M tokens. These back the
-  // "estimated value" stat. They are estimates — edit them freely.
+  // Codex (ChatGPT Plus) — local data + how to read its limits.
+  codexDir: process.env.LLMDASH_CODEX_DIR || path.join(home, '.codex'),
+  get codexSessionsDir() { return path.join(this.codexDir, 'sessions'); },
+  // Command to launch the Codex app-server (the live rate-limits read).
+  // The systemd service may need an absolute path, e.g. /home/you/.local/bin/codex.
+  codexCmd: process.env.LLMDASH_CODEX_CMD || 'codex',
+  codexAppServerTimeoutMs: Number(process.env.LLMDASH_CODEX_TIMEOUT_MS || 8000),
+
+  // Approximate pay-as-you-go Anthropic API rates, USD per 1M tokens. These back
+  // the Claude "estimated value" stat. They are estimates — edit them freely.
   pricing: {
     opus:    { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
     sonnet:  { input: 3,  output: 15, cacheWrite: 3.75,  cacheRead: 0.3 },
     haiku:   { input: 1,  output: 5,  cacheWrite: 1.25,  cacheRead: 0.1 },
     default: { input: 3,  output: 15, cacheWrite: 3.75,  cacheRead: 0.3 },
+  },
+
+  // Approximate OpenAI API rates, USD per 1M tokens, for Codex's estimated value.
+  // Separate table from Anthropic's. Estimates — edit freely.
+  openaiPricing: {
+    'gpt-5-codex': { input: 1.25, output: 10, cacheRead: 0.125 },
+    'gpt-5':       { input: 1.25, output: 10, cacheRead: 0.125 },
+    'o4-mini':     { input: 1.1,  output: 4.4, cacheRead: 0.275 },
+    default:       { input: 1.25, output: 10, cacheRead: 0.125 },
   },
 };

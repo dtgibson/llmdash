@@ -1,30 +1,33 @@
 import { insertSnapshot } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
+import { readCodexLimits } from './codex-limits.js';
 import { computeActivity, clearStatsCache } from './stats.js';
+import { computeCodexActivity, clearCodexStatsCache } from './codex-stats.js';
 import { config } from '../config.js';
 
-// One poll: persist the latest limit reading (deduped) and refresh stats.
-export function pollOnce() {
-  const live = readClaudeLimits();
-  let written = 0;
-  if (live) {
-    for (const [window, w] of Object.entries(live.windows)) {
-      if (insertSnapshot({
-        capturedAt: live.capturedAt,
-        source: live.source,
-        window,
-        usedPct: w.usedPct,
-        resetsAt: w.resetsAt,
-      })) written++;
-    }
+function snapshot(live) {
+  if (!live) return 0;
+  let n = 0;
+  for (const [window, w] of Object.entries(live.windows)) {
+    if (insertSnapshot({ capturedAt: live.capturedAt, source: live.source, window, usedPct: w.usedPct, resetsAt: w.resetsAt })) n++;
   }
+  return n;
+}
+
+// One poll: snapshot both tools' limits (deduped) and refresh both stat caches.
+// Claude's reading is a cheap file read; Codex's is the app-server (or rollout
+// cache), done here on the interval rather than per request.
+export async function pollOnce() {
+  try { snapshot(readClaudeLimits()); } catch (e) { console.error('claude poll:', e.message); }
+  try { snapshot(await readCodexLimits()); } catch (e) { console.error('codex poll:', e.message); }
   clearStatsCache();
-  computeActivity(); // warm the cache so the next request is instant
-  return written;
+  clearCodexStatsCache();
+  try { computeActivity(); } catch {}
+  try { computeCodexActivity(); } catch {}
 }
 
 export function startPoller() {
-  const run = () => { try { pollOnce(); } catch (e) { console.error('poll error:', e.message); } };
+  const run = () => { pollOnce().catch(e => console.error('poll error:', e.message)); };
   run();
   setInterval(run, config.pollIntervalMs);
 }

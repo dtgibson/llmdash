@@ -18,6 +18,17 @@
 - HTTP responses carry baseline security headers (`nosniff`, CSP `default-src
   'self'`, `Referrer-Policy`) and reject non-GET/HEAD with 405.
 
+## Multi-source
+- The dashboard is **source-aware**: each tool is a `source` value in
+  `usage_snapshots` and a tool block in the UI. Add a new tool as a new source
+  flowing through the shared path — don't fork the store or the renderer.
+- **Clamp externally-sourced percentages** (limit used %) to 0–100 before storing
+  or deriving from them.
+- When refactoring a single-source view to multi-source, **diff the rendered stat
+  set** so nothing silently drops.
+- Read live limits off the interval poller, never per HTTP request (Codex spawns a
+  subprocess; keep that off the request path).
+
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
   (node:test).

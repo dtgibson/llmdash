@@ -1,12 +1,9 @@
-// llmdash dashboard — fetches /api/state, renders, auto-refreshes, ticks countdowns.
+// llmdash dashboard — renders each tool (Claude Code, Codex) and the cross-tool
+// "headroom" cue, from /api/state. Auto-refreshes; ticks countdowns each second.
 const REFRESH_MS = 60_000;
 let state = null;
 
-function statusClass(remaining) {
-  if (remaining >= 50) return 'good';
-  if (remaining >= 20) return 'warn';
-  return 'crit';
-}
+const statusClass = (rem) => (rem >= 50 ? 'good' : rem >= 20 ? 'warn' : 'crit');
 
 function fmtTokensHtml(n) {
   if (n == null) return '—';
@@ -14,24 +11,15 @@ function fmtTokensHtml(n) {
   if (n >= 1e3) return Math.round(n / 1e3) + '<span class="u">k</span>';
   return String(n);
 }
-
-function fmtUSD(n) {
-  if (n == null) return '—';
-  return '$' + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2));
-}
-
+function fmtUSD(n) { return n == null ? '—' : '$' + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)); }
 function fmtDur(ms) {
   if (ms == null) return '—';
   if (ms <= 0) return 'now';
-  const mins = Math.floor(ms / 60000);
-  const d = Math.floor(mins / 1440);
-  const h = Math.floor((mins % 1440) / 60);
-  const m = mins % 60;
+  const mins = Math.floor(ms / 60000), d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
   if (d > 0) return d + 'd ' + h + 'h';
   if (h > 0) return h + 'h ' + m + 'm';
   return m + 'm';
 }
-
 function fmtAge(iso) {
   if (!iso) return null;
   const ms = Date.now() - Date.parse(iso);
@@ -42,109 +30,105 @@ function fmtAge(iso) {
   if (m < 60) return 'updated ' + m + 'm ago';
   return 'updated ' + Math.floor(m / 60) + 'h ago';
 }
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
-function renderPanel(win, data) {
-  const el = document.querySelector(`.panel[data-window="${win}"]`);
-  const remEl = el.querySelector('.rem-val');
-  const fill = el.querySelector('.bar-fill');
-  if (!data) {
-    remEl.textContent = '—';
-    remEl.className = 'rem-val';
-    fill.style.width = '0';
-    el.querySelector('.used').textContent = '—';
-    el.querySelector('.reset').textContent = 'waiting…';
-    el.querySelector('.reset-at').textContent = 'no reading yet';
-    return;
+function gaugeHtml(win, label) {
+  if (!win) {
+    return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">—</span></div>`
+      + `<div class="remaining">—<span class="unit">%</span></div><div class="sub">waiting for a reading</div>`
+      + `<div class="bar"><div class="bar-fill" style="width:0"></div></div></div>`;
   }
-  // Round conservatively: floor remaining (never overstate headroom),
-  // ceil used. This also matches what Claude Code's /usage shows.
-  const remaining = Math.floor(data.remainingPct);
-  const cls = statusClass(remaining);
-  remEl.textContent = remaining;
-  remEl.className = 'rem-val is-' + cls;
-  fill.className = 'bar-fill fill-' + cls;
-  fill.style.width = data.remainingPct + '%';
-  el.querySelector('.used').textContent = Math.ceil(data.usedPct);
-  if (data.resetsAt) {
-    el.querySelector('.reset').textContent = fmtDur(Date.parse(data.resetsAt) - Date.now());
-    el.querySelector('.reset-at').textContent =
-      'resets ' + new Date(data.resetsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  } else {
-    el.querySelector('.reset').textContent = '—';
-    el.querySelector('.reset-at').textContent = '';
-  }
+  const rem = Math.floor(win.remainingPct), used = Math.ceil(win.usedPct), cls = statusClass(rem);
+  const resetIn = win.resetsAt ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : '—';
+  return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">resets in ${resetIn}</span></div>`
+    + `<div class="remaining is-${cls}">${rem}<span class="unit">%</span></div><div class="sub">remaining · ${used}% used</div>`
+    + `<div class="bar"><div class="bar-fill fill-${cls}" style="width:${win.remainingPct}%"></div></div></div>`;
 }
 
-function renderActivity(a, projection) {
-  document.querySelector('#burnRate .v').innerHTML = a ? fmtTokensHtml(a.burnTokensPerHour) : '—';
-  document.getElementById('tok5h').innerHTML = a ? fmtTokensHtml(a.tokens.last5h) : '—';
-  document.getElementById('tokWeek').innerHTML = a ? fmtTokensHtml(a.tokens.week) : '—';
-  document.getElementById('tokToday').innerHTML = a ? fmtTokensHtml(a.tokens.today) : '—';
-  document.getElementById('sessions').textContent = a ? a.sessionsToday : '—';
-  document.getElementById('cacheRate').innerHTML = a ? Math.round(a.cacheHitRate * 100) + '<span class="u">%</span>' : '—';
-  document.getElementById('estValue').textContent = a ? fmtUSD(a.estValueWeek) : '—';
-
-  // Insights: token mix, cache savings, today's value
-  if (a && a.tokenMix) {
-    const mix = a.tokenMix;
-    const total = (mix.cacheRead + mix.input + mix.cacheWrite + mix.output) || 1;
-    document.querySelector('.seg-cr').style.width = (mix.cacheRead / total * 100) + '%';
-    document.querySelector('.seg-in').style.width = (mix.input / total * 100) + '%';
-    document.querySelector('.seg-cw').style.width = (mix.cacheWrite / total * 100) + '%';
-    document.querySelector('.seg-out').style.width = (mix.output / total * 100) + '%';
-    document.getElementById('mixCr').innerHTML = fmtTokensHtml(mix.cacheRead);
-    document.getElementById('mixIn').innerHTML = fmtTokensHtml(mix.input);
-    document.getElementById('mixCw').innerHTML = fmtTokensHtml(mix.cacheWrite);
-    document.getElementById('mixOut').innerHTML = fmtTokensHtml(mix.output);
-  }
-  document.getElementById('cacheSaved').textContent = a ? fmtUSD(a.cacheSavingsWeek) : '—';
-  document.getElementById('estToday').textContent = a ? fmtUSD(a.estValueToday) : '—';
-
-  const proj = document.getElementById('burnProj');
-  if (!projection || projection.etaMs == null) {
-    proj.innerHTML = '<span class="burn-cap">limit data not available yet — start Claude Code with the statusline configured</span>';
-    return;
-  }
-  const resetMs = state && state.limits.five_hour && state.limits.five_hour.resetsAt
-    ? Date.parse(state.limits.five_hour.resetsAt) - Date.now() : null;
-  if (projection.hitsBeforeReset) {
-    proj.innerHTML = 'On pace to hit the 5-hour limit in <strong>~' + fmtDur(projection.etaMs - Date.now()) + '</strong>' +
-      '<span class="burn-cap">before it resets in ' + fmtDur(resetMs) + '</span>';
+function burnHtml(tool) {
+  const a = tool.activity, proj = tool.projection, five = tool.limits.five_hour;
+  const rate = a ? fmtTokensHtml(a.burnTokensPerHour) : '—';
+  let projHtml;
+  if (proj && proj.etaMs != null && five && five.resetsAt) {
+    const resetMs = Date.parse(five.resetsAt) - Date.now();
+    projHtml = proj.hitsBeforeReset
+      ? `On pace to hit the 5-hour limit in <strong>~${fmtDur(proj.etaMs - Date.now())}</strong><span class="burn-cap">before it resets in ${fmtDur(resetMs)}</span>`
+      : `On pace to stay under the 5-hour limit<span class="burn-cap">resets in ${fmtDur(resetMs)} — comfortable</span>`;
   } else {
-    proj.innerHTML = 'On pace to stay under the 5-hour limit' +
-      '<span class="burn-cap">resets in ' + fmtDur(resetMs) + ' — comfortable</span>';
+    projHtml = `<span class="burn-cap">limit data not available yet</span>`;
   }
+  return `<div class="burn"><div class="burn-rate">${rate}<span class="u">tokens / hr</span></div><div class="burn-proj">${projHtml}</div></div>`;
+}
+
+const tile = (label, valHtml, note) =>
+  `<div class="tile"><div class="tile-label">${label}</div><div class="tile-val">${valHtml}</div><div class="tile-note">${note}</div></div>`;
+
+function tilesHtml(a) {
+  const t = (a && a.tokens) || {};
+  return `<div class="stat-grid">`
+    + tile('Tokens · 5h', a ? fmtTokensHtml(t.last5h) : '—', a ? fmtTokensHtml(t.week) + ' this week' : '')
+    + tile('Tokens · today', a ? fmtTokensHtml(t.today) : '—', a ? a.sessionsToday + ' sessions' : '')
+    + tile('Cache hit rate', a ? Math.round(a.cacheHitRate * 100) + '<span class="u">%</span>' : '—', 'why limits last')
+    + tile('Est. value · wk', a ? fmtUSD(a.estValueWeek) : '—', 'at API rates')
+    + `</div>`;
+}
+
+function tiles2Html(a) {
+  if (!a) return '';
+  return `<div class="stat-grid grid2">`
+    + tile('Cache saved · wk', fmtUSD(a.cacheSavingsWeek), 'vs full input price')
+    + tile('Est. value · today', fmtUSD(a.estValueToday), 'at API rates')
+    + `</div>`;
+}
+
+function mixHtml(a) {
+  if (!a || !a.tokenMix) return '';
+  const m = a.tokenMix, total = (m.cacheRead + m.input + m.cacheWrite + m.output) || 1;
+  const seg = (cls, v) => `<span class="seg ${cls}" style="width:${(v / total) * 100}%"></span>`;
+  const leg = (cls, lab, v) => `<span><i class="dot ${cls}"></i>${lab} <b>${fmtTokensHtml(v)}</b></span>`;
+  return `<div class="section-label">Token mix · this week</div><div class="mix"><div class="mix-bar">`
+    + seg('seg-cr', m.cacheRead) + seg('seg-in', m.input) + seg('seg-cw', m.cacheWrite) + seg('seg-out', m.output)
+    + `</div><div class="mix-legend">`
+    + leg('dot-cr', 'Cache read', m.cacheRead) + leg('dot-in', 'Input', m.input) + leg('dot-cw', 'Cache write', m.cacheWrite) + leg('dot-out', 'Output', m.output)
+    + `</div></div>`;
+}
+
+function toolHtml(tool) {
+  const a = tool.activity;
+  const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}`;
+  const empty = a && a.hasData === false
+    ? `<div class="empty-note">Codex activity fills in as you use it — these grow with your sessions.</div>` : '';
+  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
+    + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
+    + burnHtml(tool) + tilesHtml(a) + mixHtml(a) + tiles2Html(a) + empty + `</section>`;
+}
+
+function renderHeadroom(h) {
+  const el = document.getElementById('headroom');
+  if (!h) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<span class="lead is-crit">${esc(h.lowLabel)} is nearly out</span><span class="arrow">→</span>`
+    + `<span>switch to <strong>${esc(h.bestLabel)}</strong>, <span class="room">${h.bestRemaining}% left</span> on the 5-hour</span>`;
 }
 
 function render() {
   if (!state) return;
-  renderPanel('five_hour', state.limits.five_hour);
-  renderPanel('seven_day', state.limits.seven_day);
-  renderActivity(state.activity, state.projection);
-  tickFreshness();
-}
-
-function tickFreshness() {
-  const fresh = document.getElementById('freshness');
-  const age = state && (state.dataAt || state.generatedAt);
-  const label = fmtAge(state ? state.dataAt : null);
-  document.getElementById('age').textContent =
-    state && state.dataAt ? label : (state ? 'no limit reading yet' : 'connecting…');
-  fresh.classList.toggle('stale', !(state && state.dataAt));
+  renderHeadroom(state.headroom);
+  document.getElementById('tools').innerHTML = state.tools.map(toolHtml).join('');
+  const freshest = state.tools.map((t) => t.dataAt).filter(Boolean).sort().pop();
+  document.getElementById('age').textContent = freshest ? fmtAge(freshest) : 'no readings yet';
+  document.getElementById('freshness').classList.toggle('stale', !freshest);
 }
 
 async function refresh() {
   try {
     const res = await fetch('/api/state', { cache: 'no-store' });
-    if (!res.ok) throw new Error('bad status ' + res.status);
+    if (!res.ok) throw new Error('bad status');
     state = await res.json();
     render();
-  } catch (e) {
-    document.getElementById('age').textContent = 'offline — retrying';
-  }
+  } catch { document.getElementById('age').textContent = 'offline — retrying'; }
 }
 
-// Tick countdowns/age every second from the last fetched state; refetch periodically.
 setInterval(() => { if (state) render(); }, 1000);
 setInterval(refresh, REFRESH_MS);
 refresh();

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
-import { computeActivity, projectFiveHour } from './stats.js';
+import { computeActivity as computeClaudeActivity, projectFiveHour } from './stats.js';
+import { computeCodexActivity } from './codex-stats.js';
 import { startPoller } from './poller.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,8 +18,7 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
 };
 
-// Baseline hardening headers. Content is first-party and static, so a tight
-// default-src 'self' policy is safe and adds defense-in-depth.
+// Baseline hardening headers. Content is first-party and static.
 const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
@@ -35,10 +35,11 @@ function serveStatic(res, file, head = false) {
   });
 }
 
-// Assemble everything the dashboard needs in one payload.
-export function buildState(nowMs = Date.now()) {
-  const live = readClaudeLimits();              // freshest reading (statusline)
-  const stored = getLatestPerWindow('claude-code'); // fallback: last persisted
+// Assemble one tool's state. `live` is a fresh reading (Claude reads its statusline
+// file cheaply per request); pass null to use the last stored snapshot instead
+// (Codex, whose live read happens in the poller, not per request).
+function toolWrap(source, label, plan, live, activity, nowMs) {
+  const stored = getLatestPerWindow(source);
   const windows = {};
   for (const w of ['five_hour', 'seven_day']) {
     let usedPct = null, resetsAt = null, capturedAt = null;
@@ -50,33 +51,39 @@ export function buildState(nowMs = Date.now()) {
       if (s) { usedPct = Number(s.used_pct); resetsAt = s.resets_at; capturedAt = s.captured_at; }
     }
     windows[w] = usedPct == null ? null : {
-      usedPct,
-      remainingPct: Math.max(0, 100 - usedPct),
-      resetsAt,
-      capturedAt,
+      usedPct, remainingPct: Math.max(0, 100 - usedPct), resetsAt, capturedAt,
     };
   }
-
-  const activity = computeActivity(nowMs);
   const projection = windows.five_hour && windows.five_hour.resetsAt
     ? projectFiveHour(windows.five_hour.usedPct, Date.parse(windows.five_hour.resetsAt), nowMs)
     : null;
-
   const caps = ['five_hour', 'seven_day']
-    .map(w => windows[w] && windows[w].capturedAt)
-    .filter(Boolean)
-    .map(Date.parse);
+    .map(w => windows[w] && windows[w].capturedAt).filter(Boolean).map(Date.parse);
   const dataAt = caps.length ? new Date(Math.max(...caps)).toISOString() : null;
+  return { source, label, plan, haveLimits: !!(windows.five_hour || windows.seven_day), limits: windows, projection, activity, dataAt };
+}
 
+// The cross-tool "where do I switch" cue: fires only when a tool's 5-hour window
+// is low and another tool has more headroom.
+export function computeHeadroom(tools) {
+  const withFive = tools.filter(t => t.limits.five_hour);
+  if (withFive.length < 2) return null;
+  const low = withFive.reduce((a, b) => b.limits.five_hour.remainingPct < a.limits.five_hour.remainingPct ? b : a);
+  const best = withFive.reduce((a, b) => b.limits.five_hour.remainingPct > a.limits.five_hour.remainingPct ? b : a);
+  if (low.limits.five_hour.remainingPct >= 20 || best.source === low.source) return null;
   return {
-    source: 'claude-code',
-    limits: windows,
-    haveLimits: !!(windows.five_hour || windows.seven_day),
-    activity,
-    projection,
-    dataAt,
-    generatedAt: new Date(nowMs).toISOString(),
+    lowLabel: low.label, lowRemaining: Math.floor(low.limits.five_hour.remainingPct),
+    bestLabel: best.label, bestRemaining: Math.floor(best.limits.five_hour.remainingPct),
   };
+}
+
+export function buildState(nowMs = Date.now()) {
+  const claude = toolWrap('claude-code', 'Claude Code', 'Max',
+    readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
+  const codex = toolWrap('codex', 'Codex', 'ChatGPT Plus',
+    null, computeCodexActivity(nowMs), nowMs);
+  const tools = [claude, codex];
+  return { tools, headroom: computeHeadroom(tools), generatedAt: new Date(nowMs).toISOString() };
 }
 
 const server = http.createServer((req, res) => {
@@ -90,8 +97,11 @@ const server = http.createServer((req, res) => {
   const head = req.method === 'HEAD';
 
   if (url.pathname === '/api/state') {
+    let body;
+    try { body = JSON.stringify(buildState()); }
+    catch (e) { res.writeHead(500); return res.end('error'); }
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-    return res.end(head ? undefined : JSON.stringify(buildState()));
+    return res.end(head ? undefined : body);
   }
   if (url.pathname === '/' || url.pathname === '/index.html') return serveStatic(res, 'index.html', head);
   if (url.pathname === '/styles.css') return serveStatic(res, 'styles.css', head);
@@ -100,7 +110,6 @@ const server = http.createServer((req, res) => {
   res.end(head ? undefined : 'not found');
 });
 
-// Only start listening when run directly (lets tests import buildState).
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   getDb();
   startPoller();
@@ -108,7 +117,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(`llmdash running at http://${config.host}:${config.port}`);
     console.log(`On your phone/laptop, open http://<this-machine's-tailscale-name>:${config.port}`);
     if (config.host === '0.0.0.0') {
-      console.log('Note: bound to all local interfaces (LAN + tailnet, not the public internet behind NAT). To restrict strictly to the tailnet, set LLMDASH_HOST to your Tailscale IP.');
+      console.log('Note: bound to all local interfaces (LAN + tailnet, not the public internet behind NAT). To restrict to the tailnet, set LLMDASH_HOST to your Tailscale IP.');
     }
   });
 }
