@@ -76,6 +76,17 @@ loginctl enable-linger "$USER"   # so it runs without an active login
 ```
 
 ## Running on macOS (launchd)
+
+**One-line install** (checks Node, clones to `~/llmdash`, sets up the launchd
+service, wires the statusline):
+```
+curl -fsSL https://raw.githubusercontent.com/dtgibson/llmdash/main/scripts/install-macos.sh | bash
+```
+It's safe to re-run (it updates and reloads). Prefer to read the script first?
+It's at `scripts/install-macos.sh`. Manual steps below if you'd rather.
+
+---
+
 The app itself is cross-platform (Node + a vanilla web UI); only the
 background-service setup differs from Linux. On a Mac:
 

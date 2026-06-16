@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   llmdash LaunchAgent for macOS — the launchd equivalent of the Linux systemd unit.
+  (The one-line installer, scripts/install-macos.sh, generates this for you.)
 
-  Setup:
-    1. Find your Node path:   which node    (e.g. /usr/local/bin/node or /opt/homebrew/bin/node or an nvm path)
-    2. Find your codex path:  which codex
-    3. Replace the THREE placeholders below: NODE_PATH, PROJECT_DIR, CODEX_PATH
-    4. Copy this file (without the .example suffix) to ~/Library/LaunchAgents/:
-         cp macos/com.llmdash.dashboard.plist.example ~/Library/LaunchAgents/com.llmdash.dashboard.plist
-    5. Load it (starts now + at every login, restarts on crash):
-         launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
-    To stop:  launchctl unload -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+  Manual setup:
+    1. which node   -> replace NODE_PATH below
+    2. which codex  -> replace CODEX_PATH below
+    3. replace PROJECT_DIR with your checkout path (e.g. /Users/you/llmdash)
+    4. cp this file (drop the .example) to ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+    5. launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+       (stop with: launchctl unload -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist)
+
+  To restrict strictly to your tailnet, add an LLMDASH_HOST entry set to your
+  Tailscale IP (100.x.y.z) alongside LLMDASH_PORT below.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -31,13 +33,8 @@
   <dict>
     <key>LLMDASH_PORT</key>
     <string>8787</string>
-    <!-- so the agent can run the codex app-server for Codex limits -->
     <key>LLMDASH_CODEX_CMD</key>
     <string>CODEX_PATH</string>
-    <!-- optional: restrict strictly to the tailnet by setting your Tailscale IP
-    <key>LLMDASH_HOST</key>
-    <string>100.x.y.z</string>
-    -->
   </dict>
 
   <key>RunAtLoad</key>
