@@ -14,6 +14,9 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 - **Codex usage** — Codex's 5-hour and weekly limits and activity stats in their
   own block beside Claude Code, plus a headroom cue that points you to the tool
   with room left when one maxes out. Codex activity fills in as you use Codex.
+- **Usage trends** — a Trends section below the gauges charts usage over time per
+  tool (limit burn, tokens per day, cache rate, estimated value) in vanilla SVG,
+  with a 24h / 7d / 30d range switch.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain
@@ -25,6 +28,10 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   request) with a rollout-file fallback; Codex activity from
   `~/.codex/sessions`. Both tools flow through one source-aware path and the same
   UI components; each is a `source` value in `usage_snapshots`.
+- Trends come from the same data (the snapshot series plus daily-bucketed log
+  aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
+  SVG. Static assets are served `no-store`; the CSP allows inline styles while
+  scripts stay locked to `'self'`.
 - Served on `0.0.0.0:8787`, reachable over the tailnet. Runs as a systemd user
   service (`llmdash.service`) with lingering enabled, so it survives reboots.
 
@@ -35,7 +42,8 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   history from the logs.
 
 ## Deferred / Not yet built
-- Usage trend charts — next feature (snapshot logging is already running for both tools).
+- Nothing major queued. See `ROADMAP.md` → On the Horizon (menu-bar badge, limit
+  alerts, strict tailnet-only binding).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications; a menu-bar badge.

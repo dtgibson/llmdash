@@ -7,6 +7,7 @@ import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { computeActivity as computeClaudeActivity, projectFiveHour } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
+import { buildTrends } from './trends.js';
 import { startPoller } from './poller.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +23,9 @@ const MIME = {
 const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
-  'content-security-policy': "default-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+  // style-src allows inline styles (dynamic bar widths / chart colors); script
+  // stays locked to 'self' and no user input reaches style values.
+  'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
 };
 
 function serveStatic(res, file, head = false) {
@@ -30,7 +33,10 @@ function serveStatic(res, file, head = false) {
   if (!fp.startsWith(publicDir)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(fp, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    res.writeHead(200, { 'content-type': MIME[path.extname(fp)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'content-type': MIME[path.extname(fp)] || 'application/octet-stream',
+      'cache-control': 'no-store', // personal tool — always serve the latest assets
+    });
     res.end(head ? undefined : buf);
   });
 }
@@ -99,6 +105,14 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/state') {
     let body;
     try { body = JSON.stringify(buildState()); }
+    catch (e) { res.writeHead(500); return res.end('error'); }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(head ? undefined : body);
+  }
+  if (url.pathname === '/api/trends') {
+    const range = url.searchParams.get('range') || '7d';
+    let body;
+    try { body = JSON.stringify(buildTrends(range)); }
     catch (e) { res.writeHead(500); return res.end('error'); }
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(head ? undefined : body);

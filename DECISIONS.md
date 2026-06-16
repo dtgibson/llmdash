@@ -37,6 +37,16 @@ is cross-tool comparison ("switch when one maxes out").
 **Implications:** A third tool slots in as a new source + reader, with no schema
 or UI redesign.
 
+## Inline-style CSP + no-store static assets — 2026-06-16
+**Decision:** Allow `style-src 'unsafe-inline'` (script-src stays `'self'`) and
+serve static assets `cache-control: no-store`.
+**Rationale:** The UI sets dynamic widths/colors via inline styles, which the
+strict CSP from feature 1 was silently blocking (blank bars). No untrusted input
+reaches a style value, so the relaxation is safe; no-store prevents stale-asset
+confusion on refresh.
+**Implications:** Keep style values to literals/coerced numbers; never interpolate
+untrusted input into style or HTML without escaping.
+
 ## Don't reproduce /usage's "what's contributing" insights — 2026-06-16
 **Decision:** Exclude the subagent-heavy / high-context / long-session
 percentages.

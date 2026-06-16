@@ -29,6 +29,17 @@
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path).
 
+## Serving & UI
+- Responses carry baseline security headers. The CSP allows `style-src
+  'unsafe-inline'` (the UI sets dynamic widths/colors via inline styles) while
+  `script-src` stays `'self'`. Keep style values to literals or coerced numbers —
+  never interpolate untrusted input into a style or raw HTML (escape text).
+- Static assets are served `cache-control: no-store` so code changes show on a
+  plain refresh.
+- Charts are plain SVG built into `innerHTML`. Verify the UI actually **renders**
+  (not just that the page loads) — a blank-bar regression once passed a
+  "page loads" check.
+
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
   (node:test).

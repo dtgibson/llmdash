@@ -8,7 +8,9 @@ It tracks **Claude Code** (Max) and **Codex** (ChatGPT Plus) side by side: each
 tool's 5-hour and weekly limit windows with reset countdowns and a burn-rate
 projection, plus activity stats from your local logs (tokens, cache hit rate,
 estimated value, token mix, cache savings). When one tool maxes out, a headroom
-cue points you to the one with room left.
+cue points you to the one with room left. A **Trends** section below the gauges
+charts usage over time — limit burn, tokens per day, cache hit rate, and value —
+with a 24h / 7d / 30d switch.
 
 ## Why
 Claude Code's limit meters live inside the tool and are easy to lose track of.
