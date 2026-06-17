@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash</title>
+<style>
+:root {
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --border: #e6e6e6;
+  --text: #15171a;
+  --muted: #6b7280;
+  --faint: #9ca3af;
+  --good: #16a34a;
+  --warn: #d97706;
+  --crit: #dc2626;
+  --accent: #2563eb;
+  --accent-bg: #eef2ff;
+  --warn-bg: #fef3e7;
+  --grid: #eef0f2;
+  --teal: #0d9488;
+  --cr: #2563eb;
+  --in: #14b8a6;
+  --out: #8b5cf6;
+  --track: #eceef0;
+  /* status-tinted pill backgrounds (variant B explicit pills) */
+  --good-bg: #e7f6ec;
+  --crit-bg: #fdeaea;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1013;
+    --panel: #161a1f;
+    --border: #262b32;
+    --text: #e7eaee;
+    --muted: #9aa3ad;
+    --faint: #6b7480;
+    --accent: #6b9bff;
+    --accent-bg: #18203a;
+    --warn-bg: #2a1f12;
+    --grid: #21262d;
+    --teal: #2dd4bf;
+    --cr: #6b9bff;
+    --in: #14b8a6;
+    --out: #8b5cf6;
+    --track: #232830;
+    --good-bg: #122a1b;
+    --crit-bg: #2c1517;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  padding: 20px 16px 40px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.wordmark { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; }
+.wordmark .dot { color: var(--faint); margin: 0 6px; }
+.wordmark .scope { color: var(--muted); font-weight: 500; }
+.freshness { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.freshness .pulse {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--good); margin-right: 6px; vertical-align: middle;
+}
+.freshness.stale .pulse { background: var(--faint); }
+main { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 560px) { main { grid-template-columns: 1fr 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 22px; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.win-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); }
+.win-reset { font-size: 0.78rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.figure { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.remaining { font-family: var(--mono); font-size: 3.4rem; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.remaining .unit { font-size: 1.4rem; color: var(--muted); margin-left: 2px; }
+.sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 16px; }
+.bar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; width: 0; transition: width 0.4s ease; }
+.meta { display: flex; justify-content: space-between; margin-top: 10px; font-size: 0.74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.is-good { color: var(--good); } .is-warn { color: var(--warn); } .is-crit { color: var(--crit); }
+.fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
+.section-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); margin: 28px 2px 12px; }
+
+/* ── .burn callout — variant B: STRUCTURED/EXPLICIT dual-window pacing ──
+   Keep the existing .burn frame (accent-tinted card). The rate sits at the
+   top; below it a two-row mini grid with a window-name column, a pacing
+   sentence, and a status pill per row, so the two windows read as a pair. */
+.burn { background: var(--accent-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.burn-rate { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.burn-rate .u { font-size: 0.85rem; color: var(--muted); margin-left: 4px; font-weight: 500; }
+/* the two stacked pacing rows */
+.burn-proj { display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; color: var(--text); }
+.burn-proj strong { font-variant-numeric: tabular-nums; }
+.burn-cap { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+/* one window per row: [name column] [sentence] [status pill] */
+.burn-line {
+  display: grid;
+  grid-template-columns: 64px 1fr 92px;
+  align-items: start;
+  column-gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.burn-line:first-child { padding-top: 0; border-top: 0; }
+.burn-win {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600; color: var(--muted); font-family: var(--mono);
+  padding-top: 2px; white-space: nowrap;
+}
+.burn-text { min-width: 0; }
+/* status pill, status-tinted per window. Fixed-width column + centered text
+   so the right-edge pills form a clean aligned column (judge fix). */
+.burn-pill {
+  font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600; font-family: var(--mono);
+  padding: 3px 0; border-radius: 999px; white-space: nowrap;
+  text-align: center; align-self: start;
+}
+.pill-good { color: var(--good); background: var(--good-bg); }
+.pill-warn { color: var(--warn); background: var(--warn-bg); }
+.pill-crit { color: var(--crit); background: var(--crit-bg); }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+@media (min-width: 560px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px 15px; }
+.tile-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 7px; }
+.tile-val { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.tile-val .u { font-size: 0.8rem; color: var(--muted); margin-left: 2px; font-weight: 500; }
+.tile-note { font-size: 0.7rem; color: var(--faint); margin-top: 5px; }
+.mix { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; }
+.mix-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--track); }
+.seg { height: 100%; transition: width 0.4s ease; }
+.seg-cr { background: #2563eb; } .seg-in { background: #14b8a6; } .seg-cw { background: #d97706; } .seg-out { background: #8b5cf6; }
+.mix-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; font-size: 0.76rem; color: var(--muted); }
+.mix-legend b { color: var(--text); font-family: var(--mono); font-weight: 600; margin-left: 5px; font-variant-numeric: tabular-nums; }
+.mix-legend b .u { color: var(--muted); font-size: 0.85em; margin-left: 1px; }
+.mix-note { font-size: 0.7rem; color: var(--faint); margin-top: 9px; font-style: italic; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.dot-cr { background: #2563eb; } .dot-in { background: #14b8a6; } .dot-cw { background: #d97706; } .dot-out { background: #8b5cf6; }
+.stat-grid.grid2 { grid-template-columns: 1fr 1fr; max-width: 380px; }
+/* Multi-tool layout (Codex feature) */
+.headroom { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--warn-bg); border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 10px; padding: 12px 16px; margin-bottom: 22px; font-size: 0.9rem; }
+.headroom .lead { font-weight: 600; }
+.headroom .arrow { color: var(--faint); }
+.headroom .room { color: var(--good); font-weight: 600; }
+.tool { margin-bottom: 26px; }
+.tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 2px 10px; }
+.tool-name { font-size: 0.95rem; font-weight: 600; font-family: var(--mono); }
+.tool-sub { font-size: 0.74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.empty-note { font-size: 0.78rem; color: var(--faint); margin-top: 12px; font-style: italic; }
+
+/* Trends (charts) */
+.trends-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 28px 2px 14px; flex-wrap: wrap; }
+.range { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.pill { font-size: 0.78rem; padding: 5px 12px; color: var(--muted); background: var(--panel); border: 0; cursor: pointer; font-family: var(--sans); }
+.pill.active { background: var(--accent); color: #fff; }
+.charts { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 6px; }
+@media (min-width: 560px) { .charts { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 12px; }
+.card-title { font-size: 0.8rem; font-weight: 600; }
+.card-src { font-size: 0.68rem; color: var(--faint); margin-bottom: 8px; }
+.card svg { width: 100%; height: auto; display: block; }
+.card .nodata { font-size: 0.78rem; color: var(--faint); padding: 18px 0; text-align: center; }
+.legend { display: flex; gap: 14px; font-size: 0.7rem; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.empty { background: var(--panel); border: 1px dashed var(--border); border-radius: 12px; padding: 24px 16px; text-align: center; color: var(--faint); font-size: 0.82rem; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+svg text { font-family: var(--mono); fill: var(--faint); font-size: 9px; }
+
+footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.74rem; color: var(--faint); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wordmark">llmdash</div>
+    <div class="freshness" id="freshness"><span class="pulse"></span><span id="age">updated 12s ago</span></div>
+  </header>
+
+  <!-- Headroom strip: shown because Claude weekly (19%) is tightest <20%,
+       and the best tool (Codex) is a different source with more 5-hour room. -->
+  <div id="headroom" class="headroom">
+    <span class="lead is-crit">Claude Code is low on its weekly (19%)</span>
+    <span class="arrow">→</span>
+    <span>switch to <strong>Codex</strong>, <span class="room">53% left</span></span>
+  </div>
+
+  <div id="tools">
+
+    <!-- ───────────── CLAUDE CODE ───────────── -->
+    <section class="tool">
+      <div class="tool-head">
+        <span class="tool-name">Claude Code</span>
+        <span class="tool-sub">Max plan · updated 12s ago</span>
+      </div>
+      <div class="gauges">
+        <!-- 5-hour: 36% remaining (warn) -->
+        <div class="panel">
+          <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 2h 10m</span></div>
+          <div class="remaining is-warn">36<span class="unit">%</span></div>
+          <div class="sub">remaining · 64% used</div>
+          <div class="bar"><div class="bar-fill fill-warn" style="width:36%"></div></div>
+        </div>
+        <!-- Weekly: 19% remaining (crit) -->
+        <div class="panel">
+          <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 3d 4h</span></div>
+          <div class="remaining is-crit">19<span class="unit">%</span></div>
+          <div class="sub">remaining · 81% used</div>
+          <div class="bar"><div class="bar-fill fill-crit" style="width:19%"></div></div>
+        </div>
+      </div>
+
+      <!-- BURN — variant B: rate on top, then two explicit pacing rows.
+           Rate 182k/hr is coherent with the ~5h 2.9M tile note window-by-window. -->
+      <div class="burn">
+        <div class="burn-rate">182<span class="u">k</span><span class="u">tokens / hr</span></div>
+        <div class="burn-proj">
+          <!-- 5-hour: on pace (good pill) -->
+          <div class="burn-line">
+            <span class="burn-win">5-hour</span>
+            <span class="burn-text">On pace to stay under the 5-hour limit
+              <span class="burn-cap">resets in 2h 10m — comfortable</span></span>
+            <span class="burn-pill pill-good">on pace</span>
+          </div>
+          <!-- Weekly: at risk (warn pill) -->
+          <div class="burn-line">
+            <span class="burn-win">Weekly</span>
+            <span class="burn-text">On pace to hit the Weekly limit in <strong>~2d 6h</strong>
+              <span class="burn-cap">before it resets in 3d 4h — at risk</span></span>
+            <span class="burn-pill pill-warn">at risk</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity (Claude records full token activity) -->
+      <div class="stat-grid">
+        <div class="tile"><div class="tile-label">Tokens · 5h</div><div class="tile-val">2.9<span class="u">M</span></div><div class="tile-note">12.4<span class="u">M</span> this week</div></div>
+        <div class="tile"><div class="tile-label">Tokens · today</div><div class="tile-val">4.1<span class="u">M</span></div><div class="tile-note">9 sessions</div></div>
+        <div class="tile"><div class="tile-label">Cache hit rate</div><div class="tile-val">78<span class="u">%</span></div><div class="tile-note">why limits last</div></div>
+        <div class="tile"><div class="tile-label">Est. value · wk</div><div class="tile-val">$214.60</div><div class="tile-note">at API rates</div></div>
+      </div>
+      <div class="section-label">Token mix · this week</div>
+      <div class="mix">
+        <!-- legend sums to 6.9+2.9+0+2.6 = 12.4M, matching the "12.4M this week" tile.
+             widths 55.6/23.4/0/21.0 match the legend ratios. -->
+        <div class="mix-bar">
+          <span class="seg seg-cr" style="width:55.6%"></span>
+          <span class="seg seg-in" style="width:23.4%"></span>
+          <span class="seg seg-cw" style="width:0%"></span>
+          <span class="seg seg-out" style="width:21.0%"></span>
+        </div>
+        <div class="mix-legend">
+          <span><i class="dot dot-cr"></i>Cache read <b>6.9<span class="u">M</span></b></span>
+          <span><i class="dot dot-in"></i>Input <b>2.9<span class="u">M</span></b></span>
+          <span><i class="dot dot-cw"></i>Cache write <b>0</b></span>
+          <span><i class="dot dot-out"></i>Output <b>2.6<span class="u">M</span></b></span>
+        </div>
+      </div>
+      <div class="stat-grid grid2">
+        <div class="tile"><div class="tile-label">Cache saved · wk</div><div class="tile-val">$18.40</div><div class="tile-note">vs full input price</div></div>
+        <div class="tile"><div class="tile-label">Est. value · today</div><div class="tile-val">$71.20</div><div class="tile-note">at API rates</div></div>
+      </div>
+    </section>
+
+    <!-- ───────────── CODEX ───────────── -->
+    <section class="tool">
+      <div class="tool-head">
+        <span class="tool-name">Codex</span>
+        <span class="tool-sub">ChatGPT Plus · gpt-5.5 · updated 12s ago</span>
+      </div>
+      <div class="gauges">
+        <!-- 5-hour: 53% remaining (good) -->
+        <div class="panel">
+          <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 1h 40m</span></div>
+          <div class="remaining is-good">53<span class="unit">%</span></div>
+          <div class="sub">remaining · 47% used</div>
+          <div class="bar"><div class="bar-fill fill-good" style="width:53%"></div></div>
+        </div>
+        <!-- Weekly: 0% remaining (crit, maxed) -->
+        <div class="panel">
+          <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 4d 9h</span></div>
+          <div class="remaining is-crit">0<span class="unit">%</span></div>
+          <div class="sub"><span class="is-crit">limit reached</span></div>
+          <div class="bar"><div class="bar-fill fill-crit" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <!-- BURN — variant B: per-window independence is the headline.
+           Weekly is maxed ("limit reached") on its OWN row, while the
+           5-hour row still reads "on pace". Neither suppresses the other.
+           Rate 1.04M/hr is coherent with the 5.2M-in-5h activity tile. -->
+      <div class="burn">
+        <div class="burn-rate">1.04<span class="u">M</span><span class="u">tokens / hr</span></div>
+        <div class="burn-proj">
+          <!-- 5-hour: on pace (good pill) — NOT suppressed by the maxed Weekly -->
+          <div class="burn-line">
+            <span class="burn-win">5-hour</span>
+            <span class="burn-text">On pace to stay under the 5-hour limit
+              <span class="burn-cap">resets in 1h 40m — comfortable</span></span>
+            <span class="burn-pill pill-good">on pace</span>
+          </div>
+          <!-- Weekly: maxed → limit reached (crit pill), binding for THIS window only -->
+          <div class="burn-line">
+            <span class="burn-win">Weekly</span>
+            <span class="burn-text"><span class="is-crit">Weekly limit reached</span>
+              <span class="burn-cap">resets in 4d 9h</span></span>
+            <span class="burn-pill pill-crit">limit reached</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity (NOW expanded — same shared tiles/mix path as Claude).
+           Codex cache semantics: cached ⊆ input. total = input + output;
+           cache hit rate = cached / input (95%); cost bills non-cached input
+           at input rate + cached at cache-read rate. No fabricated zeros. -->
+      <div class="stat-grid">
+        <div class="tile"><div class="tile-label">Tokens · 5h</div><div class="tile-val">5.2<span class="u">M</span></div><div class="tile-note">23.4<span class="u">M</span> this week</div></div>
+        <div class="tile"><div class="tile-label">Tokens · today</div><div class="tile-val">7.8<span class="u">M</span></div><div class="tile-note">5 sessions</div></div>
+        <div class="tile"><div class="tile-label">Cache hit rate</div><div class="tile-val">95<span class="u">%</span></div><div class="tile-note">cached ÷ input</div></div>
+        <div class="tile"><div class="tile-label">Est. value · wk</div><div class="tile-val">$4.98</div><div class="tile-note">at API rates</div></div>
+      </div>
+      <div class="section-label">Token mix · this week</div>
+      <div class="mix">
+        <!-- input shown as non-cached input (input − cached = 1.0M); cached is a
+             SUBSET nested within input (20.0M, cache-read), NOT an additive slice.
+             total visible = 1.0M + 20.0M + 2.4M = 23.4M (= input + output). -->
+        <div class="mix-bar">
+          <span class="seg seg-cr" style="width:85.5%"></span>
+          <span class="seg seg-in" style="width:4.3%"></span>
+          <span class="seg seg-out" style="width:10.2%"></span>
+        </div>
+        <div class="mix-legend">
+          <span><i class="dot dot-cr"></i>Cached input <b>20.0<span class="u">M</span></b></span>
+          <span><i class="dot dot-in"></i>Input <b>1.0<span class="u">M</span></b></span>
+          <span><i class="dot dot-out"></i>Output <b>2.4<span class="u">M</span></b></span>
+        </div>
+        <div class="mix-note">Cached is a subset of input (cached ÷ input = 95%); total tokens = input + output = 23.4M. Reasoning 0.9M is included in output. No cache-write channel for Codex.</div>
+      </div>
+      <div class="stat-grid grid2">
+        <div class="tile"><div class="tile-label">Cache saved · wk</div><div class="tile-val">$54.00</div><div class="tile-note">vs full input price</div></div>
+        <div class="tile"><div class="tile-label">Est. value · today</div><div class="tile-val">$1.66</div><div class="tile-note">at API rates</div></div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="trends-head">
+    <div class="section-label" style="margin:0">Trends</div>
+    <div class="range" id="range">
+      <button class="pill" data-range="24h">24h</button>
+      <button class="pill active" data-range="7d">7d</button>
+      <button class="pill" data-range="30d">30d</button>
+    </div>
+  </div>
+  <div id="trends">
+    <div class="tool-name">Claude Code</div>
+    <div class="charts">
+      <div class="card">
+        <div class="card-title">Limit remaining</div>
+        <div class="card-src">account-wide · snapshots</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="53" x2="314" y2="53"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="30,46.1 77.3,38.4 124.7,52.0 172,30.7 219.3,61.2 266.7,42.3 314,68.4"/>
+          <polyline fill="none" stroke="var(--teal)" stroke-width="2" points="30,30.7 77.3,38.4 124.7,46.1 172,53.8 219.3,61.5 266.7,69.1 314,81.2"/>
+          <text x="0" y="17">100%</text><text x="0" y="96">0%</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 17</text>
+        </svg>
+        <div class="legend"><span><i style="background:var(--accent)"></i>5-hour</span><span><i style="background:var(--teal)"></i>Weekly</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Tokens per day</div>
+        <div class="card-src">local logs</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <rect x="34.6" y="72.0" width="28.0" height="24.0" fill="var(--cr)"/>
+          <rect x="34.6" y="60.0" width="28.0" height="12.0" fill="var(--in)"/>
+          <rect x="34.6" y="50.0" width="28.0" height="10.0" fill="var(--out)"/>
+          <rect x="74.2" y="62.0" width="28.0" height="34.0" fill="var(--cr)"/>
+          <rect x="74.2" y="48.0" width="28.0" height="14.0" fill="var(--in)"/>
+          <rect x="74.2" y="36.0" width="28.0" height="12.0" fill="var(--out)"/>
+          <rect x="113.7" y="78.0" width="28.0" height="18.0" fill="var(--cr)"/>
+          <rect x="113.7" y="68.0" width="28.0" height="10.0" fill="var(--in)"/>
+          <rect x="113.7" y="60.0" width="28.0" height="8.0" fill="var(--out)"/>
+          <rect x="153.3" y="56.0" width="28.0" height="40.0" fill="var(--cr)"/>
+          <rect x="153.3" y="40.0" width="28.0" height="16.0" fill="var(--in)"/>
+          <rect x="153.3" y="26.0" width="28.0" height="14.0" fill="var(--out)"/>
+          <rect x="192.9" y="70.0" width="28.0" height="26.0" fill="var(--cr)"/>
+          <rect x="192.9" y="58.0" width="28.0" height="12.0" fill="var(--in)"/>
+          <rect x="192.9" y="48.0" width="28.0" height="10.0" fill="var(--out)"/>
+          <rect x="232.4" y="64.0" width="28.0" height="32.0" fill="var(--cr)"/>
+          <rect x="232.4" y="50.0" width="28.0" height="14.0" fill="var(--in)"/>
+          <rect x="232.4" y="38.0" width="28.0" height="12.0" fill="var(--out)"/>
+          <rect x="272.0" y="52.0" width="28.0" height="44.0" fill="var(--cr)"/>
+          <rect x="272.0" y="36.0" width="28.0" height="16.0" fill="var(--in)"/>
+          <rect x="272.0" y="22.0" width="28.0" height="14.0" fill="var(--out)"/>
+          <text x="0" y="17">2.4M</text><text x="0" y="96">0</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 16</text>
+        </svg>
+        <div class="legend"><span><i style="background:var(--cr)"></i>Cache read</span><span><i style="background:var(--in)"></i>Input</span><span><i style="background:var(--out)"></i>Output</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Cache hit rate</div>
+        <div class="card-src">local logs</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="53" x2="314" y2="53"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <polyline fill="none" stroke="var(--good)" stroke-width="2" points="30,38.4 77.3,33.8 124.7,36.1 172,29.2 219.3,33.0 266.7,28.4 314,31.5"/>
+          <text x="0" y="17">100%</text><text x="0" y="96">0%</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 16</text>
+        </svg>
+      </div>
+      <div class="card">
+        <div class="card-title">Est. value / day</div>
+        <div class="card-src">local logs · API rates</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="53" x2="314" y2="53"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="30,60.0 77.3,42.0 124.7,68.0 172,30.0 219.3,54.0 266.7,40.0 314,32.0"/>
+          <text x="30" y="56.0" text-anchor="middle">$28</text>
+          <text x="77.3" y="38.0" text-anchor="middle">$41</text>
+          <text x="124.7" y="64.0" text-anchor="middle">$22</text>
+          <text x="172" y="26.0" text-anchor="middle">$52</text>
+          <text x="219.3" y="50.0" text-anchor="middle">$35</text>
+          <text x="266.7" y="36.0" text-anchor="middle">$44</text>
+          <text x="314" y="28.0" text-anchor="middle">$49</text>
+          <text x="0" y="17">$52</text><text x="0" y="96">$0</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 16</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="tool-name" style="margin-top:18px">Codex</div>
+    <div class="charts">
+      <div class="card">
+        <div class="card-title">Limit remaining</div>
+        <div class="card-src">account-wide · snapshots</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="53" x2="314" y2="53"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="30,40.3 77.3,52.0 124.7,33.4 172,49.0 219.3,38.0 266.7,55.0 314,43.4"/>
+          <polyline fill="none" stroke="var(--teal)" stroke-width="2" points="30,33.0 77.3,45.0 124.7,57.0 172,69.0 219.3,80.0 266.7,90.0 314,96.0"/>
+          <text x="0" y="17">100%</text><text x="0" y="96">0%</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 17</text>
+        </svg>
+        <div class="legend"><span><i style="background:var(--accent)"></i>5-hour</span><span><i style="background:var(--teal)"></i>Weekly</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Tokens per day</div>
+        <div class="card-src">local logs · UTC buckets</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <rect x="34.6" y="64.0" width="28.0" height="32.0" fill="var(--cr)"/>
+          <rect x="34.6" y="60.0" width="28.0" height="4.0" fill="var(--in)"/>
+          <rect x="34.6" y="52.0" width="28.0" height="8.0" fill="var(--out)"/>
+          <rect x="74.2" y="52.0" width="28.0" height="44.0" fill="var(--cr)"/>
+          <rect x="74.2" y="47.0" width="28.0" height="5.0" fill="var(--in)"/>
+          <rect x="74.2" y="38.0" width="28.0" height="9.0" fill="var(--out)"/>
+          <rect x="113.7" y="70.0" width="28.0" height="26.0" fill="var(--cr)"/>
+          <rect x="113.7" y="66.0" width="28.0" height="4.0" fill="var(--in)"/>
+          <rect x="113.7" y="59.0" width="28.0" height="7.0" fill="var(--out)"/>
+          <rect x="153.3" y="44.0" width="28.0" height="52.0" fill="var(--cr)"/>
+          <rect x="153.3" y="38.0" width="28.0" height="6.0" fill="var(--in)"/>
+          <rect x="153.3" y="28.0" width="28.0" height="10.0" fill="var(--out)"/>
+          <rect x="192.9" y="62.0" width="28.0" height="34.0" fill="var(--cr)"/>
+          <rect x="192.9" y="58.0" width="28.0" height="4.0" fill="var(--in)"/>
+          <rect x="192.9" y="50.0" width="28.0" height="8.0" fill="var(--out)"/>
+          <rect x="232.4" y="56.0" width="28.0" height="40.0" fill="var(--cr)"/>
+          <rect x="232.4" y="51.0" width="28.0" height="5.0" fill="var(--in)"/>
+          <rect x="232.4" y="42.0" width="28.0" height="9.0" fill="var(--out)"/>
+          <rect x="272.0" y="48.0" width="28.0" height="48.0" fill="var(--cr)"/>
+          <rect x="272.0" y="42.0" width="28.0" height="6.0" fill="var(--in)"/>
+          <rect x="272.0" y="32.0" width="28.0" height="10.0" fill="var(--out)"/>
+          <text x="0" y="17">4.0M</text><text x="0" y="96">0</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 16</text>
+        </svg>
+        <div class="legend"><span><i style="background:var(--cr)"></i>Cached input</span><span><i style="background:var(--in)"></i>Input</span><span><i style="background:var(--out)"></i>Output</span></div>
+      </div>
+      <!-- Chart parity: Codex now bears activity, so it gets the same 4 cards
+           Claude does (judge fix — previously only 2 were shown). -->
+      <div class="card">
+        <div class="card-title">Cache hit rate</div>
+        <div class="card-src">local logs · cached ÷ input</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="53" x2="314" y2="53"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <polyline fill="none" stroke="var(--good)" stroke-width="2" points="30,21.0 77.3,18.7 124.7,20.3 172,17.5 219.3,19.2 266.7,16.6 314,18.1"/>
+          <text x="0" y="17">100%</text><text x="0" y="96">0%</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 16</text>
+        </svg>
+      </div>
+      <div class="card">
+        <div class="card-title">Est. value / day</div>
+        <div class="card-src">local logs · API rates</div>
+        <svg viewBox="0 0 320 120" role="img">
+          <line class="gridline" x1="30" y1="14" x2="314" y2="14"/>
+          <line class="gridline" x1="30" y1="53" x2="314" y2="53"/>
+          <line class="gridline" x1="30" y1="96" x2="314" y2="96"/>
+          <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="30,72.0 77.3,60.0 124.7,78.0 172,52.0 219.3,66.0 266.7,58.0 314,50.0"/>
+          <text x="30" y="68.0" text-anchor="middle">$0.62</text>
+          <text x="77.3" y="56.0" text-anchor="middle">$0.88</text>
+          <text x="124.7" y="74.0" text-anchor="middle">$0.48</text>
+          <text x="172" y="48.0" text-anchor="middle">$1.12</text>
+          <text x="219.3" y="62.0" text-anchor="middle">$0.78</text>
+          <text x="266.7" y="54.0" text-anchor="middle">$0.94</text>
+          <text x="314" y="46.0" text-anchor="middle">$1.66</text>
+          <text x="0" y="17">$1.80</text><text x="0" y="96">$0</text>
+          <text x="30" y="116">Jun 10</text><text x="314" y="116" text-anchor="end">Jun 16</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Limits read live off the poller · Codex per-day buckets use UTC timestamps</span>
+    <span>served over Tailscale</span>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash — Codex mockup</title>
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff; --border: #e6e6e6; --text: #15171a;
+    --muted: #6b7280; --faint: #9ca3af; --good: #16a34a; --warn: #d97706;
+    --crit: #dc2626; --accent: #2563eb; --accent-bg: #eef2ff; --track: #eceef0;
+    --warn-bg: #fef3e7;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013; --panel: #161a1f; --border: #262b32; --text: #e7eaee;
+      --muted: #9aa3ad; --faint: #6b7480; --accent: #6b9bff; --accent-bg: #18203a;
+      --track: #232830; --warn-bg: #2a1f12;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans);
+    line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 20px 16px 40px;
+    max-width: 760px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+    margin-bottom: 18px; flex-wrap: wrap; }
+  .wordmark { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; }
+  .freshness { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .freshness .pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--good); margin-right: 6px; vertical-align: middle; }
+
+  /* Headroom strip: speaks up when one tool is low and points to the other. */
+  .headroom { display: flex; align-items: center; gap: 12px; background: var(--warn-bg);
+    border: 1px solid var(--border); border-left: 3px solid var(--warn);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 22px; font-size: 0.9rem; }
+  .headroom .lead { font-weight: 600; }
+  .headroom .arrow { color: var(--faint); }
+  .headroom .room { color: var(--good); font-weight: 600; }
+
+  .tool { margin-bottom: 26px; }
+  .tool-head { display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px; margin: 0 2px 10px; }
+  .tool-name { font-size: 0.95rem; font-weight: 600; font-family: var(--mono); }
+  .tool-sub { font-size: 0.74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  .gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 18px 20px; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .win-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); }
+  .win-reset { font-size: 0.76rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .remaining { font-family: var(--mono); font-size: 2.9rem; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .remaining .unit { font-size: 1.2rem; color: var(--muted); margin-left: 2px; }
+  .sub { font-size: 0.76rem; color: var(--muted); margin: 2px 0 14px; }
+  .bar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; }
+  .is-good { color: var(--good); } .is-warn { color: var(--warn); } .is-crit { color: var(--crit); }
+  .fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
+
+  .burn { background: var(--accent-bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  .burn-rate { font-family: var(--mono); font-size: 1.3rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .burn-rate .u { font-size: 0.8rem; color: var(--muted); margin-left: 4px; font-weight: 500; }
+  .burn-proj { font-size: 0.82rem; text-align: right; }
+  .burn-cap { display: block; font-size: 0.7rem; color: var(--muted); }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+  @media (min-width: 560px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 12px 13px; }
+  .tile-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 6px; }
+  .tile-val { font-family: var(--mono); font-size: 1.3rem; font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .tile-val .u { font-size: 0.78rem; color: var(--muted); margin-left: 2px; font-weight: 500; }
+  .tile-note { font-size: 0.68rem; color: var(--faint); margin-top: 4px; }
+
+  .empty-note { font-size: 0.78rem; color: var(--faint); margin-top: 12px; font-style: italic; }
+  footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);
+    font-size: 0.74rem; color: var(--faint); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wordmark">llmdash</div>
+    <div class="freshness"><span class="pulse"></span>updated 18s ago</div>
+  </header>
+
+  <div class="headroom">
+    <span class="lead is-crit">Claude Code is nearly out</span>
+    <span class="arrow">→</span>
+    <span>switch to <strong>Codex</strong>, <span class="room">71% left</span> on the 5-hour</span>
+  </div>
+
+  <!-- Claude Code -->
+  <section class="tool">
+    <div class="tool-head"><span class="tool-name">Claude Code</span><span class="tool-sub">Max · updated 18s ago</span></div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 1h 10m</span></div>
+        <div class="remaining is-crit">7<span class="unit">%</span></div>
+        <div class="sub">remaining</div>
+        <div class="bar"><div class="bar-fill fill-crit" style="width:7%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 3d 6h</span></div>
+        <div class="remaining is-good">83<span class="unit">%</span></div>
+        <div class="sub">remaining</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:83%"></div></div>
+      </div>
+    </div>
+    <div class="burn">
+      <div class="burn-rate">134.3M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj"><span class="is-crit">On pace to hit the 5-hour limit in ~12m</span><span class="burn-cap">before it resets in 1h 10m</span></div>
+    </div>
+    <div class="stat-grid">
+      <div class="tile"><div class="tile-label">Tokens · 5h</div><div class="tile-val">290<span class="u">M</span></div><div class="tile-note">3.6B this week</div></div>
+      <div class="tile"><div class="tile-label">Tokens · today</div><div class="tile-val">710<span class="u">M</span></div><div class="tile-note">26 sessions</div></div>
+      <div class="tile"><div class="tile-label">Cache hit rate</div><div class="tile-val">98<span class="u">%</span></div><div class="tile-note">why limits last</div></div>
+      <div class="tile"><div class="tile-label">Est. value · wk</div><div class="tile-val">$8,142</div><div class="tile-note">API rates</div></div>
+    </div>
+  </section>
+
+  <!-- Codex -->
+  <section class="tool">
+    <div class="tool-head"><span class="tool-name">Codex</span><span class="tool-sub">ChatGPT Plus · updated 22s ago</span></div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 4h 02m</span></div>
+        <div class="remaining is-good">71<span class="unit">%</span></div>
+        <div class="sub">remaining</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:71%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 6d 1h</span></div>
+        <div class="remaining is-good">90<span class="unit">%</span></div>
+        <div class="sub">remaining</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:90%"></div></div>
+      </div>
+    </div>
+    <div class="burn">
+      <div class="burn-rate">9.4M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj"><span>On pace to stay under the 5-hour limit</span><span class="burn-cap">resets in 4h 02m — comfortable</span></div>
+    </div>
+    <div class="stat-grid">
+      <div class="tile"><div class="tile-label">Tokens · 5h</div><div class="tile-val">12<span class="u">M</span></div><div class="tile-note">48M this week</div></div>
+      <div class="tile"><div class="tile-label">Tokens · today</div><div class="tile-val">31<span class="u">M</span></div><div class="tile-note">4 sessions</div></div>
+      <div class="tile"><div class="tile-label">Cache hit rate</div><div class="tile-val">64<span class="u">%</span></div><div class="tile-note">why limits last</div></div>
+      <div class="tile"><div class="tile-label">Est. value · wk</div><div class="tile-val">$96</div><div class="tile-note">OpenAI rates</div></div>
+    </div>
+    <div class="empty-note">Codex activity fills in as you use it — these numbers grow with your sessions.</div>
+  </section>
+
+  <footer>
+    <span>Limits: account-wide · Activity: from local session logs</span>
+    <span>served over Tailscale</span>
+  </footer>
+</body>
+</html>

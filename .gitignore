@@ -1,3 +1,5 @@
+# Runtime state — regenerated on each run, kept out of the repo (may contain
+# personal usage data, never secrets).
 node_modules/
 data/
 *.db
@@ -5,5 +7,4 @@ data/
 *.log
 .DS_Store
 
-# Internal Weft planning docs — kept out of the public repo
-pipeline/
+# Weft planning docs (pipeline/) are intentionally tracked as the project record.

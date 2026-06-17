@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash — design mockup</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e6e6e6;
+    --text: #15171a;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --good: #16a34a;
+    --warn: #d97706;
+    --crit: #dc2626;
+    --accent: #2563eb;
+    --accent-bg: #eef2ff;
+    --track: #eceef0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013;
+      --panel: #161a1f;
+      --border: #262b32;
+      --text: #e7eaee;
+      --muted: #9aa3ad;
+      --faint: #6b7480;
+      --accent: #6b9bff;
+      --accent-bg: #18203a;
+      --track: #232830;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 20px 16px 40px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+  .wordmark {
+    font-family: var(--mono);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .wordmark .dot { color: var(--faint); margin: 0 6px; }
+  .wordmark .scope { color: var(--muted); font-weight: 500; }
+  .freshness {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .freshness .pulse {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--good);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  main {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 560px) {
+    main { grid-template-columns: 1fr 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 20px 22px;
+  }
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .win-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .win-reset {
+    font-size: 0.78rem;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .figure {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .remaining {
+    font-family: var(--mono);
+    font-size: 3.4rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .remaining .unit { font-size: 1.4rem; color: var(--muted); margin-left: 2px; }
+  .sub {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .bar {
+    height: 8px;
+    background: var(--track);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 0.74rem;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .is-good { color: var(--good); }
+  .is-warn { color: var(--warn); }
+  .is-crit { color: var(--crit); }
+  .fill-good { background: var(--good); }
+  .fill-warn { background: var(--warn); }
+  .fill-crit { background: var(--crit); }
+
+  .section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 28px 2px 12px;
+  }
+
+  .burn {
+    background: var(--accent-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .burn-rate {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .burn-rate .u { font-size: 0.85rem; color: var(--muted); margin-left: 4px; font-weight: 500; }
+  .burn-proj { font-size: 0.85rem; color: var(--text); text-align: right; }
+  .burn-proj strong { font-variant-numeric: tabular-nums; }
+  .burn-cap { display: block; font-size: 0.72rem; color: var(--muted); }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  @media (min-width: 560px) {
+    .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  .tile {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 14px 15px;
+  }
+  .tile-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-bottom: 7px;
+  }
+  .tile-val {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile-val .u { font-size: 0.8rem; color: var(--muted); margin-left: 2px; font-weight: 500; }
+  .tile-note { font-size: 0.7rem; color: var(--faint); margin-top: 5px; }
+
+  footer {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 0.74rem;
+    color: var(--faint);
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wordmark">llmdash<span class="dot">·</span><span class="scope">Claude Code</span></div>
+    <div class="freshness"><span class="pulse"></span><span id="age">updated just now</span></div>
+  </header>
+
+  <div class="section-label">Limits</div>
+  <main>
+    <section class="panel" data-window="five_hour" data-remaining="68" data-reset-mins="134">
+      <div class="panel-head">
+        <span class="win-label">5-hour window</span>
+        <span class="win-reset">resets in <span class="reset">—</span></span>
+      </div>
+      <div class="figure">
+        <span class="remaining"><span class="rem-val">68</span><span class="unit">%</span></span>
+      </div>
+      <div class="sub">remaining</div>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="meta"><span><span class="used">32</span>% used</span><span class="reset-at">—</span></div>
+    </section>
+
+    <section class="panel" data-window="seven_day" data-remaining="41" data-reset-mins="4710">
+      <div class="panel-head">
+        <span class="win-label">Weekly window</span>
+        <span class="win-reset">resets in <span class="reset">—</span></span>
+      </div>
+      <div class="figure">
+        <span class="remaining"><span class="rem-val">41</span><span class="unit">%</span></span>
+      </div>
+      <div class="sub">remaining</div>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="meta"><span><span class="used">59</span>% used</span><span class="reset-at">—</span></div>
+    </section>
+  </main>
+
+  <div class="section-label">Activity</div>
+  <div class="burn">
+    <div>
+      <div class="burn-rate">2.1M<span class="u">tokens / hr</span></div>
+    </div>
+    <div class="burn-proj">
+      On pace to hit the 5-hour limit in <strong>~1h 50m</strong>
+      <span class="burn-cap">before it resets in 2h 14m — comfortable</span>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="tile">
+      <div class="tile-label">Tokens · 5h</div>
+      <div class="tile-val">4.2<span class="u">M</span></div>
+      <div class="tile-note">38.6M this week</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Tokens · today</div>
+      <div class="tile-val">7.3<span class="u">M</span></div>
+      <div class="tile-note">across 9 sessions</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Cache hit rate</div>
+      <div class="tile-val">86<span class="u">%</span></div>
+      <div class="tile-note">why limits last</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Est. value · week</div>
+      <div class="tile-val">$312</div>
+      <div class="tile-note">at API pay-as-you-go rates</div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Limits: account-wide · Activity: from local session logs</span>
+    <span>served over Tailscale</span>
+  </footer>
+
+<script>
+  function statusClass(rem) {
+    if (rem >= 50) return 'good';
+    if (rem >= 20) return 'warn';
+    return 'crit';
+  }
+  function fmtDur(totalMins) {
+    if (totalMins <= 0) return 'now';
+    const d = Math.floor(totalMins / 1440);
+    const h = Math.floor((totalMins % 1440) / 60);
+    const m = Math.floor(totalMins % 60);
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+  const now = new Date();
+  document.querySelectorAll('.panel').forEach(function (p) {
+    const rem = Number(p.dataset.remaining);
+    const used = 100 - rem;
+    const cls = statusClass(rem);
+    p.querySelector('.rem-val').classList.add('is-' + cls);
+    p.querySelector('.used').textContent = used;
+    const fill = p.querySelector('.bar-fill');
+    fill.classList.add('fill-' + cls);
+    fill.style.width = rem + '%';
+    const resetAt = new Date(now.getTime() + Number(p.dataset.resetMins) * 60000);
+    p.querySelector('.reset').textContent = fmtDur(Number(p.dataset.resetMins));
+    p.querySelector('.reset-at').textContent = 'resets ' + resetAt.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  });
+  // freshness ticker
+  let secs = 0;
+  setInterval(function () {
+    secs += 1;
+    const el = document.getElementById('age');
+    el.textContent = secs < 60 ? 'updated ' + secs + 's ago' : 'updated ' + Math.floor(secs / 60) + 'm ago';
+  }, 1000);
+</script>
+</body>
+</html>

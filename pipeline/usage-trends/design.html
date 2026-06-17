@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash — Trends mockup</title>
+<style>
+  :root {
+    --bg:#fafafa; --panel:#ffffff; --border:#e6e6e6; --text:#15171a; --muted:#6b7280;
+    --faint:#9ca3af; --good:#16a34a; --warn:#d97706; --crit:#dc2626; --accent:#2563eb;
+    --accent-bg:#eef2ff; --track:#eceef0; --grid:#eef0f2;
+    --cr:#2563eb; --in:#14b8a6; --cw:#d97706; --out:#8b5cf6; --teal:#0d9488;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1013; --panel:#161a1f; --border:#262b32; --text:#e7eaee; --muted:#9aa3ad;
+      --faint:#6b7480; --accent:#6b9bff; --accent-bg:#18203a; --track:#232830; --grid:#21262d; --cr:#6b9bff; --teal:#2dd4bf; }
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--sans); margin:0 auto; max-width:760px; padding:20px 16px 48px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+  .top { display:flex; align-items:baseline; justify-content:space-between; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:18px; }
+  .wordmark { font-family:var(--mono); font-weight:600; }
+  .section-label { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.09em; font-weight:600; color:var(--muted); margin:0 2px 12px; }
+
+  .trends-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .range { display:inline-flex; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+  .pill { font-size:0.78rem; padding:5px 12px; color:var(--muted); background:var(--panel); border:0; cursor:pointer; font-family:var(--sans); }
+  .pill.active { background:var(--accent); color:#fff; }
+
+  .tool-name { font-size:0.95rem; font-weight:600; font-family:var(--mono); margin:18px 2px 10px; }
+  .charts { display:grid; grid-template-columns:1fr; gap:14px; }
+  @media (min-width:560px) { .charts { grid-template-columns:1fr 1fr; } }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px 12px; }
+  .card-title { font-size:0.8rem; font-weight:600; }
+  .card-src { font-size:0.68rem; color:var(--faint); margin-bottom:8px; }
+  .card svg { width:100%; height:auto; display:block; }
+  .legend { display:flex; gap:14px; font-size:0.7rem; color:var(--muted); margin-top:6px; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+  .empty { background:var(--panel); border:1px dashed var(--border); border-radius:12px; padding:26px 16px; text-align:center; color:var(--faint); font-size:0.82rem; }
+  text { font-family:var(--mono); fill:var(--faint); font-size:9px; }
+  .gridline { stroke:var(--grid); stroke-width:1; }
+</style>
+</head>
+<body>
+  <div class="top"><span class="wordmark">llmdash</span><span style="font-size:0.8rem;color:var(--muted)">updated 14s ago</span></div>
+
+  <div class="trends-head">
+    <div class="section-label" style="margin:0">Trends</div>
+    <div class="range"><button class="pill">24h</button><button class="pill active">7d</button><button class="pill">30d</button></div>
+  </div>
+
+  <div class="tool-name">Claude Code</div>
+  <div class="charts">
+    <!-- Limit burn -->
+    <div class="card">
+      <div class="card-title">Limit remaining over time</div>
+      <div class="card-src">account-wide · from snapshots</div>
+      <svg viewBox="0 0 320 130" preserveAspectRatio="none" role="img" aria-label="Limit remaining over time">
+        <line class="gridline" x1="28" y1="14" x2="316" y2="14"/><text x="0" y="17">100</text>
+        <line class="gridline" x1="28" y1="62" x2="316" y2="62"/><text x="4" y="65">50</text>
+        <line class="gridline" x1="28" y1="110" x2="316" y2="110"/><text x="8" y="113">0</text>
+        <!-- 5-hour (sawtooth): declines then jumps at reset -->
+        <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="30,22 70,52 110,92 116,104 118,18 158,46 198,82 236,104 238,16 280,44 316,66"/>
+        <!-- weekly (gentle decline) -->
+        <polyline fill="none" stroke="var(--teal)" stroke-width="2" points="30,28 110,38 198,50 316,60"/>
+      </svg>
+      <div class="legend"><span><i style="background:var(--accent)"></i>5-hour</span><span><i style="background:var(--teal)"></i>Weekly</span></div>
+    </div>
+
+    <!-- Tokens per day -->
+    <div class="card">
+      <div class="card-title">Tokens per day</div>
+      <div class="card-src">from local logs</div>
+      <svg viewBox="0 0 320 130" role="img" aria-label="Tokens per day">
+        <line class="gridline" x1="28" y1="14" x2="316" y2="14"/>
+        <line class="gridline" x1="28" y1="62" x2="316" y2="62"/>
+        <line class="gridline" x1="28" y1="110" x2="316" y2="110"/>
+        <!-- 7 stacked bars: cache(read) dominant, then input/cw/out slivers -->
+        <g>
+          <rect x="40"  y="40" width="26" height="70" fill="var(--cr)"/><rect x="40" y="33" width="26" height="7" fill="var(--in)"/><rect x="40" y="28" width="26" height="5" fill="var(--out)"/>
+          <rect x="78"  y="55" width="26" height="55" fill="var(--cr)"/><rect x="78" y="49" width="26" height="6" fill="var(--in)"/><rect x="78" y="45" width="26" height="4" fill="var(--out)"/>
+          <rect x="116" y="30" width="26" height="80" fill="var(--cr)"/><rect x="116" y="22" width="26" height="8" fill="var(--in)"/><rect x="116" y="17" width="26" height="5" fill="var(--out)"/>
+          <rect x="154" y="48" width="26" height="62" fill="var(--cr)"/><rect x="154" y="41" width="26" height="7" fill="var(--in)"/><rect x="154" y="37" width="26" height="4" fill="var(--out)"/>
+          <rect x="192" y="22" width="26" height="88" fill="var(--cr)"/><rect x="192" y="14" width="26" height="8" fill="var(--in)"/><rect x="192" y="9" width="26" height="5" fill="var(--out)"/>
+          <rect x="230" y="60" width="26" height="50" fill="var(--cr)"/><rect x="230" y="54" width="26" height="6" fill="var(--in)"/><rect x="230" y="50" width="26" height="4" fill="var(--out)"/>
+          <rect x="268" y="44" width="26" height="66" fill="var(--cr)"/><rect x="268" y="37" width="26" height="7" fill="var(--in)"/><rect x="268" y="33" width="26" height="4" fill="var(--out)"/>
+        </g>
+      </svg>
+      <div class="legend"><span><i style="background:var(--cr)"></i>Cache</span><span><i style="background:var(--in)"></i>Input</span><span><i style="background:var(--out)"></i>Output</span></div>
+    </div>
+
+    <!-- Cache hit rate -->
+    <div class="card">
+      <div class="card-title">Cache hit rate</div>
+      <div class="card-src">from local logs</div>
+      <svg viewBox="0 0 320 90" role="img" aria-label="Cache hit rate over time">
+        <line class="gridline" x1="28" y1="12" x2="316" y2="12"/><text x="2" y="15">100</text>
+        <line class="gridline" x1="28" y1="78" x2="316" y2="78"/><text x="6" y="80">0</text>
+        <polyline fill="none" stroke="var(--good)" stroke-width="2" points="30,20 80,18 130,22 180,17 230,19 280,16 316,18"/>
+      </svg>
+    </div>
+
+    <!-- Estimated value -->
+    <div class="card">
+      <div class="card-title">Estimated value per day</div>
+      <div class="card-src">from local logs · API rates</div>
+      <svg viewBox="0 0 320 90" role="img" aria-label="Estimated value per day">
+        <line class="gridline" x1="28" y1="12" x2="316" y2="12"/>
+        <line class="gridline" x1="28" y1="78" x2="316" y2="78"/>
+        <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="30,52 80,40 130,30 180,46 230,22 280,38 316,28"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="tool-name">Codex</div>
+  <div class="empty">Not enough data yet — Codex trends fill in as you use it.</div>
+</body>
+</html>
