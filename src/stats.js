@@ -56,9 +56,11 @@ export function aggregate(records) {
   };
 }
 
-// Given the 5-hour window's used % and reset time, estimate when, at the current
-// pace within this window, usage would reach 100%.
-export function projectFiveHour(usedPct, resetsAtMs, nowMs, windowHours = 5) {
+// Given a window's used % and reset time, estimate when — at the current pace
+// within this window — usage would reach 100%. windowHours is the window length
+// (5 for the 5-hour window, 168 for the weekly window): a code constant supplied
+// by the caller, not stored data.
+export function projectWindow(usedPct, resetsAtMs, nowMs, windowHours = 5) {
   if (usedPct == null || resetsAtMs == null) return null;
   const windowStart = resetsAtMs - windowHours * 3600_000;
   const elapsedH = (nowMs - windowStart) / 3600_000;
@@ -68,6 +70,10 @@ export function projectFiveHour(usedPct, resetsAtMs, nowMs, windowHours = 5) {
   const etaMs = nowMs + hoursToFull * 3600_000;
   return { hitsBeforeReset: etaMs < resetsAtMs, etaMs, hoursToFull };
 }
+
+// Back-compat alias: the 5-hour projector is projectWindow with the default 5h.
+// Kept so existing imports/tests of projectFiveHour keep working.
+export const projectFiveHour = projectWindow;
 
 // --- Transcript reading ------------------------------------------------------
 

@@ -1,5 +1,25 @@
 # Decisions — llmdash
 
+## Weekly pacing + Codex stats expanded; "Codex has no usage data" corrected — 2026-06-17 (feature)
+**Decision:** Show both the 5-hour and weekly pacing predictors at once for each
+tool (status pills; "limit reached" is per-window), and EXPAND Codex token stats —
+superseding the 2026-06-16 conclusion that "Codex records no per-token usage
+anywhere readable."
+**Rationale:** A re-audit found Codex CLI v0.140.0 *does* write per-session rollout
+JSONL under `~/.codex/sessions` with `token_count` events; the "not available"
+state was a parser bug (it read tokens at the wrong nesting level —
+`payload.info.last_token_usage` holds the per-turn delta), not missing data.
+Verified by independently re-deriving the weekly totals from the raw logs.
+**Implications:** Codex now shows real token activity and trends. Codex token
+accounting is subset-based, not disjoint like Anthropic's (see CLAUDE.md):
+`cached_input_tokens` ⊆ `input_tokens`, so total = input + output, cache hit rate =
+cached/input, and cached is billed at the cache-read rate — the naive additive sum
+inflates tokens ~2x and cost ~6.6x. Per-day Codex buckets use UTC (its session dirs
+are local-named, timestamps UTC). Pacing is derived on demand (no schema change).
+The prior "limits-only" decision now holds only if a future Codex build stops
+writing rollout logs. Status pills (`.burn-pill`, `--good-bg`/`--crit-bg`) are a new
+design-system component (see `pipeline/design-system.md`).
+
 ## Codex provides limits only; quota display hardened — 2026-06-16 (fix)
 **Bug:** Codex activity showed fake `0`/`$0`; a maxed weekly quota wasn't
 surfaced (burn said "on pace to stay under the 5-hour"); the headroom strip never

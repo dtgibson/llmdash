@@ -7,14 +7,16 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 
 ## Shipped Capabilities
 - **Claude Code live dashboard** — the 5-hour and weekly limit windows (remaining
-  %, reset countdowns, status colors), a burn-rate projection to the 5-hour
-  limit, and activity stats from local logs: tokens (5h / week / today), cache
-  hit rate, estimated value, weekly token mix, cache savings, and today's value.
-  Limit snapshots are logged to SQLite as the foundation for future trend charts.
+  %, reset countdowns, status colors), pacing predictors for **both** windows
+  (on pace / at risk / limit reached, with status pills), and activity stats from
+  local logs: tokens (5h / week / today), cache hit rate, estimated value, weekly
+  token mix, cache savings, and today's value. Limit snapshots are logged to SQLite.
 - **Codex usage** — Codex's 5-hour and weekly limits beside Claude Code, with a
   headroom cue (across both windows) that points you to the tool with room left
-  when one is low or maxed. Codex exposes only limits locally, so its token
-  activity shows "not available," and a maxed window reads "limit reached."
+  when one is low or maxed. Codex token activity is read from its local session
+  logs too (tokens, cache hit rate, estimated value, token mix); its cached tokens
+  are a subset of input, so the totals stay honest. A maxed window reads "limit
+  reached."
 - **Usage trends** — a Trends section below the gauges charts usage over time per
   tool (limit burn, tokens per day, cache rate, estimated value) in vanilla SVG,
   with a 24h / 7d / 30d range switch.

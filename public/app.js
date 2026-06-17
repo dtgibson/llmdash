@@ -30,7 +30,7 @@ function fmtAge(iso) {
   if (m < 60) return 'updated ' + m + 'm ago';
   return 'updated ' + Math.floor(m / 60) + 'h ago';
 }
-const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function gaugeHtml(win, label) {
   if (!win) {
@@ -42,31 +42,52 @@ function gaugeHtml(win, label) {
   const maxed = win.remainingPct <= 0;
   const resetIn = win.resetsAt ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : '—';
   const sub = maxed ? `<span class="is-crit">limit reached</span>` : `remaining · ${used}% used`;
+  // A maxed window shows a full red bar (limit consumed), not an empty/blank bar.
+  const barWidth = maxed ? 100 : win.remainingPct;
   return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">resets in ${resetIn}</span></div>`
     + `<div class="remaining is-${cls}">${rem}<span class="unit">%</span></div><div class="sub">${sub}</div>`
-    + `<div class="bar"><div class="bar-fill fill-${cls}" style="width:${win.remainingPct}%"></div></div></div>`;
+    + `<div class="bar"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
+}
+
+// One window's pacing row: [name column] [pacing sentence] [status pill].
+// Each window is evaluated independently — a maxed window reads "limit reached"
+// on its own row and never suppresses the other window's row (FR-04 / FR-08).
+function pacingLine(label, win, proj) {
+  const resetIn = (win && win.resetsAt) ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : null;
+  let text, pillCls = '', pillLabel = '';
+  if (win && win.remainingPct <= 0) {
+    text = `<span class="is-crit">${label} limit reached</span>`
+      + (resetIn ? `<span class="burn-cap">resets in ${resetIn}</span>` : '');
+    pillCls = 'pill-crit'; pillLabel = 'limit reached';
+  } else if (win && resetIn != null) {
+    // We have a reading and a reset time, so we can speak to pacing.
+    if (proj && proj.etaMs != null && proj.hitsBeforeReset) {
+      text = `On pace to hit the ${label} limit in <strong>~${fmtDur(proj.etaMs - Date.now())}</strong>`
+        + `<span class="burn-cap">before it resets in ${resetIn} — at risk</span>`;
+      pillCls = 'pill-warn'; pillLabel = 'at risk';
+    } else {
+      // Projected to stay under, or no measurable burn yet (e.g. 0% used / fresh window).
+      text = `On pace to stay under the ${label} limit`
+        + `<span class="burn-cap">resets in ${resetIn} — comfortable</span>`;
+      pillCls = 'pill-good'; pillLabel = 'on pace';
+    }
+  } else {
+    // No reading, or a reading with no reset time — can't project honestly.
+    text = `<span class="burn-cap">limit data not available yet</span>`;
+  }
+  const pill = pillLabel ? `<span class="burn-pill ${pillCls}">${pillLabel}</span>` : `<span></span>`;
+  return `<div class="burn-line"><span class="burn-win">${label}</span>`
+    + `<span class="burn-text">${text}</span>${pill}</div>`;
 }
 
 function burnHtml(tool) {
-  const a = tool.activity, proj = tool.projection, five = tool.limits.five_hour, seven = tool.limits.seven_day;
+  const a = tool.activity, proj = tool.projection || {};
   const hasActivity = a && a.hasData !== false;
-  const dur = (win) => (win && win.resetsAt) ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : '—';
-  let projHtml;
-  // A maxed window is the binding constraint — surface it instead of a 5-hour projection.
-  if (seven && seven.remainingPct <= 0) {
-    projHtml = `<span class="is-crit">Weekly limit reached</span><span class="burn-cap">resets in ${dur(seven)}</span>`;
-  } else if (five && five.remainingPct <= 0) {
-    projHtml = `<span class="is-crit">5-hour limit reached</span><span class="burn-cap">resets in ${dur(five)}</span>`;
-  } else if (proj && proj.etaMs != null && five && five.resetsAt) {
-    const resetMs = Date.parse(five.resetsAt) - Date.now();
-    projHtml = proj.hitsBeforeReset
-      ? `On pace to hit the 5-hour limit in <strong>~${fmtDur(proj.etaMs - Date.now())}</strong><span class="burn-cap">before it resets in ${fmtDur(resetMs)}</span>`
-      : `On pace to stay under the 5-hour limit<span class="burn-cap">resets in ${fmtDur(resetMs)} — comfortable</span>`;
-  } else {
-    projHtml = `<span class="burn-cap">limit data not available yet</span>`;
-  }
   const rateHtml = hasActivity ? `<div class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr</span></div>` : '';
-  return `<div class="burn">${rateHtml}<div class="burn-proj">${projHtml}</div></div>`;
+  // Both pacing predictors shown at once: 5-hour and weekly.
+  const lines = pacingLine('5-hour', tool.limits.five_hour, proj.five_hour)
+    + pacingLine('Weekly', tool.limits.seven_day, proj.seven_day);
+  return `<div class="burn">${rateHtml}<div class="burn-proj">${lines}</div></div>`;
 }
 
 const tile = (label, valHtml, note) =>
@@ -77,7 +98,7 @@ function tilesHtml(a) {
   return `<div class="stat-grid">`
     + tile('Tokens · 5h', a ? fmtTokensHtml(t.last5h) : '—', a ? fmtTokensHtml(t.week) + ' this week' : '')
     + tile('Tokens · today', a ? fmtTokensHtml(t.today) : '—', a ? a.sessionsToday + ' sessions' : '')
-    + tile('Cache hit rate', a ? Math.round(a.cacheHitRate * 100) + '<span class="u">%</span>' : '—', 'why limits last')
+    + tile('Cache hit rate', a ? Math.round(a.cacheHitRate * 100) + '<span class="u">%</span>' : '—', a && a.cachedIsSubsetOfInput ? 'cached ÷ input' : 'why limits last')
     + tile('Est. value · wk', a ? fmtUSD(a.estValueWeek) : '—', 'at API rates')
     + `</div>`;
 }
@@ -92,14 +113,22 @@ function tiles2Html(a) {
 
 function mixHtml(a) {
   if (!a || !a.tokenMix) return '';
-  const m = a.tokenMix, total = (m.cacheRead + m.input + m.cacheWrite + m.output) || 1;
+  const m = a.tokenMix, subset = a.cachedIsSubsetOfInput;
+  const total = (m.cacheRead + m.input + m.cacheWrite + m.output) || 1;
   const seg = (cls, v) => `<span class="seg ${cls}" style="width:${(v / total) * 100}%"></span>`;
   const leg = (cls, lab, v) => `<span><i class="dot ${cls}"></i>${lab} <b>${fmtTokensHtml(v)}</b></span>`;
+  // For Codex, cached is a subset of input: "Input" already shows the non-cached
+  // part and there is no separate cache-write channel.
+  const crLabel = subset ? 'Cached input' : 'Cache read';
+  const bar = seg('seg-cr', m.cacheRead) + seg('seg-in', m.input)
+    + (subset ? '' : seg('seg-cw', m.cacheWrite)) + seg('seg-out', m.output);
+  const legend = leg('dot-cr', crLabel, m.cacheRead) + leg('dot-in', 'Input', m.input)
+    + (subset ? '' : leg('dot-cw', 'Cache write', m.cacheWrite)) + leg('dot-out', 'Output', m.output);
+  const note = subset
+    ? `<div class="mix-note">Cached is a subset of input (cached ÷ input = ${Math.round((a.cacheHitRate || 0) * 100)}%); total tokens = input + output. Reasoning is included in output. No cache-write channel for Codex.</div>`
+    : '';
   return `<div class="section-label">Token mix · this week</div><div class="mix"><div class="mix-bar">`
-    + seg('seg-cr', m.cacheRead) + seg('seg-in', m.input) + seg('seg-cw', m.cacheWrite) + seg('seg-out', m.output)
-    + `</div><div class="mix-legend">`
-    + leg('dot-cr', 'Cache read', m.cacheRead) + leg('dot-in', 'Input', m.input) + leg('dot-cw', 'Cache write', m.cacheWrite) + leg('dot-out', 'Output', m.output)
-    + `</div></div>`;
+    + bar + `</div><div class="mix-legend">` + legend + `</div>${note}</div>`;
 }
 
 function toolHtml(tool) {
@@ -234,12 +263,14 @@ function trendToolHtml(t, range) {
   cards.push(chartCard('Limit remaining', 'account-wide · snapshots', burn, legendHtml([['var(--accent)', '5-hour'], ['var(--teal)', 'Weekly']])));
   // Only show the log-derived charts for tools that actually record activity.
   if (hasActivity) {
+    const codex = t.source === 'codex';
     const tokens = barsSVG(daily, fmtNum);
     const rate = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cacheHitRate * 100]), color: 'var(--good)' }], 100, pct, { xDomain });
     const valMax = Math.max(0.01, ...daily.map((d) => d.cost));
     const value = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cost]), color: 'var(--accent)' }], valMax, usd, { xDomain, pointLabel: usd });
-    cards.push(chartCard('Tokens per day', 'local logs', tokens, legendHtml([['var(--cr)', 'Cache'], ['var(--in)', 'Input'], ['var(--out)', 'Output']])));
-    cards.push(chartCard('Cache hit rate', 'local logs', rate, ''));
+    const crLab = codex ? 'Cached input' : 'Cache';
+    cards.push(chartCard('Tokens per day', codex ? 'local logs · UTC buckets' : 'local logs', tokens, legendHtml([['var(--cr)', crLab], ['var(--in)', 'Input'], ['var(--out)', 'Output']])));
+    cards.push(chartCard('Cache hit rate', codex ? 'local logs · cached ÷ input' : 'local logs', rate, ''));
     cards.push(chartCard('Est. value / day', 'local logs · API rates', value, ''));
   }
   const note = (hasLimits && !hasActivity)

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
-import { computeActivity as computeClaudeActivity, projectFiveHour } from './stats.js';
+import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
 import { buildTrends } from './trends.js';
 import { startPoller } from './poller.js';
@@ -44,7 +44,7 @@ function serveStatic(res, file, head = false) {
 // Assemble one tool's state. `live` is a fresh reading (Claude reads its statusline
 // file cheaply per request); pass null to use the last stored snapshot instead
 // (Codex, whose live read happens in the poller, not per request).
-function toolWrap(source, label, plan, live, activity, nowMs) {
+export function toolWrap(source, label, plan, live, activity, nowMs) {
   const stored = getLatestPerWindow(source);
   const windows = {};
   for (const w of ['five_hour', 'seven_day']) {
@@ -60,9 +60,13 @@ function toolWrap(source, label, plan, live, activity, nowMs) {
       usedPct, remainingPct: Math.max(0, 100 - usedPct), resetsAt, capturedAt,
     };
   }
-  const projection = windows.five_hour && windows.five_hour.resetsAt
-    ? projectFiveHour(windows.five_hour.usedPct, Date.parse(windows.five_hour.resetsAt), nowMs)
+  // Both windows get a pacing projection (5-hour and weekly), shown at once.
+  // windowHours is a per-window code constant; project only when a window has a
+  // reading and a reset time, else null — an honest "not available", not a guess.
+  const projectFor = (w, windowHours) => (windows[w] && windows[w].resetsAt)
+    ? projectWindow(windows[w].usedPct, Date.parse(windows[w].resetsAt), nowMs, windowHours)
     : null;
+  const projection = { five_hour: projectFor('five_hour', 5), seven_day: projectFor('seven_day', 168) };
   const caps = ['five_hour', 'seven_day']
     .map(w => windows[w] && windows[w].capturedAt).filter(Boolean).map(Date.parse);
   const dataAt = caps.length ? new Date(Math.max(...caps)).toISOString() : null;

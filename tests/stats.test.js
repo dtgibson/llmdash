@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { totalTokens, recordCost, aggregate, projectFiveHour, priceFor } from '../src/stats.js';
+import { totalTokens, recordCost, aggregate, projectFiveHour, projectWindow, priceFor } from '../src/stats.js';
 
 test('totalTokens sums every token kind', () => {
   assert.equal(
@@ -39,4 +39,17 @@ test('projectFiveHour flags comfortable vs at-risk pace', () => {
   assert.equal(projectFiveHour(80, resets, now).hitsBeforeReset, true);
   // no data => null
   assert.equal(projectFiveHour(null, null, now), null);
+});
+
+test('projectWindow generalizes to the weekly (168h) window; null without a reset time', () => {
+  const now = Date.UTC(2026, 0, 4, 0, 0, 0);
+  const resets = now + 2 * 24 * 3600_000; // weekly window started 5d ago, resets in 2d
+  // 50% used 5 days into a 7-day window => on pace to stay under before reset.
+  assert.equal(projectWindow(50, resets, now, 168).hitsBeforeReset, false);
+  // 95% used 5 days in => fast burn => hits before the weekly reset.
+  assert.equal(projectWindow(95, resets, now, 168).hitsBeforeReset, true);
+  // no reset time => null (honest "not available", never a fabricated projection).
+  assert.equal(projectWindow(80, null, now, 168), null);
+  // projectFiveHour is the same function with the default 5h window.
+  assert.equal(projectFiveHour, projectWindow);
 });

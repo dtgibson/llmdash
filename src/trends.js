@@ -4,22 +4,31 @@ import { readUsageRecords as readCodex, aggregate as aggCodex } from './codex-st
 
 const RANGES = { '24h': 24 * 3600_000, '7d': 7 * 86400_000, '30d': 30 * 86400_000 };
 
-function dayKeyMs(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function dayKeyMs(ms, utc = false) {
+  const d = new Date(ms);
+  if (utc) { d.setUTCHours(0, 0, 0, 0); return d.getTime(); }
+  d.setHours(0, 0, 0, 0); return d.getTime();
+}
 
-// Group usage records by local day and aggregate each day with the tool's own
+// Group usage records by day and aggregate each day with the tool's own
 // aggregator (Claude and Codex have different record shapes).
-export function dailySeries(records, agg) {
+// opts.utc buckets on UTC day boundaries (Codex logs are UTC-stamped while its
+// session dirs are named in local time — bucket from the timestamps). opts.subset
+// means cached ⊆ input (Codex), so the displayed input is the non-cached part.
+export function dailySeries(records, agg, opts = {}) {
+  const { utc = false, subset = false } = opts;
   const byDay = new Map();
   for (const r of records) {
-    const k = dayKeyMs(r.tsMs);
+    const k = dayKeyMs(r.tsMs, utc);
     if (!byDay.has(k)) byDay.set(k, []);
     byDay.get(k).push(r);
   }
   return [...byDay.keys()].sort((a, b) => a - b).map((k) => {
     const g = agg(byDay.get(k));
+    const input = subset ? Math.max(0, (g.input || 0) - (g.cacheRead || 0)) : g.input;
     return {
       day: new Date(k).toISOString(),
-      tokens: g.tokens, input: g.input, output: g.output, cacheRead: g.cacheRead,
+      tokens: g.tokens, input, output: g.output, cacheRead: g.cacheRead,
       cost: g.cost, cacheHitRate: g.cacheHitRate,
     };
   });
@@ -52,7 +61,7 @@ export function buildTrends(range = '7d', nowMs = Date.now()) {
     range,
     tools: [
       { source: 'claude-code', label: 'Claude Code', limits: limitSeries('claude-code', sinceIso), daily: dailySeries(readClaude(since), aggClaude) },
-      { source: 'codex', label: 'Codex', limits: limitSeries('codex', sinceIso), daily: dailySeries(readCodex(since), aggCodex) },
+      { source: 'codex', label: 'Codex', limits: limitSeries('codex', sinceIso), daily: dailySeries(readCodex(since), aggCodex, { utc: true, subset: true }) },
     ],
     generatedAt: new Date(nowMs).toISOString(),
   };

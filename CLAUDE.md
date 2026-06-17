@@ -29,11 +29,18 @@
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path).
 - Limit and headroom logic consider **all windows** (5-hour and weekly), not just
-  one. A maxed window (≈0 remaining) reads "limit reached" and is the binding
-  signal.
-- A tool may expose limits but not token activity (Codex here records none) —
-  render an honest "not available" state, never fabricated zeros, and omit its
-  activity-derived charts.
+  one. Each tool shows a pacing predictor for **both** windows at once; a maxed
+  window (≈0 remaining) reads "limit reached" and is binding **per window** (one
+  maxed window never suppresses the other's pacing line).
+- If a tool genuinely lacks token activity, render an honest "not available" state
+  (never fabricated zeros) and omit its activity charts. (Codex *does* record
+  activity — `~/.codex/sessions` rollout logs — so it shows full stats.)
+- **Codex token accounting is subset-based, not disjoint like Anthropic's.** Codex
+  `cached_input_tokens` ⊆ `input_tokens`: total = input + output (never + cached),
+  cache hit rate = cached/input, and cached is billed at the cache-read rate
+  (non-cached input at the input rate). The Anthropic-style additive sum inflates
+  tokens ~2x and cost ~6.6x. Bucket Codex per-day data by **UTC** timestamps (its
+  session directories are named in local time).
 
 ## Serving & UI
 - Responses carry baseline security headers. The CSP allows `style-src

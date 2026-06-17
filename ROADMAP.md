@@ -8,12 +8,13 @@ product. Update it freely.
 
 ## Shipped
 
-3 features shipped.
+4 features shipped.
 
-- **Last shipped:** Usage trends — charts of usage over time per tool (limit burn,
+- **Last shipped:** Weekly limit predictor + Codex stats — both the 5-hour and
+  weekly pacing show per tool with status pills, and Codex token activity is now
+  populated from local logs (a parser fix, with honest subset-aware accounting).
+- **Previously:** Usage trends — charts of usage over time per tool (limit burn,
   tokens/day, cache rate, value) with a 24h / 7d / 30d switch.
-- **Previously:** Codex usage — Codex's limits and activity beside Claude Code,
-  with a headroom cue to switch when one maxes out.
 
 ---
 
