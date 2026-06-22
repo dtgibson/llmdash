@@ -1,5 +1,31 @@
 # Decisions — llmdash
 
+## Dashboard unreachable over Tailscale — tunnel was down; banner/docs made honest — 2026-06-22 (fix)
+**Bug:** The dashboard was unreachable in a browser from another tailnet device;
+the host's Tailscale IP (`100.82.9.81:8787`) timed out (~4s) while loopback and
+the LAN IP both served HTTP 200.
+**Cause:** Operational, not code — the host's `tailscale0` TUN interface was
+DOWN (no IPv4 assigned, no tailnet routes), so the tailnet IP was unroutable and
+packets leaked to the LAN gateway. The server's `0.0.0.0:8787` bind and ufw were
+both fine; the initial "open the firewall for 8787" framing was wrong (a
+default-deny would also have blocked the LAN IP, which worked).
+**Resolution:** The tunnel recovered (`tailscale0` back UP), restoring
+reachability — confirmed end-to-end from the peer. No code change was needed to
+fix reachability. Separately, so a future tunnel-down day reads clearly instead
+of looking like a wrong URL, the startup banner and docs were made honest: a new
+zero-dependency detector (`src/net.js` `tailnetIPv4`, reads
+`os.networkInterfaces()` for the `100.64.0.0/10` range) prints the real
+reachable tailnet URL with a "use http, not https" note, gated so a
+loopback-only bind no longer advertises a dead URL; the README and macOS
+installer lost their `<…tailscale-name>` placeholders.
+**Implications:** Reachability surfaces should print a real, detected URL (reuse
+`tailnetIPv4`), state http-not-https, and never advertise a URL the current bind
+doesn't serve — reinforcing the existing "surface network binding in the startup
+log, never silently" convention. **Open (operational, not code):** unknown
+whether `tailscale0` comes up DOWN again after a reboot; if it recurs, inspect
+the `tailscaled` unit/flags and any NetworkManager/`enp0s5` race on this
+Parallels VM.
+
 ## Weekly pacing + Codex stats expanded; "Codex has no usage data" corrected — 2026-06-17 (feature)
 **Decision:** Show both the 5-hour and weekly pacing predictors at once for each
 tool (status pills; "limit reached" is per-window), and EXPAND Codex token stats —
