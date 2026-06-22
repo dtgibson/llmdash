@@ -72,9 +72,13 @@ if (s.statusLine) {
 }
 NODE
 
-HOST_LOCAL="$(scutil --get LocalHostName 2>/dev/null || hostname)"
+TS_IP="$(tailscale ip -4 2>/dev/null | head -n1)"
 echo
 echo "llmdash is running."
 echo "  On this Mac:    http://localhost:${PORT}"
-echo "  Over Tailscale: http://${HOST_LOCAL}:${PORT}  (your Mac's tailnet name)"
+if [ -n "$TS_IP" ]; then
+  echo "  Over Tailscale: http://${TS_IP}:${PORT}  (from another tailnet device — use http, not https)"
+else
+  echo "  Over Tailscale: http://<your-tailscale-ip>:${PORT}  (find the IP with 'tailscale ip -4'; use http, not https)"
+fi
 echo "  To uninstall:   launchctl unload -w \"$PLIST\""

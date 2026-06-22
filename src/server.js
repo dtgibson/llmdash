@@ -9,6 +9,7 @@ import { computeActivity as computeClaudeActivity, projectWindow } from './stats
 import { computeCodexActivity } from './codex-stats.js';
 import { buildTrends } from './trends.js';
 import { startPoller } from './poller.js';
+import { tailnetIPv4 } from './net.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -143,7 +144,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   startPoller();
   server.listen(config.port, config.host, () => {
     console.log(`llmdash running at http://${config.host}:${config.port}`);
-    console.log(`On your phone/laptop, open http://<this-machine's-tailscale-name>:${config.port}`);
+    const tailnetIp = tailnetIPv4();
+    // Only advertise the tailnet URL when the bind actually serves it: all
+    // interfaces (0.0.0.0), or a host explicitly pinned to the tailnet IP.
+    // Bound to loopback or a LAN IP, the tailnet address is unreachable, so
+    // stay silent rather than print a real-looking but dead URL.
+    if (config.host === '0.0.0.0' || config.host === tailnetIp) {
+      console.log(tailnetIp
+        ? `On another tailnet device, open http://${tailnetIp}:${config.port} (use http, not https)`
+        : `On another tailnet device, open http://<your-tailscale-ip>:${config.port} (find the IP with 'tailscale ip -4'; use http, not https)`);
+    }
     if (config.host === '0.0.0.0') {
       console.log('Note: bound to all local interfaces (LAN + tailnet, not the public internet behind NAT). To restrict to the tailnet, set LLMDASH_HOST to your Tailscale IP.');
     }

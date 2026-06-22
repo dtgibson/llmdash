@@ -26,7 +26,7 @@ npm start
 ```
 Then open it:
 - On this machine: <http://localhost:8787>
-- From your phone or laptop on the tailnet: `http://<this-machine's-tailscale-name>:8787`
+- From another device on the tailnet: `http://<your-tailscale-ip>:8787` — use **http, not https**. Find the IP with `tailscale ip -4`, or use the machine's MagicDNS name. (The startup log prints the exact URL.)
 
 To keep it running across reboots, install it as a systemd user service (a sample
 unit is described below), or use your preferred process manager.
@@ -92,7 +92,7 @@ background-service setup differs from Linux. On a Mac:
 
 1. **Node 24+** is required (for the built-in SQLite): `node -v`.
 2. Clone the repo (e.g. `~/llmdash`) and run it once with `npm start`, then open
-   <http://localhost:8787> or `http://<your-mac's-tailscale-name>:8787`.
+   <http://localhost:8787>, or from another tailnet device `http://<your-mac's-tailscale-ip>:8787` — **http, not https** (find the IP with `tailscale ip -4`).
 3. Point Claude Code's statusline at *your* path in `~/.claude/settings.json`:
    `"command": "node /Users/you/llmdash/scripts/statusline.js"`.
 4. To run it in the background (the launchd equivalent of the systemd service),

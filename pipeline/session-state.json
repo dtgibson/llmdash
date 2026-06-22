@@ -1,21 +1,15 @@
 {
-  "activeFeature": null,
-  "sessionType": null,
-  "currentStage": null,
-  "lastCompletedStage": 9,
+  "activeFeature": "dashboard-unreachable-in-browser",
+  "sessionType": "fix",
+  "currentStage": 5,
+  "lastCompletedStage": 4,
   "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
   "confirmedArtifacts": [
-    "pipeline/weekly-limit-predictor-and-codex-stats/strategic-brief.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/prd.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/schema.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/design-spec.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/design.html",
-    "pipeline/weekly-limit-predictor-and-codex-stats/decisions.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/pr.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/qa-report.md",
-    "pipeline/weekly-limit-predictor-and-codex-stats/security-report.md"
+    "pipeline/dashboard-unreachable-in-browser/bug-brief.md",
+    "pipeline/dashboard-unreachable-in-browser/qa-report.md",
+    "pipeline/dashboard-unreachable-in-browser/security-report.md"
   ],
-  "createdAt": "2026-06-16T20:00:00Z",
-  "updatedAt": "2026-06-17T18:01:09Z"
+  "createdAt": "2026-06-20T21:44:07Z",
+  "updatedAt": "2026-06-22T03:13:53Z"
 }
