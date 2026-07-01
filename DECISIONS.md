@@ -1,5 +1,40 @@
 # Decisions — llmdash
 
+## Fresh install showed no usage data — installer, logging, and copy made honest — 2026-07-01 (fix)
+**Bug:** A fresh macOS install showed four empty gauges and misleading text,
+all silently — no data, no log lines, and a Codex note that was factually false
+("doesn't record usage locally"; "the limits above are live" over em-dashes).
+**Cause:** Three stacked causes: (1) `scripts/install-macos.sh` fell back to a
+bare `codex` command in the launchd plist when codex wasn't on PATH at install
+time — unresolvable under launchd's minimal PATH
+(`/usr/bin:/bin:/usr/sbin:/sbin`) — and the spawn failure was swallowed
+unlogged; (2) Claude limit gauges wait forever if no Claude Code session ever
+renders the statusline (the trigger on this machine is inferred — not proven —
+to be desktop-app usage, so all shipped copy says "no reading has arrived yet",
+which is true either way); (3) the Codex empty-activity copy was wrong on both
+counts.
+**Resolution:** The installer resolves codex to an absolute path (probing
+`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`), warns loudly with the
+exact remedy when unresolvable, gained a read-only `--resolve-codex` hook, and
+sets first-run expectations for the Claude gauges; the plist example documents
+the absolute-path requirement. New `src/health.js` powers a startup data-source
+health readout; `src/codex-limits.js` logs spawn failures once per distinct
+cause; `/api/state` carries per-tool `limitsDiagnostic` reason codes
+(`no-statusline-reading` / `codex-cmd-failed` / `no-reading`) that the UI maps
+to honest, actionable empty states (free-form fields escaped). Verified by QA
+(48/48 plus a real-browser render check); security PASSED WITH NOTES, nothing
+blocking.
+**Implications:** Only the source shipped (push to main) — the installed copy
+(`~/llmdash`) was deliberately left untouched, so its Codex gauges stay dead
+until the installer is re-run there; known and chosen. Accepted informational
+security notes: the allowlisted codex path + errno cross the tailnet in
+`/api/state` (fine for the single-user threat model), and the installer's
+pre-existing sed/plist metachar fragility stands. **Open:** whether codex-cli
+0.142.5 still writes rollout session files is unverified (zero sessions on this
+machine) — if it stopped, `src/codex-stats.js` has a latent compatibility
+break; the 2026-06-17 "Codex records activity" decision stands as written until
+checked.
+
 ## Dashboard unreachable over Tailscale — tunnel was down; banner/docs made honest — 2026-06-22 (fix)
 **Bug:** The dashboard was unreachable in a browser from another tailnet device;
 the host's Tailscale IP (`100.82.9.81:8787`) timed out (~4s) while loopback and

@@ -41,6 +41,9 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 ## Data Sources & Honesty
 - **Limits** are account-wide (Claude Code's own numbers). **Activity stats** are
   from this machine's logs only. The UI states this distinction.
+- A gauge with no reading yet names the cause and the remedy (statusline not
+  reporting yet, codex command not runnable) instead of silent dashes, and the
+  startup log prints a data-source health readout naming anything missing.
 - No history backfill: limit trends accrue from first run; token stats have full
   history from the logs.
 

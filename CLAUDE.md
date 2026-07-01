@@ -41,6 +41,13 @@
   (non-cached input at the input rate). The Anthropic-style additive sum inflates
   tokens ~2x and cost ~6.6x. Bucket Codex per-day data by **UTC** timestamps (its
   session directories are named in local time).
+- Empty/error limit states cross the wire as **enum reason codes**
+  (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
+  the few free-form fields. The server knows the cause — the client never guesses.
+- The startup data-source health readout lives in `src/health.js`
+  (`healthLines()`): a new tool/source adds a line there naming what's missing,
+  why it matters, and the fix. Health probes are cheap fs checks — no subprocess,
+  never on the request path.
 
 ## Serving & UI
 - Responses carry baseline security headers. The CSP allows `style-src
