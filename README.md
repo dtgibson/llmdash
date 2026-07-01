@@ -42,16 +42,24 @@ included script by adding this to `~/.claude/settings.json`:
   }
 }
 ```
-The next time Claude Code renders its status line, the gauges populate. Until
-then, the activity stats already work (they come from your logs) and the gauges
-show "waiting…". The script still prints a normal status line (model, folder, and
-5-hour remaining), so you keep a useful status line.
+The gauges populate the first time a Claude Code session renders its status
+line — until a reading has arrived, they stay empty and the dashboard says so
+(if your Claude Code sessions never render the CLI status line, no reading is
+produced and the gauges stay empty). The activity stats work right away either
+way — they come from your local logs. The script still prints a normal status
+line (model, folder, and 5-hour remaining), so you keep a useful status line.
 
 ## Connect Codex
 Codex limits come from the **Codex app-server**, so the dashboard just needs to be
 able to run `codex`. If you start it from your normal shell, that's automatic. If
-you run it as a service, set `LLMDASH_CODEX_CMD` to the absolute path of your
-`codex` binary (find it with `which codex`), since the service's PATH is minimal.
+you run it as a service, `LLMDASH_CODEX_CMD` **must be the absolute path** of your
+`codex` binary (find it with `which codex`) — services run with a minimal PATH
+(launchd: `/usr/bin:/bin:/usr/sbin:/sbin`), where a bare `codex` can never
+resolve. The macOS installer resolves the absolute path for you (probing
+`~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` if codex isn't on
+PATH); if you installed Codex *after* llmdash, just re-run the installer — it's
+safe to re-run and bakes in the path. When the command can't be run, the
+dashboard says so (startup log + UI) instead of failing silently.
 Codex activity stats read from `~/.codex/sessions` and fill in as you use Codex.
 
 ## How it works
@@ -65,6 +73,11 @@ Codex activity stats read from `~/.codex/sessions` and fill in as you use Codex.
   (`~/.claude/projects/**/*.jsonl`, `~/.codex/sessions/**/rollout-*.jsonl`).
 - Limits are **account-wide**; activity is **from this machine's logs only**. The
   UI says which is which.
+- On startup the server logs a **data-source health readout**: whether a Claude
+  statusline reading exists (and how old it is), whether the configured codex
+  command is runnable, and whether Codex has recorded any sessions on this
+  machine — each missing source comes with the fix. Empty gauges in the UI carry
+  the same explanation.
 
 ## Run as a service (optional, Linux/systemd)
 Create `~/.config/systemd/user/llmdash.service` pointing `ExecStart` at your Node

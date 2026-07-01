@@ -3,6 +3,32 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { config } from '../config.js';
 import { toIso } from './claude-limits.js';
+import { resolveCommand } from './health.js';
+
+// Why Codex limits are (un)available, for the startup log and /api/state.
+// Reasons: 'ok' (live read worked), 'codex-cmd-failed' (the configured command
+// can't be run — the fresh-install failure mode), 'no-reading' (command runs
+// but no rate-limit data has arrived yet). Seeded from a static PATH check so
+// the very first HTTP request is already honest; the poller keeps it current.
+let diag = resolveCommand(config.codexCmd)
+  ? { reason: 'no-reading', cmd: config.codexCmd, detail: null }
+  : { reason: 'codex-cmd-failed', cmd: config.codexCmd, detail: 'not found' };
+let loggedKey = '';
+let spawnFailedThisRead = false;
+
+export function codexLimitsDiagnostic() { return diag; }
+
+// Record a spawn failure and log it ONCE per distinct cause (not every poll
+// interval) — per the "surface it in the startup log, never silently" rule.
+function noteSpawnFailure(code) {
+  const detail = code || 'spawn failed';
+  spawnFailedThisRead = true;
+  diag = { reason: 'codex-cmd-failed', cmd: config.codexCmd, detail };
+  const key = `${config.codexCmd}:${detail}`;
+  if (loggedKey === key) return;
+  loggedKey = key;
+  console.error(`codex limits: cannot run "${config.codexCmd}" (${detail}) — live Codex limits are unavailable. Set LLMDASH_CODEX_CMD to the absolute path from 'which codex' and restart (the macOS installer does this when re-run).`);
+}
 
 // Map one Codex rate-limit window object to our {usedPct, resetsAt} shape.
 // Codex field names vary by version, so accept the common spellings.
@@ -33,7 +59,8 @@ function readViaAppServer() {
     let child;
     try {
       child = spawn(config.codexCmd, ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'] });
-    } catch {
+    } catch (e) {
+      noteSpawnFailure(e && e.code);
       return resolve(null);
     }
     let buf = '';
@@ -50,7 +77,7 @@ function readViaAppServer() {
       resolve(val);
     };
     const timer = setTimeout(() => finish(null), config.codexAppServerTimeoutMs);
-    child.on('error', () => finish(null));
+    child.on('error', (e) => { noteSpawnFailure(e && e.code); finish(null); });
     child.on('exit', () => finish(null));
     child.stdout.on('data', (d) => {
       buf += d.toString();
@@ -109,7 +136,16 @@ function readViaRollout() {
 
 // Prefer the live app-server; fall back to the rollout cache; null if neither.
 export async function readCodexLimits() {
+  spawnFailedThisRead = false;
   const live = await readViaAppServer();
-  if (live) return live;
+  if (live) {
+    // Live path works again — clear the diagnostic and re-arm the one-time log.
+    diag = { reason: 'ok', cmd: config.codexCmd, detail: null };
+    loggedKey = '';
+    return live;
+  }
+  // Keep a spawn-failure diagnostic (the actionable cause) over a generic
+  // "no reading" — the rollout fallback may still supply (possibly stale) data.
+  if (!spawnFailedThisRead) diag = { reason: 'no-reading', cmd: config.codexCmd, detail: null };
   return readViaRollout();
 }

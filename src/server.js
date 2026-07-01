@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
+import { codexLimitsDiagnostic } from './codex-limits.js';
+import { healthLines } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
 import { buildTrends } from './trends.js';
@@ -103,6 +105,18 @@ export function buildState(nowMs = Date.now()) {
     readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
   const codex = toolWrap('codex', 'Codex', 'ChatGPT Plus',
     null, computeCodexActivity(nowMs), nowMs);
+  // When a tool has no limit data, say WHY (the server knows; the client
+  // shouldn't guess). Claude's only source is the statusline capture; Codex's
+  // diagnostic is maintained by the poller (no subprocess on this path).
+  claude.limitsDiagnostic = claude.haveLimits ? null : { reason: 'no-statusline-reading' };
+  if (codex.haveLimits) {
+    codex.limitsDiagnostic = null;
+  } else {
+    const d = codexLimitsDiagnostic();
+    codex.limitsDiagnostic = d.reason === 'codex-cmd-failed'
+      ? { reason: d.reason, cmd: d.cmd, detail: d.detail }
+      : { reason: 'no-reading' };
+  }
   const tools = [claude, codex];
   return { tools, headroom: computeHeadroom(tools), generatedAt: new Date(nowMs).toISOString() };
 }
@@ -141,6 +155,10 @@ const server = http.createServer((req, res) => {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   getDb();
+  // Data-source health readout: which sources are feeding the dashboard and,
+  // when one isn't, why and how to fix it. Startup-only cheap fs checks —
+  // never on the HTTP request path.
+  for (const line of healthLines()) console.log(line);
   startPoller();
   server.listen(config.port, config.host, () => {
     console.log(`llmdash running at http://${config.host}:${config.port}`);

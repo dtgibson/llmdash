@@ -131,16 +131,37 @@ function mixHtml(a) {
     + bar + `</div><div class="mix-legend">` + legend + `</div>${note}</div>`;
 }
 
+// Why a tool's limit gauges are empty, and what would fill them. The reason
+// comes from the server (it knows whether the codex command actually ran) —
+// the client only maps a reason code to copy, never guesses. All dynamic
+// values (cmd, detail) are escaped before touching innerHTML.
+function limitsNoteHtml(tool) {
+  if (tool.haveLimits) return '';
+  const d = tool.limitsDiagnostic || {};
+  let text;
+  if (d.reason === 'no-statusline-reading') {
+    text = `No statusline reading has arrived yet — these gauges fill in when a ${esc(tool.label)} session renders its status line (that's what reports the account-wide limits to llmdash).`;
+  } else if (d.reason === 'codex-cmd-failed') {
+    text = `The configured codex command (<code>${esc(d.cmd || 'codex')}</code>) couldn't be run${d.detail ? ` (${esc(d.detail)})` : ''}, so live limits can't be read. Set <code>LLMDASH_CODEX_CMD</code> to the absolute path from <code>which codex</code> and restart the service — the macOS installer does this when re-run.`;
+  } else {
+    text = `No ${esc(tool.label)} limit reading yet — limits appear once the app-server responds to the dashboard's poll or a session records them locally.`;
+  }
+  return `<div class="empty-note">${text}</div>`;
+}
+
 function toolHtml(tool) {
   const a = tool.activity;
   const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}`;
   const hasActivity = a && a.hasData !== false;
+  // Honest empty state: local session logs simply have nothing yet (both tools
+  // DO record usage locally once used). Never claim the limits are live here —
+  // the gauges above speak for themselves.
   const activityBlock = hasActivity
     ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
-    : `<div class="empty-note">Token activity isn't available for ${esc(tool.label)} — it doesn't record usage locally. The limits above are live.</div>`;
+    : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + burnHtml(tool) + activityBlock + `</section>`;
+    + limitsNoteHtml(tool) + burnHtml(tool) + activityBlock + `</section>`;
 }
 
 function renderHeadroom(h) {

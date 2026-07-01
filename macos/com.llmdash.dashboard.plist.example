@@ -6,6 +6,10 @@
   Manual setup:
     1. which node   -> replace NODE_PATH below
     2. which codex  -> replace CODEX_PATH below
+       IMPORTANT: CODEX_PATH must be an ABSOLUTE path (e.g. /Users/you/.local/bin/codex).
+       launchd runs agents with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), so a
+       bare "codex" can never resolve there and Codex limits would silently never load.
+       (NODE_PATH must be absolute for the same reason.)
     3. replace PROJECT_DIR with your checkout path (e.g. /Users/you/llmdash)
     4. cp this file (drop the .example) to ~/Library/LaunchAgents/com.llmdash.dashboard.plist
     5. launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist

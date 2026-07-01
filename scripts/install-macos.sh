@@ -12,6 +12,32 @@ DIR="${LLMDASH_DIR:-$HOME/llmdash}"
 PORT="${LLMDASH_PORT:-8787}"
 PLIST="$HOME/Library/LaunchAgents/com.llmdash.dashboard.plist"
 
+# Resolve codex to an ABSOLUTE path. launchd runs agents with a minimal PATH
+# (/usr/bin:/bin:/usr/sbin:/sbin), so a bare "codex" baked into the plist can
+# NEVER resolve there — the service would silently show no Codex limits. When
+# codex isn't on this shell's PATH either (e.g. installed per-user), probe the
+# common install locations before giving up.
+resolve_codex() {
+  if command -v codex >/dev/null 2>&1; then
+    command -v codex
+    return 0
+  fi
+  local d
+  for d in "$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin; do
+    if [ -x "$d/codex" ]; then
+      echo "$d/codex"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Test/maintenance hook: print the resolved codex path (exit 1 if none) without
+# running the installer. Used by tests/install-macos.test.js.
+if [ "${1:-}" = "--resolve-codex" ]; then
+  if p="$(resolve_codex)"; then echo "$p"; exit 0; else exit 1; fi
+fi
+
 echo "llmdash installer (macOS)"
 
 # 1. Node 24+ (needed for the built-in SQLite)
@@ -36,7 +62,22 @@ fi
 
 # 3. Detect binaries
 NODE_BIN="$(command -v node)"
-CODEX_BIN="$(command -v codex || echo codex)"
+CODEX_OK=1
+if CODEX_BIN="$(resolve_codex)"; then
+  echo "- codex found: $CODEX_BIN"
+else
+  # Don't silently bake a guaranteed-dead bare "codex" into the plist: warn
+  # loudly, say how to fix it, and let the dashboard's own health readout and
+  # UI name the cause instead of failing silently.
+  CODEX_BIN="codex"
+  CODEX_OK=0
+  echo "  WARNING: codex not found (checked PATH, ~/.local/bin, /opt/homebrew/bin, /usr/local/bin)." >&2
+  echo "  Codex limits will NOT work yet: the service runs under launchd's minimal PATH," >&2
+  echo "  where a bare 'codex' can never resolve. The dashboard will say so in its" >&2
+  echo "  startup log and UI rather than fail silently." >&2
+  echo "  Fix: install the Codex CLI, then re-run this installer (safe to re-run) —" >&2
+  echo "  it bakes the absolute codex path into the service." >&2
+fi
 
 # 4. Generate the LaunchAgent from the template (strip comments, fill in paths)
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -82,3 +123,16 @@ else
   echo "  Over Tailscale: http://<your-tailscale-ip>:${PORT}  (find the IP with 'tailscale ip -4'; use http, not https)"
 fi
 echo "  To uninstall:   launchctl unload -w \"$PLIST\""
+echo
+echo "What to expect on first run:"
+echo "  - Claude limit gauges stay empty until a statusline reading arrives — that"
+echo "    happens when a Claude Code session renders its status line. Claude activity"
+echo "    stats (from local logs) work right away."
+if [ "$CODEX_OK" -eq 1 ]; then
+  echo "  - Codex limits are read via: $CODEX_BIN"
+else
+  echo "  - Codex limits are UNAVAILABLE (no codex binary found — see the warning"
+  echo "    above). Install the Codex CLI, then re-run this installer to fix it."
+fi
+echo "  - The server's startup log (/tmp/llmdash.log) prints a data-source health"
+echo "    readout naming anything that's missing and how to fix it."
