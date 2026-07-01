@@ -1,24 +1,26 @@
 ## What We Accomplished
-The dashboard had become unreachable over Tailscale from other devices. We traced
-it to the host's Tailscale tunnel being down (an operational issue, not a bug in
-llmdash) — and by the time we picked it back up, the tunnel had recovered and
-reachability was restored. To make a future tunnel-down day obvious instead of
-looking like a wrong URL, we made the startup banner and docs honest: they now
-print the real reachable tailnet URL (auto-detected, zero new dependencies) and
-say to use http, not https.
+Fresh installs no longer fail silently. The macOS installer now bakes an
+absolute codex path into the service (or warns loudly with the exact remedy),
+the server prints a data-source health readout at startup and logs codex spawn
+failures once per cause, and every empty gauge in the UI names its cause and
+remedy — the two factually false Codex notes are gone. Verified by 48 passing
+tests, a real-browser render check, and a clean security review (three
+informational notes, none blocking).
 
 ## What Has Been Saved
-- Code: `src/net.js` (new tailnet-IP detector), `src/server.js` (honest banner),
-  `README.md`, `scripts/install-macos.sh`, `tests/net.test.js` (new) — 27 tests
-  passing.
-- Pipeline record: `pipeline/dashboard-unreachable-in-browser/bug-brief.md`,
-  `qa-report.md`, `security-report.md`.
-- Decision log: an entry in `DECISIONS.md`.
-- Committed and pushed to `main` (`48e9266`, `b69b0e1`); the live service was
-  restarted onto the new code.
+- Code + docs: scripts/install-macos.sh, macos/com.llmdash.dashboard.plist.example,
+  src/health.js (new), src/codex-limits.js, src/server.js, public/app.js,
+  README.md, six new test files under tests/ (commit 9b5c33c).
+- Pipeline record: pipeline/fresh-install-no-usage-data/bug-brief.md,
+  pr-description.md, qa-report.md, security-report.md (commit 9b5c33c).
+- Project memory: DECISIONS.md entry, two CLAUDE.md conventions,
+  PRODUCT_CONTEXT.md honesty bullet (commit 1a0c03f).
+- All pushed to origin/main.
 
 ## Where We Are
-Fix complete and shipped. Pipeline idle.
+Fix complete and shipped (source only, by choice). The installed copy at
+~/llmdash was deliberately left untouched — re-running the installer there
+will bake the working codex path and bring its gauges live. Pipeline idle.
 
 ## Resume Prompt
 
