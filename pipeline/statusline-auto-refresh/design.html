@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash — reading-age treatment (design direction)</title>
+<style>
+/* ============================================================
+   1. Tokens + component styles — lifted verbatim from
+      public/styles.css so this gallery matches the live
+      dashboard by construction. Auto light/dark included.
+   ============================================================ */
+:root {
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --border: #e6e6e6;
+  --text: #15171a;
+  --muted: #6b7280;
+  --faint: #9ca3af;
+  --good: #16a34a;
+  --warn: #d97706;
+  --crit: #dc2626;
+  --accent: #2563eb;
+  --accent-bg: #eef2ff;
+  --warn-bg: #fef3e7;
+  --grid: #eef0f2;
+  --track: #eceef0;
+  --good-bg: #e7f6ec;
+  --crit-bg: #fdeaea;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1013;
+    --panel: #161a1f;
+    --border: #262b32;
+    --text: #e7eaee;
+    --muted: #9aa3ad;
+    --faint: #6b7480;
+    --accent: #6b9bff;
+    --accent-bg: #18203a;
+    --warn-bg: #2a1f12;
+    --grid: #21262d;
+    --track: #232830;
+    --good-bg: #122a1b;
+    --crit-bg: #2c1517;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  padding: 20px 16px 40px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.wordmark { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; }
+.wordmark .dot { color: var(--faint); margin: 0 6px; }
+.wordmark .scope { color: var(--muted); font-weight: 500; }
+.spec-sub { font-size: 0.8rem; color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 22px; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.win-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); }
+.win-reset { font-size: 0.78rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.remaining { font-family: var(--mono); font-size: 3.4rem; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.remaining .unit { font-size: 1.4rem; color: var(--muted); margin-left: 2px; }
+.sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 16px; }
+.bar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; width: 0; transition: width 0.4s ease; }
+.is-good { color: var(--good); } .is-warn { color: var(--warn); } .is-crit { color: var(--crit); }
+.fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
+.burn { background: var(--accent-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.burn-rate { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.burn-rate .u { font-size: 0.85rem; color: var(--muted); margin-left: 4px; font-weight: 500; }
+.burn-proj { display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; color: var(--text); }
+.burn-cap { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+.burn-line { display: grid; grid-template-columns: 64px 1fr 92px; align-items: start; column-gap: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.burn-line:first-child { padding-top: 0; border-top: 0; }
+.burn-win { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--muted); font-family: var(--mono); padding-top: 2px; white-space: nowrap; }
+.burn-text { min-width: 0; }
+.burn-pill { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; font-family: var(--mono); padding: 3px 0; border-radius: 999px; white-space: nowrap; text-align: center; align-self: start; }
+.pill-good { color: var(--good); background: var(--good-bg); }
+.pill-warn { color: var(--warn); background: var(--warn-bg); }
+.pill-crit { color: var(--crit); background: var(--crit-bg); }
+.tool { margin-bottom: 0; }
+.tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 2px 10px; flex-wrap: wrap; }
+.tool-name { font-size: 0.95rem; font-weight: 600; font-family: var(--mono); }
+.tool-sub { font-size: 0.74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.empty-note { font-size: 0.78rem; color: var(--faint); margin-top: 12px; font-style: italic; }
+code { font-family: var(--mono); font-size: 0.92em; }
+
+/* ============================================================
+   2. NEW in this feature — the entire design delta.
+   ============================================================ */
+
+/* Reading-age status pill — joins the age in the tool header's sub line.
+   Same chip vocabulary as the pacing pills (.burn-pill / pill-warn /
+   pill-crit): uppercase mono, 999px radius, status-tinted background.
+   aging → pill-warn, stale → pill-crit. Fresh gets no pill (unchanged). */
+.age-pill {
+  display: inline-block;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-family: var(--mono);
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+/* Stale diagnostic note — the FR-18 nudge. Renders where limitsNoteHtml
+   renders today (between the gauges and the pacing callout), but unlike
+   the quiet empty-note it must be noticed while real gauges still show
+   above it. Reuses the headroom strip's callout grammar (tinted bg +
+   3px left accent border, 10px radius), crit-tinted to match the pill.
+   Text carries the meaning first: it opens with the words "Stale
+   reading" and states the age (NFR-08). Copy is intended verbatim;
+   the age re-derives live on the existing 1 s tick. */
+.stale-note {
+  background: var(--crit-bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--crit);
+  border-radius: 10px;
+  padding: 11px 14px;
+  margin: 12px 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.stale-note strong { font-weight: 600; }
+
+/* ============================================================
+   3. Spec-gallery chrome — NOT product UI. Dashed frames and
+      band tags exist only to label the four states here.
+   ============================================================ */
+.spec-intro { font-size: 0.85rem; color: var(--muted); margin: 0 2px 26px; }
+.spec-intro b { color: var(--text); }
+.state {
+  position: relative;
+  border: 1px dashed var(--faint);
+  border-radius: 14px;
+  padding: 22px 16px 16px;
+  margin-bottom: 30px;
+}
+.state-tag {
+  position: absolute;
+  top: -0.62em;
+  left: 14px;
+  background: var(--bg);
+  padding: 0 8px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--accent);
+}
+.state-desc { font-size: 0.74rem; color: var(--faint); margin: -6px 2px 16px; }
+.spec-notes { margin: 34px 2px 0; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.76rem; color: var(--muted); }
+.spec-notes .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+.spec-notes ol { margin: 0; padding-left: 1.2em; }
+.spec-notes li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">llmdash<span class="dot">·</span><span class="scope">design</span></div>
+  <div class="spec-sub">statusline-auto-refresh — reading-age treatment</div>
+</header>
+
+<p class="spec-intro">
+  The Claude block's reading age, in four states. One statusline capture feeds
+  both gauges, so one flag serves the block: the age stays where it lives today
+  (the tool header) and picks up a status pill as it crosses each band —
+  <b>fresh</b> &le; 5m · <b>aging</b> 5–10m · <b>stale</b> &gt; 10m
+  (10m is 2&times; <code>LLMDASH_CLAUDE_MAX_AGE_MS</code>, one knob).
+  A stale reading is flagged, never blanked: the gauges keep rendering the last
+  capture, and the note below them states the age and names the remedy.
+</p>
+
+<!-- ======================= STATE 1 · FRESH ======================= -->
+<div class="state">
+  <span class="state-tag">1 · fresh — &le; 5m</span>
+  <p class="state-desc">Plain age in the header sub — today's rendering, unchanged. No flag, no warning styling.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max · updated 2m ago</span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 2h 4m</span></div>
+        <div class="remaining is-good">84<span class="unit">%</span></div>
+        <div class="sub">remaining · 16% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:84%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 4d 6h</span></div>
+        <div class="remaining is-good">97<span class="unit">%</span></div>
+        <div class="sub">remaining · 3% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:97%"></div></div>
+      </div>
+    </div>
+    <div class="burn">
+      <div class="burn-rate">1.4M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text">On pace to stay under the 5-hour limit<span class="burn-cap">resets in 2h 4m — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text">On pace to stay under the Weekly limit<span class="burn-cap">resets in 4d 6h — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ======================= STATE 2 · AGING ======================= -->
+<div class="state">
+  <span class="state-tag">2 · aging — 5–10m</span>
+  <p class="state-desc">The age picks up a warn pill reading &ldquo;aging&rdquo; — visibly distinct from fresh, never says &ldquo;stale&rdquo;. Nothing else changes: no note, gauges and pacing untouched.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max · updated 7m ago <span class="age-pill pill-warn">aging</span></span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 1h 59m</span></div>
+        <div class="remaining is-good">84<span class="unit">%</span></div>
+        <div class="sub">remaining · 16% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:84%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 4d 5h</span></div>
+        <div class="remaining is-good">97<span class="unit">%</span></div>
+        <div class="sub">remaining · 3% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:97%"></div></div>
+      </div>
+    </div>
+    <div class="burn">
+      <div class="burn-rate">1.4M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text">On pace to stay under the 5-hour limit<span class="burn-cap">resets in 1h 59m — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text">On pace to stay under the Weekly limit<span class="burn-cap">resets in 4d 5h — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ======================= STATE 3 · STALE ======================= -->
+<div class="state">
+  <span class="state-tag">3 · stale — &gt; 10m</span>
+  <p class="state-desc">The word &ldquo;stale&rdquo; in a crit pill, plus the diagnostic note below the gauges stating the age and the remedy. The gauges still render the last capture — flagged, never blanked. Note copy is intended verbatim.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max · updated 1h 24m ago <span class="age-pill pill-crit">stale</span></span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 42m</span></div>
+        <div class="remaining is-good">84<span class="unit">%</span></div>
+        <div class="sub">remaining · 16% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:84%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 4d 4h</span></div>
+        <div class="remaining is-good">97<span class="unit">%</span></div>
+        <div class="sub">remaining · 3% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:97%"></div></div>
+      </div>
+    </div>
+    <div class="stale-note"><strong>Stale reading</strong> — updated 1h 24m ago; the limits above may have moved since. Open a Claude Code CLI session to refresh the reading (the desktop app doesn't render the statusline that reports these limits).</div>
+    <div class="burn">
+      <div class="burn-rate">1.4M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text">On pace to stay under the 5-hour limit<span class="burn-cap">resets in 42m — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text">On pace to stay under the Weekly limit<span class="burn-cap">resets in 4d 4h — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ==================== STATE 4 · NO READING ==================== -->
+<div class="state">
+  <span class="state-tag">4 · no reading ever</span>
+  <p class="state-desc">The existing honest empty state, with the CLI remedy named. No fabricated age, no fabricated zeros — the gauges wait.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max</span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">—</span></div>
+        <div class="remaining">—<span class="unit">%</span></div>
+        <div class="sub">waiting for a reading</div>
+        <div class="bar"><div class="bar-fill" style="width:0"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">—</span></div>
+        <div class="remaining">—<span class="unit">%</span></div>
+        <div class="sub">waiting for a reading</div>
+        <div class="bar"><div class="bar-fill" style="width:0"></div></div>
+      </div>
+    </div>
+    <div class="empty-note">No statusline reading has arrived yet — these gauges fill in when a Claude Code session renders its status line (that's what reports the account-wide limits to llmdash). Open a Claude Code CLI session to capture the first reading.</div>
+    <div class="burn">
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text"><span class="burn-cap">limit data not available yet</span></span><span></span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text"><span class="burn-cap">limit data not available yet</span></span><span></span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="spec-notes">
+  <div class="label">Notes on this direction</div>
+  <ol>
+    <li><b>What's unchanged:</b> activity tiles, token mix, and trends render below the pacing callout exactly as today in every state. The freshness treatment never touches them — activity derives from local session logs, not the statusline reading. Omitted here for focus. Codex is untouched (not retrofitted this feature).</li>
+    <li><b>Live ages:</b> every age here ("updated 7m ago", the note's "updated 1h 24m ago") re-derives from <code>capturedAt</code> on the existing 1-second render tick, so the band and copy stay current between fetches.</li>
+    <li><b>Age granularity:</b> at hour scale the age shows hours + minutes ("updated 1h 24m ago", not "updated 1h ago") — a small <code>fmtAge</code> extension, so a stale reading states its age honestly.</li>
+    <li><b>Text first:</b> staleness is carried by the words "stale" (pill) and "Stale reading" (note) before any color — the tints reuse the dashboard's established warn/crit pill vocabulary (NFR-08).</li>
+    <li><b>Bands:</b> fresh &le; 5m · aging 5–10m · stale &gt; 10m; the stale band is always 2&times; the <code>LLMDASH_CLAUDE_MAX_AGE_MS</code> threshold (default 300000 = 5m) — one knob, two thresholds.</li>
+  </ol>
+</div>
+
+</body>
+</html>

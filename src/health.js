@@ -47,12 +47,31 @@ function fmtAge(ms) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// Compact duration for threshold copy ("5m", "10m", "1h 30m").
+function fmtDurShort(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return `${Math.round(ms / 1000)}s`;
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60), rem = m % 60;
+  return rem ? `${h}h ${rem}m` : `${h}h`;
+}
+
+// The branch-B refresh-mode statement for the startup log (FR-12). States the
+// manual-refresh reality and surfaces the one freshness knob with its default
+// and the derived stale band (surface-defaults convention). There is no
+// auto-refresh: the spike showed a prompt-free session never reports limits.
+export function freshnessModeLine(cfg = config) {
+  return `Claude limit readings refresh only when a real Claude Code session renders its status line (the desktop app doesn't). `
+    + `A reading older than ${fmtDurShort(cfg.claudeMaxAgeMs)} shows as aging, older than ${fmtDurShort(cfg.claudeStaleAfterMs)} as stale `
+    + `(LLMDASH_CLAUDE_MAX_AGE_MS, default 300000 ms = 5m; the stale band is always 2x that).`;
+}
+
 // Startup-log lines describing data-source health. Honest and actionable:
 // each "missing" line says what is missing, why it matters, and how to fix it.
 export function healthLines(h = dataSourceHealth()) {
   const lines = ['Data sources:'];
   lines.push(h.claudeRatelimits.present
-    ? `  Claude limits:  statusline reading present (updated ${fmtAge(h.claudeRatelimits.ageMs)}) — ${h.claudeRatelimits.file}`
+    ? `  Claude limits:  statusline reading present (updated ${fmtAge(h.claudeRatelimits.ageMs)}; marked stale after ${fmtDurShort(config.claudeStaleAfterMs)}) — ${h.claudeRatelimits.file}. Readings refresh only when a real Claude Code session renders its status line.`
     : `  Claude limits:  no statusline reading yet — gauges stay empty until a Claude Code session renders its status line (writes ${h.claudeRatelimits.file})`);
   lines.push(h.codexCmd.resolved
     ? `  Codex limits:   codex command OK (${h.codexCmd.resolved})`

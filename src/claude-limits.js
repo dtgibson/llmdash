@@ -27,7 +27,19 @@ export function readClaudeLimits() {
   const rl = parsed.rate_limits || parsed.rateLimits;
   if (!rl) return null;
 
-  const capturedAt = parsed.capturedAt || new Date().toISOString();
+  // Honesty: a missing (or unparseable) capturedAt falls back to the file's
+  // mtime — never to "now". Re-stamping now on every read would make a
+  // malformed file eternally fresh, defeating the staleness treatment.
+  // Security: re-serialize to canonical ISO at ingest, never keep the raw
+  // string — V8's Date.parse accepts arbitrary parenthesized content (e.g.
+  // "2026 (<img …>)"), and the raw value would otherwise cross the tailnet on
+  // /api/state and be persisted to SQLite by the poller (latent stored XSS).
+  const capturedTs = parsed.capturedAt ? Date.parse(parsed.capturedAt) : NaN;
+  let capturedAt = Number.isFinite(capturedTs) ? new Date(capturedTs).toISOString() : null;
+  if (!capturedAt) {
+    try { capturedAt = fs.statSync(config.rateLimitsFile).mtime.toISOString(); }
+    catch { /* file vanished between read and stat; leave null (unknown age) */ }
+  }
   const windows = {};
   for (const key of ['five_hour', 'seven_day']) {
     const w = rl[key];

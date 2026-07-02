@@ -52,7 +52,7 @@ test('the rendered stat set did not silently drop fields (renderer contract)', (
   // public/app.js renders from these fields; if one disappears a stat
   // silently blanks. Lock the tool-object shape.
   for (const tool of buildState().tools) {
-    for (const key of ['source', 'label', 'plan', 'haveLimits', 'limits', 'projection', 'activity', 'dataAt', 'limitsDiagnostic']) {
+    for (const key of ['source', 'label', 'plan', 'haveLimits', 'limits', 'projection', 'activity', 'dataAt', 'limitsDiagnostic', 'freshness']) {
       assert.ok(key in tool, `tool.${key} missing for ${tool.source}`);
     }
     assert.ok('five_hour' in tool.limits && 'seven_day' in tool.limits);

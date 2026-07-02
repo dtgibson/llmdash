@@ -49,6 +49,21 @@ produced and the gauges stay empty). The activity stats work right away either
 way — they come from your local logs. The script still prints a normal status
 line (model, folder, and 5-hour remaining), so you keep a useful status line.
 
+### Reading freshness
+Claude limit readings refresh **only when a real Claude Code session renders
+its status line** — the desktop app doesn't render the statusline, so on
+desktop-app-only days the captured reading just ages. The dashboard never
+hides that: the Claude header shows the reading's age ("updated 7m ago"), and
+as the reading ages it picks up a status pill — **aging** past 5 minutes, then
+**stale** past 10 minutes, with a note under the gauges stating the age and
+the remedy. The gauges keep showing the last capture — flagged, never blanked.
+To refresh a stale reading (or capture the first one), open a Claude Code CLI
+session; an active CLI session keeps the reading seconds-fresh.
+
+The bands come from one knob: `LLMDASH_CLAUDE_MAX_AGE_MS` (default `300000` =
+5 minutes) sets when a reading counts as aging; stale is always 2× that
+(default 10 minutes) and is not configurable separately.
+
 ## Connect Codex
 Codex limits come from the **Codex app-server**, so the dashboard just needs to be
 able to run `codex`. If you start it from your normal shell, that's automatic. If
@@ -123,6 +138,10 @@ All optional, via environment variables:
   restrict strictly to the tailnet, set this to your Tailscale IP, e.g.
   `LLMDASH_HOST=100.x.y.z`.)
 - `LLMDASH_POLL_MS` (default `60000`)
+- `LLMDASH_CLAUDE_MAX_AGE_MS` (default `300000` = 5 minutes) — Claude reading
+  age at which the dashboard flags it "aging"; "stale" is always 2× this value.
+  Clamped: non-numeric or ≤ 0 falls back to the default, and values above
+  7 days (`604800000`) clamp to 7 days
 - `LLMDASH_CODEX_CMD` (default `codex`) — path to the codex binary for the limits read
 - `LLMDASH_CODEX_DIR` (default `~/.codex`) — where Codex's session logs live
 

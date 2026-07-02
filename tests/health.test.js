@@ -13,7 +13,7 @@ process.env.LLMDASH_DATA_DIR = dataDir;
 process.env.LLMDASH_CODEX_DIR = codexDir;
 process.env.LLMDASH_CODEX_CMD = path.join(tmp, 'missing', 'codex');
 
-const { resolveCommand, dataSourceHealth, healthLines } = await import('../src/health.js');
+const { resolveCommand, dataSourceHealth, healthLines, freshnessModeLine } = await import('../src/health.js');
 
 test('resolveCommand finds a bare name on the given PATH', () => {
   const bin = path.join(tmp, 'bin');
@@ -81,15 +81,33 @@ test('healthLines names each missing source and its fix', () => {
   assert.match(out, /no Codex sessions recorded on this machine yet/);
 });
 
-test('healthLines reports healthy sources as present/OK', () => {
+test('healthLines reports healthy sources as present/OK, with reading age and stale band (QA-14)', () => {
   const out = healthLines({
     claudeRatelimits: { file: '/x/claude-ratelimits.json', present: true, ageMs: 90_000 },
     codexCmd: { cmd: '/usr/local/bin/codex', resolved: '/usr/local/bin/codex' },
     codexSessions: { dir: '/x/sessions', present: true },
   }).join('\n');
-  assert.match(out, /statusline reading present \(updated 1m ago\)/);
+  assert.match(out, /statusline reading present \(updated 1m ago; marked stale after 10m\)/);
+  // The manual-refresh reality rides along with the healthy line (FR-13 B).
+  assert.match(out, /Readings refresh only when a real Claude Code session renders its status line\./);
   assert.match(out, /codex command OK \(\/usr\/local\/bin\/codex\)/);
   assert.match(out, /sessions dir present/);
+});
+
+test('freshnessModeLine states the branch-B refresh reality and surfaces the knob (FR-12 B)', () => {
+  const line = freshnessModeLine();
+  assert.match(line, /refresh only when a real Claude Code session renders its status line/);
+  assert.match(line, /older than 5m shows as aging/);
+  assert.match(line, /older than 10m as stale/);
+  assert.match(line, /LLMDASH_CLAUDE_MAX_AGE_MS/); // the knob, by name
+  assert.match(line, /default 300000 ms = 5m/); // its default, surfaced
+  assert.match(line, /2x/); // the derived stale band rule
+});
+
+test('freshnessModeLine reflects a customized knob while keeping the default visible', () => {
+  const line = freshnessModeLine({ claudeMaxAgeMs: 120_000, claudeStaleAfterMs: 240_000 });
+  assert.match(line, /older than 2m shows as aging, older than 4m as stale/);
+  assert.match(line, /default 300000/);
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

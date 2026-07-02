@@ -6,6 +6,16 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const home = os.homedir();
 
+// Claude statusline reading freshness threshold. Externally sourced, so it is
+// clamped both ways: anything non-finite or ≤ 0 falls back to the default
+// (5 minutes), and anything above 7 days clamps to 7 days — the derived 2×
+// stale band must stay a finite number on the wire (a near-MAX_VALUE knob
+// would overflow it to Infinity, which JSON-serializes as null).
+const rawClaudeMaxAge = Number(process.env.LLMDASH_CLAUDE_MAX_AGE_MS);
+const claudeMaxAgeMs = Number.isFinite(rawClaudeMaxAge) && rawClaudeMaxAge > 0
+  ? Math.min(rawClaudeMaxAge, 604_800_000) // 7-day ceiling
+  : 300_000;
+
 export const config = {
   // Bind to 0.0.0.0 so the dashboard is reachable from other devices on the
   // tailnet. Tailscale (not the dashboard) is the access boundary.
@@ -26,6 +36,12 @@ export const config = {
   dedupWindowMs: Number(process.env.LLMDASH_DEDUP_MS || 5 * 60_000),
   statsTtlMs: 30_000,
   uiRefreshMs: 60_000,
+
+  // Claude reading-age bands: fresh ≤ claudeMaxAgeMs, aging up to 2×, stale
+  // beyond that. One knob (LLMDASH_CLAUDE_MAX_AGE_MS, default 300000 = 5m);
+  // the stale band is always derived as 2× — never independently configurable.
+  claudeMaxAgeMs,
+  get claudeStaleAfterMs() { return 2 * this.claudeMaxAgeMs; },
 
   // Codex (ChatGPT Plus) — local data + how to read its limits.
   codexDir: process.env.LLMDASH_CODEX_DIR || path.join(home, '.codex'),

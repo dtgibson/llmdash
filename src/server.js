@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { codexLimitsDiagnostic } from './codex-limits.js';
-import { healthLines } from './health.js';
+import { healthLines, freshnessModeLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
 import { buildTrends } from './trends.js';
@@ -105,10 +105,30 @@ export function buildState(nowMs = Date.now()) {
     readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
   const codex = toolWrap('codex', 'Codex', 'ChatGPT Plus',
     null, computeCodexActivity(nowMs), nowMs);
-  // When a tool has no limit data, say WHY (the server knows; the client
-  // shouldn't guess). Claude's only source is the statusline capture; Codex's
+  // Reading-age freshness (claude only; codex is not retrofitted). The client
+  // derives the fresh/aging/stale band live from these server-supplied
+  // thresholds — the thresholds live here, the ticking happens there. Cheap
+  // date math only: no subprocess, no poller work on this path.
+  claude.freshness = {
+    capturedAt: claude.dataAt,
+    freshForMs: config.claudeMaxAgeMs,
+    staleAfterMs: config.claudeStaleAfterMs,
+  };
+  codex.freshness = null;
+  // When a tool has no limit data — or the data it has is stale — say WHY (the
+  // server knows; the client shouldn't guess). Exactly one reason code or null:
+  // no reading ever → no-statusline-reading; reading older than the stale band
+  // → stale-reading (the gauges still render — flagged, never blanked);
+  // fresh/aging → null. Claude's only source is the statusline capture; Codex's
   // diagnostic is maintained by the poller (no subprocess on this path).
-  claude.limitsDiagnostic = claude.haveLimits ? null : { reason: 'no-statusline-reading' };
+  if (!claude.haveLimits) {
+    claude.limitsDiagnostic = { reason: 'no-statusline-reading' };
+  } else {
+    const ageMs = claude.dataAt ? nowMs - Date.parse(claude.dataAt) : null;
+    claude.limitsDiagnostic = ageMs != null && ageMs > config.claudeStaleAfterMs
+      ? { reason: 'stale-reading', capturedAt: claude.dataAt, ageMs }
+      : null;
+  }
   if (codex.haveLimits) {
     codex.limitsDiagnostic = null;
   } else {
@@ -159,6 +179,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // when one isn't, why and how to fix it. Startup-only cheap fs checks —
   // never on the HTTP request path.
   for (const line of healthLines()) console.log(line);
+  // Surface-defaults convention: state the refresh reality and the freshness
+  // knob (with its default and the derived stale band) loudly at startup.
+  console.log(freshnessModeLine());
   startPoller();
   server.listen(config.port, config.host, () => {
     console.log(`llmdash running at http://${config.host}:${config.port}`);

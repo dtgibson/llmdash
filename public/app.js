@@ -23,12 +23,27 @@ function fmtDur(ms) {
 function fmtAge(iso) {
   if (!iso) return null;
   const ms = Date.now() - Date.parse(iso);
-  if (ms < 0) return 'just now';
+  if (!Number.isFinite(ms)) return null;
+  if (ms < 0) return 'just now'; // clock skew — clamp, never a negative age
   const s = Math.floor(ms / 1000);
   if (s < 60) return 'updated ' + s + 's ago';
-  const m = Math.floor(s / 60);
-  if (m < 60) return 'updated ' + m + 'm ago';
-  return 'updated ' + Math.floor(m / 60) + 'h ago';
+  // Hour scale keeps the minutes ("updated 1h 24m ago", not "1h ago") so an
+  // old reading states its age honestly; fmtDur already formats h+m and d+h.
+  return 'updated ' + fmtDur(ms) + ' ago';
+}
+
+// Reading-age band, derived LIVE on each 1s render tick from the
+// server-supplied thresholds (freshness.freshForMs / freshness.staleAfterMs)
+// — the bands are never hardcoded client-side. A reading visibly crosses
+// fresh → aging → stale between 60s fetches. Null freshness (Codex is not
+// retrofitted) or no capture yet → no band treatment at all.
+function ageBand(f) {
+  if (!f || !f.capturedAt) return null;
+  const age = Date.now() - Date.parse(f.capturedAt);
+  if (!Number.isFinite(age)) return null;
+  if (age > f.staleAfterMs) return 'stale';
+  if (age > f.freshForMs) return 'aging';
+  return 'fresh';
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -131,16 +146,25 @@ function mixHtml(a) {
     + bar + `</div><div class="mix-legend">` + legend + `</div>${note}</div>`;
 }
 
-// Why a tool's limit gauges are empty, and what would fill them. The reason
-// comes from the server (it knows whether the codex command actually ran) —
-// the client only maps a reason code to copy, never guesses. All dynamic
-// values (cmd, detail) are escaped before touching innerHTML.
+// Why a tool's limit gauges are empty — or why the reading behind them may no
+// longer be current. The reason comes from the server (it knows whether the
+// codex command actually ran and how old the Claude reading is) — the client
+// only maps a reason code to copy, never guesses. Renders whenever a
+// diagnostic is present, INCLUDING while the gauges still show data
+// (stale-reading: the last capture keeps rendering — flagged, never blanked).
+// All dynamic values (cmd, detail) are escaped before touching innerHTML.
 function limitsNoteHtml(tool) {
-  if (tool.haveLimits) return '';
-  const d = tool.limitsDiagnostic || {};
+  const d = tool.limitsDiagnostic;
+  if (!d) return '';
+  if (d.reason === 'stale-reading') {
+    // The age re-derives from capturedAt on each render tick, so the note's
+    // stated age never freezes between fetches.
+    const capturedAt = (tool.freshness && tool.freshness.capturedAt) || d.capturedAt;
+    return `<div class="stale-note"><strong>Stale reading</strong> — ${fmtAge(capturedAt)}; the limits above may have moved since. Open a Claude Code CLI session to refresh the reading (the desktop app doesn't render the statusline that reports these limits).</div>`;
+  }
   let text;
   if (d.reason === 'no-statusline-reading') {
-    text = `No statusline reading has arrived yet — these gauges fill in when a ${esc(tool.label)} session renders its status line (that's what reports the account-wide limits to llmdash).`;
+    text = `No statusline reading has arrived yet — these gauges fill in when a ${esc(tool.label)} session renders its status line (that's what reports the account-wide limits to llmdash). Open a Claude Code CLI session to capture the first reading.`;
   } else if (d.reason === 'codex-cmd-failed') {
     text = `The configured codex command (<code>${esc(d.cmd || 'codex')}</code>) couldn't be run${d.detail ? ` (${esc(d.detail)})` : ''}, so live limits can't be read. Set <code>LLMDASH_CODEX_CMD</code> to the absolute path from <code>which codex</code> and restart the service — the macOS installer does this when re-run.`;
   } else {
@@ -151,7 +175,14 @@ function limitsNoteHtml(tool) {
 
 function toolHtml(tool) {
   const a = tool.activity;
-  const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}`;
+  // Reading-age status pill: warn "aging", crit "stale" — text first (NFR-08),
+  // and the aging band never says "stale". Fresh renders no pill at all, so
+  // the escalation is structural, not color-alone. Pill words are literals.
+  const band = ageBand(tool.freshness);
+  const agePill = band === 'stale' ? ' <span class="age-pill pill-crit">stale</span>'
+    : band === 'aging' ? ' <span class="age-pill pill-warn">aging</span>'
+    : '';
+  const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}${agePill}`;
   const hasActivity = a && a.hasData !== false;
   // Honest empty state: local session logs simply have nothing yet (both tools
   // DO record usage locally once used). Never claim the limits are live here —
