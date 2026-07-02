@@ -1,31 +1,30 @@
 ## What We Accomplished
-Shipped claude-auto-refresh. The dashboard's Claude limit reading now refreshes
-itself while you're actively using Claude — no manual CLI ritual — by spawning a
-short-lived, invisible Claude Code session, reading its `/usage` screen, and
-closing it. It costs no plan usage, only runs when Claude has been active
-recently (never around the clock), and degrades honestly: a failing mechanism
-shows "auto-refresh is failing" with the cause, a switched-off one says so, and
-the gauges never blank. This reverses the prior feature's "auto-refresh is
-refuted" conclusion — the statusline-payload avenue really is dead, but the
-`/usage` screen-scrape works. Verified live on the installed dashboard: the
-reading came back ~22 seconds old with no manual step.
+Shipped the menu-bar badge. Your most-constrained AI-usage window now sits in
+the macOS menu bar as a one-glance glyph (`▪ C 44%`), with a dropdown carrying
+both tools, both windows, reset countdowns, freshness, and diagnostics. It's a
+zero-dependency SwiftBar plugin that reads the dashboard's existing /api/state —
+no second data path, no build step, no runtime dependency for llmdash itself.
+Five honesty states carry over from the dashboard (fresh / aging / stale /
+no-reading / offline — never a confident-but-stale number, never a fabricated
+one), a C/X cue names which tool is tight, and the host is configurable so the
+badge can read a dashboard on any tailnet machine. It's live in your menu bar.
 
 ## What Has Been Saved
-- Feature (code + tests + pipeline/claude-auto-refresh/): commit 62e248e.
-- Project memory (DECISIONS.md, PRODUCT_CONTEXT.md, CLAUDE.md, ROADMAP.md):
-  commit 070095f.
-- Both pushed to origin/main. The installed dashboard (~/llmdash) was
-  fast-forwarded and its launchd service re-installed so LLMDASH_CLAUDE_CMD
-  resolves the absolute claude path; health-checked live (fresh reading, clean
-  diagnostic).
+- Feature: commit 7c2105a (plugin, tests, docs, installer, pipeline/menu-bar-badge/).
+- Deploy fixes: 086896a (symlink run-guard + hermetic install tests) and
+  9eb3e3f (generated-wrapper delivery, never dirties the checkout).
+- Project memory: commit 609b937 (DECISIONS, PRODUCT_CONTEXT, CLAUDE, ROADMAP).
+- All pushed to origin/main; installed copy at ~/llmdash updated; SwiftBar
+  installed and the badge wired via --setup-badge, verified rendering live.
 
 ## Where We Are
 Feature complete and live. Pipeline idle.
 
-Two threads left on the roadmap (On the Horizon), neither blocking: a small
-teardown-hardening follow-up (a SIGTERM handler + startup sweep so an ungraceful
-llmdash exit can't orphan one probe session), and the Fable per-model weekly
-meter that `/usage` exposes but the two-window UI doesn't show yet.
+Two follow-ons are parked on the roadmap (On the Horizon): a multi-host badge
+(a host list with per-machine dropdown and glyph switching) and a tmux/terminal
+statusline reusing the same emitter. "Limit alerts" is now the top Up Next item,
+and it can build on both a fresh-by-default reading and the badge's selection
+model.
 
 ## Resume Prompt
 
