@@ -192,3 +192,56 @@ main { display: grid; grid-template-columns: 1fr; gap: 16px; }
 svg text { font-family: var(--mono); fill: var(--faint); font-size: 9px; }
 
 footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.74rem; color: var(--faint); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* =====================================================================
+   Multi-host chrome — the ONLY additions for the multi-host feature.
+   Copied verbatim from the approved pipeline/multi-host/design.html.
+   Minimal: a host-group card + header, a host freshness/offline pill
+   (age-pill grammar), an account-wide-limits banner (accent-callout
+   grammar), the same-account annotation, and the offline-host callout
+   (stale-note grammar). No new color semantic or type role. The single-
+   host (unconfigured) view uses NONE of these — it renders as today.
+   ===================================================================== */
+
+/* Host group = a labeled section wrapping a host's existing tool blocks. */
+.host { border: 1px solid var(--border); border-radius: 14px; background: var(--panel); padding: 6px 18px 4px; margin-bottom: 20px; }
+.host.host-self { border-color: var(--accent); }
+.host.host-offline { background: transparent; border-style: dashed; }
+.host-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 14px 2px 12px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+.host-name { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; letter-spacing: 0.01em; }
+.host-you { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; font-family: var(--mono); color: var(--accent); background: var(--accent-bg); padding: 2px 8px; border-radius: 999px; vertical-align: 2px; }
+.host-addr { font-family: var(--mono); font-size: 0.74rem; color: var(--faint); }
+.host-state { margin-left: auto; font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.host-state .pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: middle; }
+.host-state.is-offline .pulse { background: var(--crit); }
+/* host-level freshness/offline pill — reuses the .age-pill grammar */
+.host-pill { display: inline-block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; font-family: var(--mono); padding: 2px 9px; border-radius: 999px; margin-left: 8px; vertical-align: 1px; }
+
+/* Account-wide-limits banner — the centerpiece. Accent-tinted callout (same
+   grammar as .burn) that OWNS the shared limit gauges once, above the same-
+   account host groups. */
+.acct { background: var(--accent-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 14px; padding: 16px 18px 20px; margin-bottom: 20px; }
+.acct-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.acct-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--accent); }
+.acct-scope { font-size: 0.78rem; color: var(--muted); }
+.acct-sub { font-size: 0.8rem; color: var(--muted); margin: 2px 0 14px; }
+.acct-sub b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.acct .tool { margin-bottom: 18px; }
+.acct .tool:last-child { margin-bottom: 2px; }
+.acct .panel { background: var(--panel); }
+
+/* Inline "same account" annotation on a host group in place of a duplicate
+   meter (the shared meter is in the banner above). */
+.same-acct { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--accent-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 14px; margin: 2px 0 4px; font-size: 0.8rem; color: var(--muted); }
+.same-acct .lead { color: var(--text); font-weight: 600; }
+.same-acct a, .same-acct .ref { color: var(--accent); font-family: var(--mono); font-weight: 600; text-decoration: none; }
+
+/* Offline-host callout — reuses .stale-note grammar exactly. */
+.host-offline-note { background: var(--crit-bg); border: 1px solid var(--border); border-left: 3px solid var(--crit); border-radius: 10px; padding: 13px 16px; margin: 12px 2px 16px; font-size: 0.82rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.host-offline-note strong { font-weight: 600; }
+.host-offline-note code { font-family: var(--mono); font-size: 0.92em; background: var(--track); padding: 1px 5px; border-radius: 5px; }
+
+/* Legend row explaining the two axes. */
+.legend-strip { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 0.76rem; color: var(--muted); padding: 14px 2px 0; border-top: 1px solid var(--border); margin-top: 6px; }
+.legend-strip .li { display: flex; align-items: baseline; gap: 7px; }
+.legend-strip b { color: var(--text); font-weight: 600; }

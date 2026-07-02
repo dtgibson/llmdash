@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const home = os.homedir();
 
+// A generic clamp-both-ways for an externally-sourced numeric knob: non-finite
+// falls back to the default, otherwise it is pinned into [lo, hi]. Mirrors the
+// discipline of the Claude knobs below (no dead knob, no unbounded value).
+function clampedEnv(raw, def, lo, hi) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : def;
+}
+
 // Claude statusline reading freshness threshold. Externally sourced, so it is
 // clamped both ways: anything non-finite or ≤ 0 falls back to the default
 // (5 minutes), and anything above 7 days clamps to 7 days — the derived 2×
@@ -32,11 +40,35 @@ const rawAutoRefresh = process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 const claudeAutoRefresh = !(rawAutoRefresh === '0'
   || (typeof rawAutoRefresh === 'string' && rawAutoRefresh.toLowerCase() === 'false'));
 
+// Multi-host peer-fetch bounds. Each is a real knob that drives behavior (no
+// dead knobs) and, being externally sourced, is clamped both ways like the
+// Claude knobs above. Justified in pipeline/multi-host/schema.md §Timeout.
+//   peerTimeoutMs     — per-peer fetch timeout, default 3s, clamp 0.5–30s.
+//   peerConcurrency   — fan-out parallelism cap, default 4, clamp 1–32.
+//   peerBodyCapBytes  — per-peer response byte cap, default 256 KiB,
+//                       clamp 16 KiB–8 MiB (a peer is not trusted to send small).
+const peerTimeoutMs = clampedEnv(process.env.LLMDASH_PEER_TIMEOUT_MS, 3000, 500, 30_000);
+const peerConcurrency = clampedEnv(process.env.LLMDASH_PEER_CONCURRENCY, 4, 1, 32);
+const peerBodyCapBytes = clampedEnv(process.env.LLMDASH_PEER_BODY_CAP_BYTES, 262_144, 16_384, 8_388_608);
+
 export const config = {
   // Bind to 0.0.0.0 so the dashboard is reachable from other devices on the
   // tailnet. Tailscale (not the dashboard) is the access boundary.
   host: process.env.LLMDASH_HOST || '0.0.0.0',
   port: Number(process.env.LLMDASH_PORT || 8787),
+
+  // Raw multi-host peer list (LLMDASH_HOSTS, format host[:port][=label], comma-
+  // separated). The EFFECTIVE host set — the local host always prepended, plus
+  // deduped remote peers — is produced by parseHosts() in src/hosts.js, which
+  // reads this raw string and config.port. It lives there (not as a config
+  // getter) to avoid a config↔hosts import cycle and to keep the parser purely
+  // testable. Unset ⇒ parseHosts yields [local] ⇒ single-host behavior
+  // identical to today (no dead knob: the value drives real polling + UI, or
+  // when empty changes nothing). The three fetch bounds below drive the fan-out.
+  hostsRaw: process.env.LLMDASH_HOSTS || '',
+  peerTimeoutMs,
+  peerConcurrency,
+  peerBodyCapBytes,
 
   // Where Claude Code keeps its data on this machine.
   claudeDir: process.env.LLMDASH_CLAUDE_DIR || path.join(home, '.claude'),

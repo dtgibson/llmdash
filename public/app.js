@@ -239,18 +239,325 @@ function renderHeadroom(h) {
     + `<span>switch to <strong>${esc(h.bestLabel)}</strong>, <span class="room">${h.bestRemaining}% left</span></span>`;
 }
 
+// ── Multi-host rendering (host × tool, host is the OUTER loop) ────────────────
+// Every host's tools render through the EXISTING toolHtml()/gauge/burn/tiles/mix
+// path (no fork). The only new chrome is the host-group card, the account-limits
+// banner (detect-and-collapse), the same-account annotation, and the offline
+// callout. Every peer-supplied field is esc()'d; no peer field touches a style.
+
+// A tool's account-identity key: the pair of window reset epochs, bucketed by
+// TOL so clock skew / staggered captures don't split one account into two. Two
+// machines on the same account share the same account-wide reset windows, so
+// their resetsAt epochs match; different accounts have independent windows.
+// Returns null when the tool has no usable limit reading (it can't be grouped).
+const ACCT_TOL_MS = 60_000; // one poll interval
+function accountKey(tool) {
+  if (!tool || !tool.limits) return null;
+  const epoch = (w) => {
+    const win = tool.limits[w];
+    if (!win || !win.resetsAt) return null;
+    const ms = Date.parse(win.resetsAt);
+    return Number.isFinite(ms) ? Math.round(ms / ACCT_TOL_MS) : null;
+  };
+  const fh = epoch('five_hour'), sd = epoch('seven_day');
+  if (fh == null && sd == null) return null; // no reading → not groupable
+  return `${fh}|${sd}`;
+}
+
+// Group reachable hosts by account key, PER tool source. Returns, per source, a
+// Map of key → [hostEntries]. Only reachable hosts with a usable reading for
+// that tool participate; an offline host or a no-reading tool never joins a
+// group. Pure over the combined payload — recomputed each render (reset epochs
+// roll over). Exposed for unit tests.
+function groupAccounts(hosts) {
+  const bySource = {}; // source → Map(key → [{ host, tool }])
+  for (const h of hosts) {
+    if (!h.reachable || !h.state || !Array.isArray(h.state.tools)) continue;
+    for (const tool of h.state.tools) {
+      const key = accountKey(tool);
+      if (key == null) continue;
+      const src = tool.source;
+      if (!bySource[src]) bySource[src] = new Map();
+      if (!bySource[src].has(key)) bySource[src].set(key, []);
+      bySource[src].get(key).push({ host: h, tool });
+    }
+  }
+  return bySource;
+}
+
+// Natural join of ESCAPED host labels: "A", "A &amp; B", "A, B &amp; C". The
+// "&" separator is emitted as the &amp; entity to match design.html verbatim
+// (a literal & in innerHTML is tolerated but the mockup uses the entity).
+function joinLabels(labels) {
+  const e = labels.map(esc);
+  if (e.length <= 1) return e.join('');
+  if (e.length === 2) return `${e[0]} &amp; ${e[1]}`;
+  return `${e.slice(0, -1).join(', ')} &amp; ${e[e.length - 1]}`;
+}
+
+// A tool block showing ONLY the limit gauges + pacing (no activity) — for the
+// account-limits banner. Reuses gaugeHtml()/burnHtml() unchanged.
+function limitsOnlyHtml(tool) {
+  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span>`
+    + `<span class="tool-sub">${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}</span></div>`
+    + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
+    + limitsNoteHtml(tool) + burnHtml(tool) + `</section>`;
+}
+
+// A tool block showing ONLY activity (tiles + mix), NO gauges — for a same-
+// account host group (its limits live in the banner above). Reuses the existing
+// tilesHtml/mixHtml/tiles2Html, and the existing honest not-available state.
+function activityOnlyHtml(tool, hostLabel) {
+  const a = tool.activity;
+  const hasActivity = a && a.hasData !== false;
+  const sub = `activity · ${esc(hostLabel)}`;
+  const block = hasActivity
+    ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
+    : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
+  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>${block}</section>`;
+}
+
+// The account-limits banner: for each tool source whose key groups ≥2 reachable
+// hosts, render the shared gauges ONCE. Returns '' when nothing is shared.
+function accountBannerHtml(groups) {
+  const sections = [];
+  const memberLabelsAcrossTools = new Set();
+  for (const src of ['claude-code', 'codex']) {
+    const map = groups[src];
+    if (!map) continue;
+    // The largest same-account group for this tool (≥2 members) owns the banner.
+    let chosen = null;
+    for (const members of map.values()) {
+      if (members.length >= 2 && (!chosen || members.length > chosen.length)) chosen = members;
+    }
+    if (!chosen) continue;
+    for (const m of chosen) memberLabelsAcrossTools.add(m.host.label);
+    // Use the freshest member's tool for the shared meter (any member's numbers
+    // are identical by construction; pick the one with the newest capture).
+    const rep = chosen.slice().sort((a, b) =>
+      (Date.parse(b.tool.dataAt || 0) || 0) - (Date.parse(a.tool.dataAt || 0) || 0))[0];
+    sections.push(limitsOnlyHtml(rep.tool));
+  }
+  if (!sections.length) return '';
+  const labels = [...memberLabelsAcrossTools];
+  const scope = `account-wide · identical on ${joinLabels(labels)}`;
+  return `<div class="acct"><div class="acct-head"><span class="acct-title">Account limits</span>`
+    + `<span class="acct-scope">${scope}</span></div>`
+    + `<div class="acct-sub">These are the account's numbers — the <b>same</b> across every machine signed in to this account. Per-machine activity is shown under each host below.</div>`
+    + sections.join('') + `</div>`;
+}
+
+// hostDiagnostic reason → offline callout copy. Own-key (hasOwnProperty) lookup;
+// escaped detail; enum reason/cause map to fixed copy, never rendered raw. Names
+// which host and why (FR-09); never a gauge of zeros.
+const PEER_CAUSE_FRAGMENTS = {
+  'timeout': (t) => `no response within ${t}s`,
+  'connect': () => `the connection couldn't be made`,
+  'http-4': () => `it returned a client error`,
+  'http-5': () => `it returned a server error`,
+  'bad-json': () => `its response couldn't be read`,
+  'oversized': () => `its response was too large`,
+  'redirect': () => `it tried to redirect the read elsewhere`,
+};
+function causeFragment(cause, timeoutS) {
+  if (typeof cause === 'string') {
+    if (Object.prototype.hasOwnProperty.call(PEER_CAUSE_FRAGMENTS, cause)) return PEER_CAUSE_FRAGMENTS[cause](timeoutS);
+    if (/^http-4\d\d$/.test(cause)) return PEER_CAUSE_FRAGMENTS['http-4']();
+    if (/^http-5\d\d$/.test(cause)) return PEER_CAUSE_FRAGMENTS['http-5']();
+  }
+  return `it couldn't be read`;
+}
+
+// The `detail` is appended in parentheses ONLY for peer-error causes where it
+// adds specifics (an HTTP status, a byte cap). For a timeout/connect the cause
+// fragment already says it, so the raw detail would just restate it — omit it.
+const CAUSES_WITH_SELF_EVIDENT_FRAGMENT = new Set(['timeout', 'connect']);
+function hostOfflineNoteHtml(host, timeoutS) {
+  const d = host.hostDiagnostic || {};
+  const addr = `${esc(host.host)}:${esc(String(host.port))}`;
+  const last = host.fetchedAt ? fmtAge(host.fetchedAt) : null;
+  const lastClause = last ? ` Last polled ${last.replace(/^updated /, '')}.` : '';
+  const detail = (d.detail && !CAUSES_WITH_SELF_EVIDENT_FRAGMENT.has(d.cause)) ? ` (${esc(d.detail)})` : '';
+  if (d.reason === 'peer-error') {
+    const frag = causeFragment(d.cause, timeoutS);
+    return `<div class="host-offline-note"><strong>${esc(host.label)} returned an error</strong> — ${frag} (<code>peer-error</code>)${detail}.${lastClause} `
+      + `Its reading isn't shown while it's erroring; the other hosts are unaffected. Check that llmdash is running correctly on <code>${addr}</code>.</div>`;
+  }
+  // peer-unreachable (default)
+  const frag = causeFragment(d.cause, timeoutS);
+  return `<div class="host-offline-note"><strong>${esc(host.label)} is unreachable</strong> — ${frag} (<code>peer-unreachable</code>)${detail}.${lastClause} `
+    + `Its limits and activity aren't shown while it's offline; the other hosts are unaffected. Check that the machine is awake and llmdash is running on <code>${addr}</code>.</div>`;
+}
+
+// One host group (a .host card). A reachable host renders its tools; whether it
+// shows its own limit gauges or the same-account annotation depends on grouping.
+function hostGroupHtml(host, ctx) {
+  const cls = 'host' + (host.self ? ' host-self' : '') + (host.reachable ? '' : ' host-offline');
+  const addr = `${esc(host.host)}:${esc(String(host.port))}`;
+  const youPill = host.self ? ` <span class="host-you">you</span>` : '';
+
+  let stateHtml, headState;
+  if (host.pending) {
+    // Seeded but not yet polled this run — a brief transient before the first
+    // fan-out result lands. Honest "polling", never a fabricated reading.
+    headState = `<span class="host-state"><span class="pulse"></span>polling…</span>`;
+    stateHtml = `<div class="empty-note">Waiting for the first reading from this host…</div>`;
+  } else if (!host.reachable) {
+    const pillWord = (host.hostDiagnostic && host.hostDiagnostic.reason === 'peer-error') ? 'error' : 'unreachable';
+    headState = `<span class="host-state is-offline"><span class="pulse"></span><span class="host-pill pill-crit">${pillWord}</span></span>`;
+    stateHtml = hostOfflineNoteHtml(host, ctx.timeoutS);
+  } else {
+    const age = ctx.freshestOf(host);
+    headState = `<span class="host-state"><span class="pulse"></span>${age ? esc(age.replace(/^updated /, 'updated ')) : 'no readings yet'}</span>`;
+    stateHtml = reachableHostBody(host, ctx);
+  }
+
+  return `<div class="${cls}"><div class="host-head">`
+    + `<span class="host-name">${esc(host.label)}</span>${youPill}`
+    + `<span class="host-addr">${addr}</span>${headState}</div>${stateHtml}</div>`;
+}
+
+// The body of a reachable host: for each of its tools, either the full tool
+// block (its own account → own gauges + activity) or the activity-only block +
+// a same-account annotation (shared account → gauges live in the banner).
+function reachableHostBody(host, ctx) {
+  const tools = (host.state && Array.isArray(host.state.tools)) ? host.state.tools : [];
+  const parts = [];
+  // Collect the OTHER same-account host labels once for the annotation copy.
+  let sharedWith = null;
+  for (const tool of tools) {
+    const key = accountKey(tool);
+    const shared = key != null && ctx.sharedKeys[tool.source] && ctx.sharedKeys[tool.source].has(key);
+    if (shared && sharedWith == null) {
+      const others = ctx.groups[tool.source].get(key)
+        .map((m) => m.host.label).filter((l) => l !== host.label);
+      sharedWith = others.length ? others : null;
+    }
+  }
+  if (sharedWith) {
+    parts.push(`<div class="same-acct"><span class="lead">Account limits above</span>`
+      + `<span>— same account as <span class="ref">${joinLabels(sharedWith)}</span>; the shared meters are shown once, up top.</span></div>`);
+  }
+  for (const tool of tools) {
+    const key = accountKey(tool);
+    const shared = key != null && ctx.sharedKeys[tool.source] && ctx.sharedKeys[tool.source].has(key);
+    if (shared) {
+      // Same account → activity only; the shared meter is in the banner.
+      parts.push(activityOnlyHtml(tool, host.self ? 'this machine' : host.label));
+    } else {
+      // Its own account (or no reading) → the full tool block, with a per-host
+      // "account limits · this machine" sub-label on the limits so a different-
+      // account host reads as its own numbers, not a second budget.
+      parts.push(fullHostToolHtml(tool, host));
+    }
+  }
+  return parts.join('');
+}
+
+// A host's full tool block (gauges + activity), reusing toolHtml()'s exact
+// structure but with a host-scoped sub-label and an "account limits · this
+// machine" caption above the gauges (a different-account host's own numbers).
+function fullHostToolHtml(tool, host) {
+  const a = tool.activity;
+  const band = ageBand(tool.freshness);
+  const agePill = band === 'stale' ? ' <span class="age-pill pill-crit">stale</span>'
+    : band === 'aging' ? ' <span class="age-pill pill-warn">aging</span>' : '';
+  const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}${agePill}`;
+  const hasActivity = a && a.hasData !== false;
+  const activityBlock = hasActivity
+    ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
+    : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
+  const acctCaption = tool.haveLimits ? `<div class="section-label" style="margin-top:10px">account limits · this machine</div>` : '';
+  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
+    + acctCaption
+    + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
+    + limitsNoteHtml(tool) + burnHtml(tool) + activityBlock + `</section>`;
+}
+
+const LEGEND_HTML = `<div class="legend-strip">`
+  + `<span class="li"><b>Account limits</b> — the account's numbers; identical on every machine signed in to the same account. Shown once for same-account hosts.</span>`
+  + `<span class="li"><b>Per-machine activity</b> — tokens, sessions, cache, value from each machine's own session logs. Genuinely different per host.</span>`
+  + `</div>`;
+
+function renderHosts(combined) {
+  const hostsEl = document.getElementById('hosts');
+  const toolsEl = document.getElementById('tools');
+  const headEl = document.getElementById('headroom');
+  const hosts = (combined && Array.isArray(combined.hosts)) ? combined.hosts : [];
+
+  // Single-host mode: exactly one host and it's the local one → render EXACTLY
+  // today via #tools (no host chrome, no banner, no legend). The multi-host
+  // section stays empty.
+  if (hosts.length === 1 && hosts[0].self && hosts[0].state) {
+    hostsEl.innerHTML = '';
+    const st = hosts[0].state;
+    renderHeadroom(st.headroom);
+    toolsEl.innerHTML = (st.tools || []).map(toolHtml).join('');
+    const freshest = (st.tools || []).map((t) => t.dataAt).filter(Boolean).sort().pop();
+    document.getElementById('age').textContent = freshest ? fmtAge(freshest) : 'no readings yet';
+    document.getElementById('freshness').classList.toggle('stale', !freshest);
+    setFooterMode(false);
+    return;
+  }
+
+  // Multi-host mode: the account banner + one card per host + the legend.
+  toolsEl.innerHTML = '';
+  headEl.hidden = true; // headroom is a per-host, cross-tool cue; not shown at the aggregate level
+  const groups = groupAccounts(hosts);
+  const sharedKeys = {}; // source → Set(keys that group ≥2 hosts)
+  for (const src of Object.keys(groups)) {
+    sharedKeys[src] = new Set();
+    for (const [key, members] of groups[src]) if (members.length >= 2) sharedKeys[src].add(key);
+  }
+  const timeoutS = (combined.peerTimeoutMs ? Math.round(combined.peerTimeoutMs / 1000) : 3);
+  const ctx = {
+    groups, sharedKeys, timeoutS,
+    freshestOf: (h) => {
+      const t = (h.state && h.state.tools) ? h.state.tools.map((x) => x.dataAt).filter(Boolean).sort().pop() : null;
+      return t ? fmtAge(t) : (h.fetchedAt ? fmtAge(h.fetchedAt) : null);
+    },
+  };
+  const banner = accountBannerHtml(groups);
+  const cards = hosts.map((h) => hostGroupHtml(h, ctx)).join('');
+  hostsEl.innerHTML = banner + cards + LEGEND_HTML;
+
+  // Header freshness: "N hosts · updated <age> ago" from the freshest reachable
+  // host's newest capture.
+  const reachable = hosts.filter((h) => h.reachable && h.state);
+  const freshest = reachable.flatMap((h) => (h.state.tools || []).map((t) => t.dataAt))
+    .filter(Boolean).sort().pop();
+  const ageStr = freshest ? fmtAge(freshest).replace(/^updated /, '') : 'no readings yet';
+  document.getElementById('age').textContent = `${hosts.length} hosts · ${freshest ? 'updated ' + ageStr : ageStr}`;
+  document.getElementById('freshness').classList.toggle('stale', !freshest);
+  setFooterMode(true);
+}
+
+// The footer honesty line switches between single-host and multi-host framing.
+// Single-host: "Activity: local session logs"; multi-host: "Activity: per
+// machine · N hosts over Tailscale".
+function setFooterMode(multi) {
+  const f = document.querySelector('footer');
+  if (!f) return;
+  const spans = f.querySelectorAll('span');
+  if (spans.length < 2) return;
+  if (multi) {
+    spans[0].textContent = 'Limits: account-wide · Activity: per machine · Codex day buckets: UTC';
+    const n = state && Array.isArray(state.hosts) ? state.hosts.length : 0;
+    spans[1].textContent = `${n} hosts over Tailscale`;
+  } else {
+    spans[0].textContent = 'Limits: account-wide · Activity: local session logs · Codex day buckets: UTC';
+    spans[1].textContent = 'served over Tailscale';
+  }
+}
+
 function render() {
   if (!state) return;
-  renderHeadroom(state.headroom);
-  document.getElementById('tools').innerHTML = state.tools.map(toolHtml).join('');
-  const freshest = state.tools.map((t) => t.dataAt).filter(Boolean).sort().pop();
-  document.getElementById('age').textContent = freshest ? fmtAge(freshest) : 'no readings yet';
-  document.getElementById('freshness').classList.toggle('stale', !freshest);
+  renderHosts(state);
 }
 
 async function refresh() {
   try {
-    const res = await fetch('/api/state', { cache: 'no-store' });
+    const res = await fetch('/api/hosts', { cache: 'no-store' });
     if (!res.ok) throw new Error('bad status');
     state = await res.json();
     render();

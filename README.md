@@ -103,6 +103,58 @@ safe to re-run and bakes in the path. When the command can't be run, the
 dashboard says so (startup log + UI) instead of failing silently.
 Codex activity stats read from `~/.codex/sessions` and fill in as you use Codex.
 
+## Multi-host — optional
+One llmdash can show **several of your tailnet machines** together — each host's
+Claude Code + Codex limit windows and its per-machine activity, side by side, the
+local machine included as one host. Set `LLMDASH_HOSTS` to a comma-separated list;
+**unset, it behaves exactly as today** (one host — this machine).
+
+```
+LLMDASH_HOSTS="100.64.0.7=Desktop,100.64.0.9:8790=Work laptop"
+```
+
+Each entry is `host[:port][=label]`:
+- `host` — a tailnet hostname or IP (the machine running llmdash).
+- `:port` — optional; defaults to this instance's `LLMDASH_PORT` (8787).
+- `=label` — optional display name; defaults to the host string. Labels may
+  contain spaces (that's why the list is comma-separated).
+
+The **local host is always included** and shown first, marked `you` — you never
+list it (though listing `127.0.0.1`/`localhost`/your own tailnet IP is harmless;
+it collapses into the one local entry and is read in-process, never re-fetched).
+
+**What the multi-host view shows:**
+- **Account limits, once.** Limits are your *account's* numbers, identical across
+  machines signed in to the same account. When llmdash detects that two hosts
+  share an account (their limit windows reset at the same times), it shows those
+  meters **once**, in an "Account limits" banner — never N identical meters that
+  would read as N independent budgets. A genuinely different-account machine shows
+  its own meters in its own card.
+- **Per-machine activity, per host.** Tokens, sessions, cache rate, and estimated
+  value are genuinely per-machine, so each host card leads with its own activity.
+- **An offline machine is named, not faked.** A host that's asleep or not running
+  llmdash shows a plain callout ("… is unreachable — no response within 3s …")
+  naming the host and the fix — never a stale meter, never fabricated zeros. The
+  other hosts are unaffected.
+
+**Outbound posture (read this).** With `LLMDASH_HOSTS` set, this instance issues
+**outbound reads** — a new posture (it previously only served). It is deliberately
+narrow and **tailnet-only**:
+- Reads go **only** to the hosts you list — no discovery, no auto-enumeration, and
+  never a host derived from a peer's response (no transitive fan-out).
+- Only a **credential-free `GET /api/state`** is issued — no writes, no other
+  method, no credentials, and a redirect is never followed.
+- Each fetch is **timeout-bounded and body-capped**; every peer-supplied field is
+  clamped/normalized/escaped before it reaches the page.
+- Peer polling rides the **interval poller** (never the request path); the combined
+  `/api/hosts` view is served from an in-memory cache. Peer readings are **not
+  persisted** — each machine keeps its own history locally.
+
+The three bound knobs (`LLMDASH_PEER_TIMEOUT_MS`, `LLMDASH_PEER_CONCURRENCY`,
+`LLMDASH_PEER_BODY_CAP_BYTES`) are listed under [Configuration](#configuration).
+The startup log states how many peers are configured and to which host:ports reads
+will go (or, unset, that no outbound reads are issued).
+
 ## Menu-bar badge (SwiftBar) — optional
 A one-glance remaining-% badge for your macOS menu bar: the **most-constrained
 window** across Claude Code and Codex, updating on its own, with a dropdown that
@@ -270,6 +322,14 @@ All optional, via environment variables:
   time budget; clamped to 5000–300000 ms
 - `LLMDASH_CODEX_CMD` (default `codex`) — path to the codex binary for the limits read
 - `LLMDASH_CODEX_DIR` (default `~/.codex`) — where Codex's session logs live
+- `LLMDASH_HOSTS` (default unset = single-host) — a comma-separated list of other
+  tailnet machines to aggregate into one view. See [Multi-host](#multi-host--optional).
+- `LLMDASH_PEER_TIMEOUT_MS` (default `3000`, clamped 500–30000) — per-peer fetch
+  timeout for the multi-host fan-out
+- `LLMDASH_PEER_CONCURRENCY` (default `4`, clamped 1–32) — how many peers are
+  polled in parallel each tick
+- `LLMDASH_PEER_BODY_CAP_BYTES` (default `262144` = 256 KiB, clamped 16 KiB–8 MiB) —
+  the maximum response body read from a peer before the fetch aborts
 
 The **menu-bar badge** reads two of its own (in the plugin's environment, not the
 server's — see [Menu-bar badge](#menu-bar-badge-swiftbar--optional)):

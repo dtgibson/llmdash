@@ -1,31 +1,31 @@
 ## What We Accomplished
-Shipped the menu-bar badge. Your most-constrained AI-usage window now sits in
-the macOS menu bar as a one-glance glyph (`▪ C 44%`), with a dropdown carrying
-both tools, both windows, reset countdowns, freshness, and diagnostics. It's a
-zero-dependency SwiftBar plugin that reads the dashboard's existing /api/state —
-no second data path, no build step, no runtime dependency for llmdash itself.
-Five honesty states carry over from the dashboard (fresh / aging / stale /
-no-reading / offline — never a confident-but-stale number, never a fabricated
-one), a C/X cue names which tool is tight, and the host is configurable so the
-badge can read a dashboard on any tailnet machine. It's live in your menu bar.
+Mid-run on multi-host (feature lane, Studio Style — hands-off except the design
+step and the deploy sign-off). Stages 1–3 done. The feature aggregates several
+of your own tailnet machines into one llmdash view — each host's limits and
+per-machine activity side by side. Strategy made the account-wide-limits reality
+the load-bearing honesty decision (limits are the account's numbers, identical
+across same-account machines; the genuine new info is per-machine activity). The
+PRD pinned that as a testable requirement plus the peer-polling-on-the-interval
+model. The Architect resolved the design: a new `/api/hosts` endpoint (keeps
+`/api/state` byte-for-byte pristine, so the badge and local view are untouched),
+cached-only peer readings polled on the interval with bounded timeout/
+concurrency/body-cap, a host×tool model that reuses the existing renderer, new
+`peer-unreachable`/`peer-error` codes, and account-sameness detectable purely
+client-side by comparing reset windows.
 
 ## What Has Been Saved
-- Feature: commit 7c2105a (plugin, tests, docs, installer, pipeline/menu-bar-badge/).
-- Deploy fixes: 086896a (symlink run-guard + hermetic install tests) and
-  9eb3e3f (generated-wrapper delivery, never dirties the checkout).
-- Project memory: commit 609b937 (DECISIONS, PRODUCT_CONTEXT, CLAUDE, ROADMAP).
-- All pushed to origin/main; installed copy at ~/llmdash updated; SwiftBar
-  installed and the badge wired via --setup-badge, verified rendering live.
+- pipeline/multi-host/strategic-brief.md (Stage 1)
+- pipeline/multi-host/prd.md (Stage 2 — 22 FRs, 27 QA rows)
+- pipeline/multi-host/schema.md (Stage 3 — the system design)
 
 ## Where We Are
-Feature complete and live. Pipeline idle.
-
-Two follow-ons are parked on the roadmap (On the Horizon): a multi-host badge
-(a host list with per-machine dropdown and glyph switching) and a tmux/terminal
-statusline reusing the same emitter. "Limit alerts" is now the top Up Next item,
-and it can build on both a fresh-by-default reading and the badge's selection
-model.
+Stage 4, The Designer — the user's participate stage. A first multi-host layout
+mockup is being prepared; the user rejoins here to ratify the one genuine product
+judgment — how to present account-wide limits so identical-account machines don't
+read as N separate budgets — then iterates on the design and gates to The Engineer.
 
 ## Resume Prompt
 
-Run `/weft` to start the next thing.
+To resume: run `/weft` in this project. It reads saved state and picks up at
+Stage 4 (Designer), where the user ratifies the account-wide-limits presentation
+and reviews the multi-host layout.

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { parseHosts, remoteHosts } from './hosts.js';
+import { _peek } from './host-cache.js';
 
 // Resolve a command the way spawn() will: a path (contains a separator) is
 // checked directly; a bare name is searched on PATH. Returns the resolved
@@ -75,6 +77,53 @@ export function freshnessModeLine(cfg = config) {
     + `Heads-up: Claude Code itself keeps a one-time "trust this folder" entry for that directory in ~/.claude.json and appends one line to ~/.claude/history.jsonl per refresh. ${bands}`;
 }
 
+// Multi-host startup disclosure (FR-19): how many peers are configured and to
+// which host:ports this instance will issue outbound reads — or, when none, the
+// single-host / no-outbound reality. Mirrors the network-binding disclosure.
+// `parsed` is injectable for tests.
+export function peerDisclosureLine(parsed = parseHosts()) {
+  const remotes = remoteHosts(parsed);
+  if (!remotes.length) {
+    return 'Multi-host: no peers configured (LLMDASH_HOSTS unset) — this instance issues no outbound reads (single-host). Set LLMDASH_HOSTS to a comma-separated host[:port][=label] list to aggregate other tailnet machines.';
+  }
+  const targets = remotes.map((r) => `${r.host}:${r.port}`).join(', ');
+  const n = remotes.length;
+  let line = `Multi-host: ${n} peer${n === 1 ? '' : 's'} configured — this instance issues a read-only GET /api/state to ${targets} on each ${Math.round(config.pollIntervalMs / 1000)}s poll (tailnet-only, credential-free, no discovery).`;
+  if (parsed.errors && parsed.errors.length) {
+    const bad = parsed.errors.map((e) => `"${e.entry}" (${e.reason})`).join(', ');
+    line += ` Ignored ${parsed.errors.length} malformed entr${parsed.errors.length === 1 ? 'y' : 'ies'}: ${bad} — fix the format (host[:port][=label]) and restart.`;
+  }
+  return line;
+}
+
+// Per-configured-peer health lines for the startup readout (FR-19). Reads each
+// peer's LAST cached state (a cheap in-memory read, off the request path — no
+// fresh fetch, no subprocess); names reachable/last-error and the fix. Emitted
+// only when peers are configured. `parsed`/`peek` injectable for tests.
+export function peerHealthLines(parsed = parseHosts(), peek = _peek) {
+  const remotes = remoteHosts(parsed);
+  const lines = [];
+  if (remotes.length) {
+    lines.push('Hosts:');
+    for (const r of remotes) {
+      const entry = peek(r.key);
+      const addr = `${r.host}:${r.port}`;
+      if (!entry || entry.pending) {
+        lines.push(`  ${r.label} (${addr}): not yet polled — reachability fills in after the first poll tick.`);
+      } else if (entry.reachable) {
+        lines.push(`  ${r.label} (${addr}): reachable — last read ${fmtAge(Date.now() - Date.parse(entry.fetchedAt))}.`);
+      } else {
+        const d = entry.hostDiagnostic || {};
+        lines.push(`  ${r.label} (${addr}): unreachable (${d.reason || 'peer-unreachable'}${d.cause ? ` · ${d.cause}` : ''}) — check the machine is awake and llmdash is running on ${addr}.`);
+      }
+    }
+  }
+  for (const e of (parsed.errors || [])) {
+    lines.push(`  malformed host entry "${e.entry}" (${e.reason}) — ignored; fix the format host[:port][=label] and restart.`);
+  }
+  return lines;
+}
+
 // Startup-log lines describing data-source health. Honest and actionable:
 // each "missing" line says what is missing, why it matters, and how to fix it.
 export function healthLines(h = dataSourceHealth()) {
@@ -93,5 +142,8 @@ export function healthLines(h = dataSourceHealth()) {
   lines.push(h.codexSessions.present
     ? `  Codex activity: sessions dir present (${h.codexSessions.dir})`
     : `  Codex activity: no Codex sessions recorded on this machine yet (${h.codexSessions.dir}) — activity stats fill in after the first Codex session`);
+  // Per-configured-peer reachability (multi-host). Cheap in-memory cache read;
+  // empty when no peers are configured (single-host).
+  for (const line of peerHealthLines()) lines.push(line);
   return lines;
 }

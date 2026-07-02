@@ -7,12 +7,14 @@ import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { getRefreshState } from './claude-refresh.js';
 import { codexLimitsDiagnostic } from './codex-limits.js';
-import { healthLines, freshnessModeLine } from './health.js';
+import { healthLines, freshnessModeLine, peerDisclosureLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
 import { buildTrends } from './trends.js';
 import { startPoller } from './poller.js';
 import { tailnetIPv4 } from './net.js';
+import { getCombined, setHost } from './host-cache.js';
+import { parseHosts } from './hosts.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -182,6 +184,17 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(head ? undefined : body);
   }
+  // Multi-host combined view. A PURE cache read (getCombined) — no peer fetch,
+  // no subprocess, no blocking I/O on the request path (the poller maintains the
+  // cache). /api/state above is untouched. When no peers are configured the
+  // cache holds one host (the local one), so this returns single-host data.
+  if (url.pathname === '/api/hosts') {
+    let body;
+    try { body = JSON.stringify(getCombined()); }
+    catch (e) { res.writeHead(500); return res.end('error'); }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(head ? undefined : body);
+  }
   if (url.pathname === '/' || url.pathname === '/index.html') return serveStatic(res, 'index.html', head);
   if (url.pathname === '/styles.css') return serveStatic(res, 'styles.css', head);
   if (url.pathname === '/app.js') return serveStatic(res, 'app.js', head);
@@ -198,6 +211,20 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Surface-defaults convention: state the refresh reality and the freshness
   // knob (with its default and the derived stale band) loudly at startup.
   console.log(freshnessModeLine());
+  // Multi-host disclosure: how many peers are configured and to which
+  // host:ports outbound reads will go (or the single-host / no-outbound reality)
+  // — the surface-security-relevant-defaults convention, never silently.
+  console.log(peerDisclosureLine());
+  // Seed the local host into the combined-view cache synchronously so
+  // /api/hosts is never briefly empty before the first poller tick lands.
+  {
+    const local = parseHosts().hosts.find((h) => h.self);
+    if (local) setHost(local.key, {
+      host: local.host, label: local.label, port: local.port, self: true,
+      reachable: true, hostDiagnostic: null,
+      fetchedAt: new Date().toISOString(), state: buildState(),
+    });
+  }
   startPoller();
   server.listen(config.port, config.host, () => {
     console.log(`llmdash running at http://${config.host}:${config.port}`);
