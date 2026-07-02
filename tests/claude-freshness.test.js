@@ -15,6 +15,9 @@ process.env.LLMDASH_CLAUDE_DIR = path.join(tmp, 'claude');
 process.env.LLMDASH_CODEX_DIR = path.join(tmp, 'codex');
 process.env.LLMDASH_CODEX_CMD = path.join(tmp, 'missing', 'codex');
 delete process.env.LLMDASH_CLAUDE_MAX_AGE_MS;
+// Keep the auto-refresh state at its enabled zero-attempt baseline so the
+// band-derived codes (stale-reading etc.) are the ones under test here.
+delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
 const { buildState } = await import('../src/server.js');
 const { readClaudeLimits } = await import('../src/claude-limits.js');

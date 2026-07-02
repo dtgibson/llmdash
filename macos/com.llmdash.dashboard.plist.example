@@ -10,9 +10,11 @@
        launchd runs agents with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), so a
        bare "codex" can never resolve there and Codex limits would silently never load.
        (NODE_PATH must be absolute for the same reason.)
-    3. replace PROJECT_DIR with your checkout path (e.g. /Users/you/llmdash)
-    4. cp this file (drop the .example) to ~/Library/LaunchAgents/com.llmdash.dashboard.plist
-    5. launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+    3. which claude -> replace CLAUDE_PATH below (absolute, same launchd reason —
+       Claude limit auto-refresh spawns this binary)
+    4. replace PROJECT_DIR with your checkout path (e.g. /Users/you/llmdash)
+    5. cp this file (drop the .example) to ~/Library/LaunchAgents/com.llmdash.dashboard.plist
+    6. launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
        (stop with: launchctl unload -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist)
 
   To restrict strictly to your tailnet, add an LLMDASH_HOST entry set to your
@@ -39,6 +41,8 @@
     <string>8787</string>
     <key>LLMDASH_CODEX_CMD</key>
     <string>CODEX_PATH</string>
+    <key>LLMDASH_CLAUDE_CMD</key>
+    <string>CLAUDE_PATH</string>
   </dict>
 
   <key>RunAtLoad</key>

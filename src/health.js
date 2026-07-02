@@ -32,6 +32,7 @@ export function dataSourceHealth(nowMs = Date.now()) {
   try { sessionsPresent = fs.statSync(config.codexSessionsDir).isDirectory(); } catch {}
   return {
     claudeRatelimits: { file: config.rateLimitsFile, ...ratelimits },
+    claudeCmd: { cmd: config.claudeCmd, resolved: resolveCommand(config.claudeCmd) },
     codexCmd: { cmd: config.codexCmd, resolved: resolveCommand(config.codexCmd) },
     codexSessions: { dir: config.codexSessionsDir, present: sessionsPresent },
   };
@@ -56,14 +57,22 @@ function fmtDurShort(ms) {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
-// The branch-B refresh-mode statement for the startup log (FR-12). States the
-// manual-refresh reality and surfaces the one freshness knob with its default
-// and the derived stale band (surface-defaults convention). There is no
-// auto-refresh: the spike showed a prompt-free session never reports limits.
+// The refresh-mode statement for the startup log (FR-28). States the shipped
+// mechanism (the /usage probe), its activity-gated cadence with the one
+// freshness knob and its default, the off-switch, and the two disclosed
+// Claude-file side effects (surface-defaults convention: loudly, at startup).
 export function freshnessModeLine(cfg = config) {
-  return `Claude limit readings refresh only when a real Claude Code session renders its status line (the desktop app doesn't). `
-    + `A reading older than ${fmtDurShort(cfg.claudeMaxAgeMs)} shows as aging, older than ${fmtDurShort(cfg.claudeStaleAfterMs)} as stale `
+  const threshold = fmtDurShort(cfg.claudeMaxAgeMs);
+  const staleBand = fmtDurShort(cfg.claudeStaleAfterMs);
+  const bands = `A reading older than ${threshold} shows as aging, older than ${staleBand} as stale `
     + `(LLMDASH_CLAUDE_MAX_AGE_MS, default 300000 ms = 5m; the stale band is always 2x that).`;
+  if (!cfg.claudeAutoRefresh) {
+    return `Claude limit auto-refresh is OFF (LLMDASH_CLAUDE_AUTOREFRESH=0) — readings arrive only when a real Claude Code session renders its status line; unset the variable and restart to re-enable. ${bands}`;
+  }
+  return `Claude limit readings auto-refresh: when the reading is older than ${threshold} while Claude has been active within ${staleBand} (newest transcript under ${cfg.projectsDir}), `
+    + `llmdash spawns a short-lived Claude Code session in ${cfg.claudeRefreshCwd}, reads its /usage screen, and closes it — no message is sent and no plan usage is consumed. `
+    + `Real statusline captures still count and suppress the probe; off-switch: LLMDASH_CLAUDE_AUTOREFRESH=0. `
+    + `Heads-up: Claude Code itself keeps a one-time "trust this folder" entry for that directory in ~/.claude.json and appends one line to ~/.claude/history.jsonl per refresh. ${bands}`;
 }
 
 // Startup-log lines describing data-source health. Honest and actionable:
@@ -71,8 +80,13 @@ export function freshnessModeLine(cfg = config) {
 export function healthLines(h = dataSourceHealth()) {
   const lines = ['Data sources:'];
   lines.push(h.claudeRatelimits.present
-    ? `  Claude limits:  statusline reading present (updated ${fmtAge(h.claudeRatelimits.ageMs)}; marked stale after ${fmtDurShort(config.claudeStaleAfterMs)}) — ${h.claudeRatelimits.file}. Readings refresh only when a real Claude Code session renders its status line.`
-    : `  Claude limits:  no statusline reading yet — gauges stay empty until a Claude Code session renders its status line (writes ${h.claudeRatelimits.file})`);
+    ? `  Claude limits:  statusline reading present (updated ${fmtAge(h.claudeRatelimits.ageMs)}; marked stale after ${fmtDurShort(config.claudeStaleAfterMs)}) — ${h.claudeRatelimits.file}. Readings arrive when a real Claude Code session renders its status line, and via auto-refresh within minutes of Claude activity.`
+    : `  Claude limits:  no statusline reading yet — gauges fill in when a Claude Code session renders its status line, or when auto-refresh captures one after Claude activity (writes ${h.claudeRatelimits.file})`);
+  lines.push(!config.claudeAutoRefresh
+    ? `  Claude refresh: auto-refresh disabled (LLMDASH_CLAUDE_AUTOREFRESH=0) — readings refresh only via real Claude Code sessions; unset the variable and restart to re-enable`
+    : h.claudeCmd.resolved
+      ? `  Claude refresh: claude command OK (${h.claudeCmd.resolved}) — auto-refresh can probe /usage when the reading goes stale during Claude activity`
+      : `  Claude refresh: claude command not found ("${h.claudeCmd.cmd}") — auto-refresh can't run, so a stale reading stays stale until a real CLI session refreshes it. Set LLMDASH_CLAUDE_CMD to the absolute path from 'which claude' and restart (the macOS installer does this when re-run).`);
   lines.push(h.codexCmd.resolved
     ? `  Codex limits:   codex command OK (${h.codexCmd.resolved})`
     : `  Codex limits:   codex command not found ("${h.codexCmd.cmd}") — live limits unavailable. Set LLMDASH_CODEX_CMD to the absolute path from 'which codex' and restart (the macOS installer does this when re-run).`);

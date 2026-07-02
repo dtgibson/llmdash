@@ -16,6 +16,22 @@ const claudeMaxAgeMs = Number.isFinite(rawClaudeMaxAge) && rawClaudeMaxAge > 0
   ? Math.min(rawClaudeMaxAge, 604_800_000) // 7-day ceiling
   : 300_000;
 
+// Claude auto-refresh probe timeout. Externally sourced, so it is clamped both
+// ways: non-finite falls back to the default (30 s, generous — the prior spike
+// saw the TUI ready in ~3–5 s and the /usage pane shortly after); floor 5 s
+// (nothing renders faster), ceiling 5 minutes (a hung probe must never linger).
+const rawRefreshTimeout = Number(process.env.LLMDASH_CLAUDE_REFRESH_TIMEOUT_MS);
+const claudeRefreshTimeoutMs = Number.isFinite(rawRefreshTimeout)
+  ? Math.min(Math.max(rawRefreshTimeout, 5_000), 300_000)
+  : 30_000;
+
+// Claude auto-refresh off-switch: on by default; ONLY "0" or "false" disable
+// it. Any other value (including typos) leaves it on — opt-in would leave the
+// gauges stale on exactly the desktop-app days the mechanism exists for.
+const rawAutoRefresh = process.env.LLMDASH_CLAUDE_AUTOREFRESH;
+const claudeAutoRefresh = !(rawAutoRefresh === '0'
+  || (typeof rawAutoRefresh === 'string' && rawAutoRefresh.toLowerCase() === 'false'));
+
 export const config = {
   // Bind to 0.0.0.0 so the dashboard is reachable from other devices on the
   // tailnet. Tailscale (not the dashboard) is the access boundary.
@@ -42,6 +58,20 @@ export const config = {
   // the stale band is always derived as 2× — never independently configurable.
   claudeMaxAgeMs,
   get claudeStaleAfterMs() { return 2 * this.claudeMaxAgeMs; },
+
+  // Claude auto-refresh: when the reading is stale during Claude activity, a
+  // short-lived probe session runs /usage and captures the pane (never a
+  // message, never plan usage). The command mirrors codexCmd: a service runs
+  // under launchd's minimal PATH, so it may need an absolute path — the macOS
+  // installer bakes one in.
+  claudeCmd: process.env.LLMDASH_CLAUDE_CMD || 'claude',
+  claudeRefreshTimeoutMs,
+  claudeAutoRefresh,
+  // The probe's fixed working directory — deliberately NOT configurable, and
+  // install-independent (under ~/.llmdash/, outside any checkout) so dev and
+  // installed copies share the ONE "trust this folder" entry ever created in
+  // ~/.claude.json. Disclosed in the startup log and README.
+  claudeRefreshCwd: path.join(home, '.llmdash', 'claude-refresh-cwd'),
 
   // Codex (ChatGPT Plus) — local data + how to read its limits.
   codexDir: process.env.LLMDASH_CODEX_DIR || path.join(home, '.codex'),

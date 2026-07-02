@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llmdash — auto-refresh diagnostics (design direction)</title>
+<style>
+/* ============================================================
+   1. Tokens + component styles — lifted verbatim from
+      public/styles.css so this gallery matches the live
+      dashboard by construction. Auto light/dark included.
+      .age-pill and .stale-note shipped last feature; they are
+      NOT new here — this feature reuses them unchanged.
+   ============================================================ */
+:root {
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --border: #e6e6e6;
+  --text: #15171a;
+  --muted: #6b7280;
+  --faint: #9ca3af;
+  --good: #16a34a;
+  --warn: #d97706;
+  --crit: #dc2626;
+  --accent: #2563eb;
+  --accent-bg: #eef2ff;
+  --warn-bg: #fef3e7;
+  --grid: #eef0f2;
+  --track: #eceef0;
+  --good-bg: #e7f6ec;
+  --crit-bg: #fdeaea;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1013;
+    --panel: #161a1f;
+    --border: #262b32;
+    --text: #e7eaee;
+    --muted: #9aa3ad;
+    --faint: #6b7480;
+    --accent: #6b9bff;
+    --accent-bg: #18203a;
+    --warn-bg: #2a1f12;
+    --grid: #21262d;
+    --track: #232830;
+    --good-bg: #122a1b;
+    --crit-bg: #2c1517;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  padding: 20px 16px 40px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.wordmark { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; }
+.wordmark .dot { color: var(--faint); margin: 0 6px; }
+.wordmark .scope { color: var(--muted); font-weight: 500; }
+.spec-sub { font-size: 0.8rem; color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 22px; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.win-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); }
+.win-reset { font-size: 0.78rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.remaining { font-family: var(--mono); font-size: 3.4rem; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.remaining .unit { font-size: 1.4rem; color: var(--muted); margin-left: 2px; }
+.sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 16px; }
+.bar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; width: 0; transition: width 0.4s ease; }
+.is-good { color: var(--good); } .is-warn { color: var(--warn); } .is-crit { color: var(--crit); }
+.fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
+.burn { background: var(--accent-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.burn-rate { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.burn-rate .u { font-size: 0.85rem; color: var(--muted); margin-left: 4px; font-weight: 500; }
+.burn-proj { display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; color: var(--text); }
+.burn-proj strong { font-variant-numeric: tabular-nums; }
+.burn-cap { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+.burn-line { display: grid; grid-template-columns: 64px 1fr 92px; align-items: start; column-gap: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.burn-line:first-child { padding-top: 0; border-top: 0; }
+.burn-win { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--muted); font-family: var(--mono); padding-top: 2px; white-space: nowrap; }
+.burn-text { min-width: 0; }
+.burn-pill { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; font-family: var(--mono); padding: 3px 0; border-radius: 999px; white-space: nowrap; text-align: center; align-self: start; }
+.pill-good { color: var(--good); background: var(--good-bg); }
+.pill-warn { color: var(--warn); background: var(--warn-bg); }
+.pill-crit { color: var(--crit); background: var(--crit-bg); }
+.tool { margin-bottom: 0; }
+.tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 2px 10px; flex-wrap: wrap; }
+.tool-name { font-size: 0.95rem; font-weight: 600; font-family: var(--mono); }
+.tool-sub { font-size: 0.74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.empty-note { font-size: 0.78rem; color: var(--faint); margin-top: 12px; font-style: italic; }
+code { font-family: var(--mono); font-size: 0.92em; }
+
+/* Reading-age status pill — shipped last feature, unchanged. Band-driven
+   (fresh/aging/stale from the server-supplied thresholds), independent of
+   the diagnostic note below the gauges. */
+.age-pill {
+  display: inline-block;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-family: var(--mono);
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+/* Data-quality note — shipped last feature, unchanged. This feature adds
+   NO CSS: the two new diagnostic states are new copy branches rendered
+   with this same component, in the same slot (between the gauges and the
+   pacing callout). One note at a time — the new notes carry the staleness
+   sentence themselves, so nothing doubles up. */
+.stale-note {
+  background: var(--crit-bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--crit);
+  border-radius: 10px;
+  padding: 11px 14px;
+  margin: 12px 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.stale-note strong { font-weight: 600; }
+
+/* ============================================================
+   2. Spec-gallery chrome — NOT product UI. Dashed frames and
+      state tags exist only to label the four states here.
+   ============================================================ */
+.spec-intro { font-size: 0.85rem; color: var(--muted); margin: 0 2px 26px; }
+.spec-intro b { color: var(--text); }
+.state {
+  position: relative;
+  border: 1px dashed var(--faint);
+  border-radius: 14px;
+  padding: 22px 16px 16px;
+  margin-bottom: 30px;
+}
+.state-tag {
+  position: absolute;
+  top: -0.62em;
+  left: 14px;
+  background: var(--bg);
+  padding: 0 8px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--accent);
+}
+.state-desc { font-size: 0.74rem; color: var(--faint); margin: -6px 2px 16px; }
+.spec-notes { margin: 34px 2px 0; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.76rem; color: var(--muted); }
+.spec-notes .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+.spec-notes ol { margin: 0; padding-left: 1.2em; }
+.spec-notes li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">llmdash<span class="dot">·</span><span class="scope">design</span></div>
+  <div class="spec-sub">claude-auto-refresh — the two new diagnostic notes</div>
+</header>
+
+<p class="spec-intro">
+  The Claude limit reading now refreshes itself in the background. Almost all of
+  that is invisible — the entire visible delta is <b>two new copy branches</b> on
+  the existing note surface below the gauges: <b>auto-refresh-failing</b> (stale
+  reading + 3 consecutive failed refresh attempts, cause named) and
+  <b>auto-refresh-disabled</b> (stale reading while
+  <code>LLMDASH_CLAUDE_AUTOREFRESH=0</code>). No new gauges, no new pills, no
+  status chrome while things work — <b>silence is health</b>. The aging/stale
+  pills and every other element are the shipped ones, unchanged.
+</p>
+
+<!-- ================= STATE A · HEALTHY (SILENT) ================= -->
+<div class="state">
+  <span class="state-tag">A · healthy — silence</span>
+  <p class="state-desc">A fresh reading is auto-refresh doing its job. No pill, no note, no mechanism indicator — exactly today's fresh rendering. Health earns no chrome.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max · updated 2m ago</span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 3h 10m</span></div>
+        <div class="remaining is-good">58<span class="unit">%</span></div>
+        <div class="sub">remaining · 42% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:58%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 5d 2h</span></div>
+        <div class="remaining is-good">81<span class="unit">%</span></div>
+        <div class="sub">remaining · 19% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:81%"></div></div>
+      </div>
+    </div>
+    <div class="burn">
+      <div class="burn-rate">1.8M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text">On pace to stay under the 5-hour limit<span class="burn-cap">resets in 3h 10m — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text">On pace to stay under the Weekly limit<span class="burn-cap">resets in 5d 2h — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============ STATE B · AUTO-REFRESH-FAILING (PARSE-FAILED) ============ -->
+<div class="state">
+  <span class="state-tag">B · auto-refresh-failing · parse-failed</span>
+  <p class="state-desc">Fires only when the reading is stale <em>and</em> 3+ refresh attempts in a row have failed. The note takes the plain stale note's place (one reason at a time) and carries the staleness sentence itself, then names the cause in plain words and the manual fix. The stale pill is the shipped band cue, unchanged. Gauges keep rendering the last capture — flagged, never blanked.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max · updated 47m ago <span class="age-pill pill-crit">stale</span></span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 1h 26m</span></div>
+        <div class="remaining is-warn">34<span class="unit">%</span></div>
+        <div class="sub">remaining · 66% used</div>
+        <div class="bar"><div class="bar-fill fill-warn" style="width:34%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 2d 9h</span></div>
+        <div class="remaining is-good">72<span class="unit">%</span></div>
+        <div class="sub">remaining · 28% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:72%"></div></div>
+      </div>
+    </div>
+    <div class="stale-note"><strong>Auto-refresh is failing</strong> — updated 47m ago; the limits above may have moved since. The <code>/usage</code> screen couldn't be read (a Claude Code update may have changed it) — open a Claude Code CLI session to refresh the reading manually.</div>
+    <div class="burn">
+      <div class="burn-rate">2.1M<span class="u">tokens / hr</span></div>
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text">On pace to hit the 5-hour limit in <strong>~1h 2m</strong><span class="burn-cap">before it resets in 1h 26m — at risk</span></span><span class="burn-pill pill-warn">at risk</span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text">On pace to stay under the Weekly limit<span class="burn-cap">resets in 2d 9h — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ================ STATE C · AUTO-REFRESH-DISABLED ================ -->
+<div class="state">
+  <span class="state-tag">C · auto-refresh-disabled</span>
+  <p class="state-desc">The reading went stale while auto-refresh was switched off. The note owns the explanation: off by your own setting (named), how to re-enable, and the manual remedy. Same component, same slot — the off state is a data-quality fact about the gauges above it, so it keeps the same tint as any stale reading.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max · updated 3h 12m ago <span class="age-pill pill-crit">stale</span></span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">resets in 1h 8m</span></div>
+        <div class="remaining is-good">76<span class="unit">%</span></div>
+        <div class="sub">remaining · 24% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:76%"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">resets in 3d 18h</span></div>
+        <div class="remaining is-good">68<span class="unit">%</span></div>
+        <div class="sub">remaining · 32% used</div>
+        <div class="bar"><div class="bar-fill fill-good" style="width:68%"></div></div>
+      </div>
+    </div>
+    <div class="stale-note"><strong>Auto-refresh is off</strong> (<code>LLMDASH_CLAUDE_AUTOREFRESH=0</code>) — updated 3h 12m ago; the limits above may have moved since. Unset the variable and restart to re-enable, or open a Claude Code CLI session to refresh the reading manually.</div>
+    <div class="burn">
+      <div class="burn-rate">940k<span class="u">tokens / hr</span></div>
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text">On pace to stay under the 5-hour limit<span class="burn-cap">resets in 1h 8m — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text">On pace to stay under the Weekly limit<span class="burn-cap">resets in 3d 18h — comfortable</span></span><span class="burn-pill pill-good">on pace</span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ================ STATE D · FIRST RUN (UNCHANGED) ================ -->
+<div class="state">
+  <span class="state-tag">D · first run — no reading ever</span>
+  <p class="state-desc">Before any refresh attempt has happened there is nothing to report failing or disabled — the existing first-run state renders unchanged, and the new notes never claim a failure that hasn't occurred. No fabricated age, no fabricated zeros.</p>
+
+  <section class="tool">
+    <div class="tool-head">
+      <span class="tool-name">Claude Code</span>
+      <span class="tool-sub">Max</span>
+    </div>
+    <div class="gauges">
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">5-hour</span><span class="win-reset">—</span></div>
+        <div class="remaining">—<span class="unit">%</span></div>
+        <div class="sub">waiting for a reading</div>
+        <div class="bar"><div class="bar-fill" style="width:0"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="win-label">Weekly</span><span class="win-reset">—</span></div>
+        <div class="remaining">—<span class="unit">%</span></div>
+        <div class="sub">waiting for a reading</div>
+        <div class="bar"><div class="bar-fill" style="width:0"></div></div>
+      </div>
+    </div>
+    <div class="empty-note">No statusline reading has arrived yet — these gauges fill in when a Claude Code session renders its status line (that's what reports the account-wide limits to llmdash). Open a Claude Code CLI session to capture the first reading.</div>
+    <div class="burn">
+      <div class="burn-proj">
+        <div class="burn-line"><span class="burn-win">5-hour</span><span class="burn-text"><span class="burn-cap">limit data not available yet</span></span><span></span></div>
+        <div class="burn-line"><span class="burn-win">Weekly</span><span class="burn-text"><span class="burn-cap">limit data not available yet</span></span><span></span></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="spec-notes">
+  <div class="label">Notes on this direction</div>
+  <ol>
+    <li><b>Zero new CSS, zero new layout:</b> both new states are copy branches rendered with the shipped data-quality note (<code>.stale-note</code>) in its existing slot between the gauges and the pacing callout. The age pill, gauges, pacing rows, tiles, mix, and trends are untouched in every state; Codex is untouched.</li>
+    <li><b>One note at a time:</b> the server reports exactly one reason (failing &gt; disabled &gt; stale-reading &gt; no-statusline-reading). The new notes open with the staleness sentence themselves, so a failing or disabled state never stacks a second stale note.</li>
+    <li><b>Silence is health:</b> when auto-refresh is working, nothing in the UI says so — the fresh age is the only evidence. No status indicator was invented for the healthy path.</li>
+    <li><b>Text first, cause in plain words:</b> each note states what's happening ("Auto-refresh is failing" / "Auto-refresh is off"), why, and the fix — never a bare error code. The four failure causes each get their own sentence (see design-spec.md copy table).</li>
+    <li><b>Live ages:</b> the note's "updated 47m ago" re-derives from <code>capturedAt</code> on the existing 1-second render tick, same as the stale note today; tabular-nums keeps it from jittering.</li>
+    <li><b>Omitted for focus:</b> activity tiles, token mix, and trends render below the pacing callout exactly as today in every state — the diagnostics never touch them.</li>
+  </ol>
+</div>
+
+</body>
+</html>

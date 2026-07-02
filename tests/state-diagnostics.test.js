@@ -12,6 +12,9 @@ process.env.LLMDASH_DATA_DIR = path.join(tmp, 'data');
 process.env.LLMDASH_CLAUDE_DIR = path.join(tmp, 'claude');
 process.env.LLMDASH_CODEX_DIR = path.join(tmp, 'codex');
 process.env.LLMDASH_CODEX_CMD = path.join(tmp, 'missing', 'codex');
+// Auto-refresh state must be the enabled zero-attempt baseline for these
+// diagnostics (a host env off-switch would swap the expected reason codes).
+delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
 const { buildState } = await import('../src/server.js');
 const { config } = await import('../config.js');

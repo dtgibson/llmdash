@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
+import { getRefreshState } from './claude-refresh.js';
 import { codexLimitsDiagnostic } from './codex-limits.js';
 import { healthLines, freshnessModeLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
@@ -100,7 +101,9 @@ export function computeHeadroom(tools) {
   };
 }
 
-export function buildState(nowMs = Date.now()) {
+// `refresh` is injectable for tests; the default is the live auto-refresh
+// mechanism state maintained by the poller (src/claude-refresh.js).
+export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
   const claude = toolWrap('claude-code', 'Claude Code', 'Max',
     readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
   const codex = toolWrap('codex', 'Codex', 'ChatGPT Plus',
@@ -116,18 +119,31 @@ export function buildState(nowMs = Date.now()) {
   };
   codex.freshness = null;
   // When a tool has no limit data — or the data it has is stale — say WHY (the
-  // server knows; the client shouldn't guess). Exactly one reason code or null:
-  // no reading ever → no-statusline-reading; reading older than the stale band
-  // → stale-reading (the gauges still render — flagged, never blanked);
-  // fresh/aging → null. Claude's only source is the statusline capture; Codex's
-  // diagnostic is maintained by the poller (no subprocess on this path).
-  if (!claude.haveLimits) {
-    claude.limitsDiagnostic = { reason: 'no-statusline-reading' };
-  } else {
+  // server knows; the client shouldn't guess). Exactly one reason code or null,
+  // in precedence order (FR-18): auto-refresh-failing > auto-refresh-disabled >
+  // stale-reading / no-statusline-reading. The auto-refresh codes fire only
+  // while the reading is stale or absent AND their condition holds — 3+
+  // consecutive probe failures, or the off-switch. Zero attempts means zero
+  // failures, so a fresh install still shows the existing codes (first-run
+  // honesty, FR-19). Gauges keep rendering the last capture in every state —
+  // flagged, never blanked. Codex's diagnostic is maintained by the poller
+  // (no subprocess on this path).
+  {
     const ageMs = claude.dataAt ? nowMs - Date.parse(claude.dataAt) : null;
-    claude.limitsDiagnostic = ageMs != null && ageMs > config.claudeStaleAfterMs
-      ? { reason: 'stale-reading', capturedAt: claude.dataAt, ageMs }
-      : null;
+    const staleReading = ageMs != null && ageMs > config.claudeStaleAfterMs;
+    const staleOrAbsent = !claude.haveLimits || staleReading;
+    const ageFields = claude.haveLimits && claude.dataAt ? { capturedAt: claude.dataAt, ageMs } : {};
+    if (staleOrAbsent && refresh.consecutiveFailures >= 3) {
+      claude.limitsDiagnostic = { reason: 'auto-refresh-failing', cause: refresh.lastFailureCause, ...ageFields };
+    } else if (staleOrAbsent && refresh.disabled) {
+      claude.limitsDiagnostic = { reason: 'auto-refresh-disabled', ...ageFields };
+    } else if (!claude.haveLimits) {
+      claude.limitsDiagnostic = { reason: 'no-statusline-reading' };
+    } else {
+      claude.limitsDiagnostic = staleReading
+        ? { reason: 'stale-reading', capturedAt: claude.dataAt, ageMs }
+        : null;
+    }
   }
   if (codex.haveLimits) {
     codex.limitsDiagnostic = null;

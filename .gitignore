@@ -7,4 +7,7 @@ data/
 *.log
 .DS_Store
 
+# Local editor/agent tooling (dev-only: preview launch config, git worktrees).
+.claude/
+
 # Weft planning docs (pipeline/) are intentionally tracked as the project record.

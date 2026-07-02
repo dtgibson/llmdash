@@ -153,9 +153,42 @@ function mixHtml(a) {
 // diagnostic is present, INCLUDING while the gauges still show data
 // (stale-reading: the last capture keeps rendering — flagged, never blanked).
 // All dynamic values (cmd, detail) are escaped before touching innerHTML.
+// The auto-refresh failure causes, each mapped to one FIXED sentence (the
+// verbatim copy table in pipeline/claude-auto-refresh/design-spec.md). The
+// cause code crosses the wire as an enum and is NEVER rendered raw — an
+// unmapped value falls back to the generic sentence. `remedy` is the manual
+// remedy verb: "refresh the reading manually" with a stale reading, "capture
+// the first reading manually" when no reading has ever arrived.
+const AUTOREFRESH_CAUSE_SENTENCES = {
+  'spawn-error': (remedy) => `The <code>claude</code> command couldn't be run: set <code>LLMDASH_CLAUDE_CMD</code> to the absolute path from <code>which claude</code> and restart the service, or open a Claude Code CLI session to ${remedy}.`,
+  'timeout': (remedy) => `Refresh attempts are timing out before a reading arrives — open a Claude Code CLI session to ${remedy}.`,
+  'parse-failed': (remedy) => `The <code>/usage</code> screen couldn't be read (a Claude Code update may have changed it) — open a Claude Code CLI session to ${remedy}.`,
+  'no-reading-produced': (remedy) => `Refresh attempts finish without producing a reading — open a Claude Code CLI session to ${remedy}.`,
+};
+const AUTOREFRESH_FALLBACK_SENTENCE = (remedy) => `Refresh attempts keep failing — open a Claude Code CLI session to ${remedy}.`;
+
 function limitsNoteHtml(tool) {
   const d = tool.limitsDiagnostic;
   if (!d) return '';
+  // Auto-refresh diagnostics first — the branch order mirrors the server's
+  // precedence (failing > disabled > stale). Both render with the shipped
+  // data-quality note component in its existing slot; the opening fragment
+  // carries the staleness sentence itself, so nothing doubles up. The age
+  // re-derives from capturedAt on each render tick, like the stale note.
+  if (d.reason === 'auto-refresh-failing' || d.reason === 'auto-refresh-disabled') {
+    const capturedAt = (tool.freshness && tool.freshness.capturedAt) || d.capturedAt;
+    const age = fmtAge(capturedAt); // null when no reading has ever arrived
+    const opening = age ? `— ${age}; the limits above may have moved since.` : `— no reading has arrived yet.`;
+    const remedy = age ? 'refresh the reading manually' : 'capture the first reading manually';
+    if (d.reason === 'auto-refresh-disabled') {
+      return `<div class="stale-note"><strong>Auto-refresh is off</strong> (<code>LLMDASH_CLAUDE_AUTOREFRESH=0</code>) ${opening} Unset the variable and restart to re-enable, or open a Claude Code CLI session to ${remedy}.</div>`;
+    }
+    // Own-key lookup only: a plain [d.cause] would also hit inherited Object
+    // keys ('constructor', '__proto__', …), bypassing the intended fallback.
+    const sentence = (Object.prototype.hasOwnProperty.call(AUTOREFRESH_CAUSE_SENTENCES, d.cause)
+      ? AUTOREFRESH_CAUSE_SENTENCES[d.cause] : AUTOREFRESH_FALLBACK_SENTENCE)(remedy);
+    return `<div class="stale-note"><strong>Auto-refresh is failing</strong> ${opening} ${sentence}</div>`;
+  }
   if (d.reason === 'stale-reading') {
     // The age re-derives from capturedAt on each render tick, so the note's
     // stated age never freezes between fetches.
@@ -164,7 +197,7 @@ function limitsNoteHtml(tool) {
   }
   let text;
   if (d.reason === 'no-statusline-reading') {
-    text = `No statusline reading has arrived yet — these gauges fill in when a ${esc(tool.label)} session renders its status line (that's what reports the account-wide limits to llmdash). Open a Claude Code CLI session to capture the first reading.`;
+    text = `No statusline reading has arrived yet — these gauges fill in when a ${esc(tool.label)} session renders its status line (that's what reports the account-wide limits to llmdash); auto-refresh also captures one automatically within a few minutes of Claude activity. Open a Claude Code CLI session to capture the first reading.`;
   } else if (d.reason === 'codex-cmd-failed') {
     text = `The configured codex command (<code>${esc(d.cmd || 'codex')}</code>) couldn't be run${d.detail ? ` (${esc(d.detail)})` : ''}, so live limits can't be read. Set <code>LLMDASH_CODEX_CMD</code> to the absolute path from <code>which codex</code> and restart the service — the macOS installer does this when re-run.`;
   } else {

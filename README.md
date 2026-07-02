@@ -42,27 +42,53 @@ included script by adding this to `~/.claude/settings.json`:
   }
 }
 ```
-The gauges populate the first time a Claude Code session renders its status
-line — until a reading has arrived, they stay empty and the dashboard says so
-(if your Claude Code sessions never render the CLI status line, no reading is
-produced and the gauges stay empty). The activity stats work right away either
+The gauges populate the first time a reading arrives — a Claude Code session
+rendering its status line captures one, and auto-refresh (below) captures one
+automatically within a few minutes of Claude activity. Until then they stay
+empty and the dashboard says so. The activity stats work right away either
 way — they come from your local logs. The script still prints a normal status
 line (model, folder, and 5-hour remaining), so you keep a useful status line.
 
-### Reading freshness
-Claude limit readings refresh **only when a real Claude Code session renders
-its status line** — the desktop app doesn't render the statusline, so on
-desktop-app-only days the captured reading just ages. The dashboard never
-hides that: the Claude header shows the reading's age ("updated 7m ago"), and
-as the reading ages it picks up a status pill — **aging** past 5 minutes, then
-**stale** past 10 minutes, with a note under the gauges stating the age and
-the remedy. The gauges keep showing the last capture — flagged, never blanked.
-To refresh a stale reading (or capture the first one), open a Claude Code CLI
-session; an active CLI session keeps the reading seconds-fresh.
+### Reading freshness & auto-refresh
+Claude limit readings arrive two ways. Any real Claude Code CLI session that
+renders its status line captures one (the desktop app doesn't render the
+statusline). And **auto-refresh** covers the rest: when the reading is older
+than 5 minutes while Claude has been active in the last 10 (newest transcript
+under `~/.claude/projects`), the dashboard spawns a **short-lived Claude Code
+session** in a dedicated folder, reads its `/usage` screen, and closes it —
+typically a few seconds of lifetime, at most one attempt per 5 minutes. The
+probe types only the `/usage` command: **no message is ever sent, no plan
+usage is consumed, and no transcript is written**, so your activity stats stay
+clean. While Claude is idle the dashboard does zero refresh work — the reading
+can't have changed, and the age label carries the truth. Failed attempts back
+off (5 minutes doubling to a 60-minute cap), and after 3 consecutive failures
+the UI says auto-refresh is failing and why.
 
-The bands come from one knob: `LLMDASH_CLAUDE_MAX_AGE_MS` (default `300000` =
-5 minutes) sets when a reading counts as aging; stale is always 2× that
-(default 10 minutes) and is not configurable separately.
+Two Claude-owned files are touched, both written by Claude Code itself and
+disclosed here and in the startup log: `~/.claude.json` holds a **one-time
+"trust this folder" entry** for the probe's dedicated directory
+(`~/.llmdash/claude-refresh-cwd`), and `~/.claude/history.jsonl` gains one
+line (the `/usage` command) per refresh.
+
+The dashboard never hides a reading's age: the Claude header shows it
+("updated 7m ago"), and as the reading ages it picks up a status pill —
+**aging** past 5 minutes, then **stale** past 10 minutes, with a note under
+the gauges stating the age and the remedy. The gauges keep showing the last
+capture — flagged, never blanked. The manual remedy always works too: open a
+Claude Code CLI session and the next statusline render refreshes the reading.
+
+The knobs (all optional):
+- `LLMDASH_CLAUDE_AUTOREFRESH` — auto-refresh is **on by default**; set `0`
+  (or `false`) to turn it off. Off means zero spawns, and a stale reading says
+  "Auto-refresh is off" instead of failing silently.
+- `LLMDASH_CLAUDE_CMD` (default `claude`) — the claude binary the probe runs.
+  Under launchd this **must be an absolute path** (same reason as
+  `LLMDASH_CODEX_CMD`); the macOS installer bakes it in.
+- `LLMDASH_CLAUDE_REFRESH_TIMEOUT_MS` (default `30000`, clamped 5 s–5 m) — how
+  long one probe may run before it's torn down and counted a failure.
+- `LLMDASH_CLAUDE_MAX_AGE_MS` (default `300000` = 5 minutes) — the one
+  freshness knob: the refresh threshold and the aging band; stale (and the
+  activity window) is always 2× that and is not configurable separately.
 
 ## Connect Codex
 Codex limits come from the **Codex app-server**, so the dashboard just needs to be
@@ -81,6 +107,11 @@ Codex activity stats read from `~/.codex/sessions` and fill in as you use Codex.
 - **Claude limits** come from Claude Code's statusline output (the sanctioned
   path — no credentials reused). The script writes `rate_limits` to
   `data/claude-ratelimits.json`; the server reads it and logs snapshots to SQLite.
+- **Claude auto-refresh** keeps that reading fresh on desktop-app-only days: a
+  stale reading during Claude activity triggers a short-lived `/usage` probe
+  session (on the interval poller, never per request) that writes the same
+  file. Newest capture wins — a probe never overwrites a newer statusline
+  reading.
 - **Codex limits** come from `codex app-server` (`account/rateLimits/read`),
   polled on an interval (not per request) and snapshotted to the same table with
   `source = "codex"`; a rollout-file cache is used as a fallback.
@@ -139,9 +170,15 @@ All optional, via environment variables:
   `LLMDASH_HOST=100.x.y.z`.)
 - `LLMDASH_POLL_MS` (default `60000`)
 - `LLMDASH_CLAUDE_MAX_AGE_MS` (default `300000` = 5 minutes) — Claude reading
-  age at which the dashboard flags it "aging"; "stale" is always 2× this value.
-  Clamped: non-numeric or ≤ 0 falls back to the default, and values above
-  7 days (`604800000`) clamp to 7 days
+  age at which the dashboard flags it "aging" and auto-refresh may act;
+  "stale" is always 2× this value. Clamped: non-numeric or ≤ 0 falls back to
+  the default, and values above 7 days (`604800000`) clamp to 7 days
+- `LLMDASH_CLAUDE_AUTOREFRESH` (default on) — set `0` or `false` to disable
+  the auto-refresh probe entirely (no other value disables it)
+- `LLMDASH_CLAUDE_CMD` (default `claude`) — path to the claude binary for the
+  auto-refresh probe (absolute under launchd; the installer bakes it in)
+- `LLMDASH_CLAUDE_REFRESH_TIMEOUT_MS` (default `30000`) — one probe attempt's
+  time budget; clamped to 5000–300000 ms
 - `LLMDASH_CODEX_CMD` (default `codex`) — path to the codex binary for the limits read
 - `LLMDASH_CODEX_DIR` (default `~/.codex`) — where Codex's session logs live
 
