@@ -1,5 +1,36 @@
 # Decisions — llmdash
 
+## Statusline auto-refresh refuted by spike; honest freshness layer shipped — 2026-07-01 (feature)
+**Decision:** Drop the auto-spawn mechanism (periodically spawning a headless
+Claude Code CLI session so the statusline refreshes the limit reading) and ship
+the named fallback: a reading-age cue in the Claude tool header, an "aging"
+flag past 5 minutes and a "stale" flag past 10 with a note naming the
+CLI-session remedy, stale gauges kept rendering (never blanked), and honest
+startup/README statements of the manual-refresh reality.
+**Rationale:** The Stage 3 spike empirically refuted the mechanism: a
+prompt-free Claude Code session (CLI 2.1.198) never receives `rate_limits` in
+its statusline payload — the reading arrives with API traffic, not session
+startup (statusline confirmed executing; 48 s and 150 s watches both empty;
+evidence in `pipeline/statusline-auto-refresh/spike-report.md`). The
+launchd-style background context itself was workable; the payload is the
+blocker. The 5m/10m bands are the user's product decision at design review
+(tightened from the planned 15m/60m — a heavy session can burn the whole
+5-hour window in under an hour); stale is always 2× the single
+`LLMDASH_CLAUDE_MAX_AGE_MS` knob (default 300000, clamped both directions
+with a 7-day ceiling).
+**Implications:** Auto-refresh is refuted for now, not forever — the one
+untested revival avenue is whether `/status` (a client-side slash command,
+not a message) populates `rate_limits`; `auto-refresh-failing` /
+`auto-refresh-disabled` are reserved diagnostic-code names so a revival slots
+in without a contract break. Anything built on Claude limit readings (limit
+alerts, tray badge) inherits the manual-refresh reality and should respect
+the freshness bands. Security review PASSED after an in-stage resolution
+round: the raw `capturedAt` string was served and persisted verbatim (a
+latent stored-XSS vector — now normalized to canonical ISO at ingest) and the
+knob lacked an upper clamp (2× could overflow to `Infinity` → `null` on the
+wire); both fixed by the Engineer and independently re-verified with hostile
+probes (73/73 tests).
+
 ## Fresh install showed no usage data — installer, logging, and copy made honest — 2026-07-01 (fix)
 **Bug:** A fresh macOS install showed four empty gauges and misleading text,
 all silently — no data, no log lines, and a Codex note that was factually false

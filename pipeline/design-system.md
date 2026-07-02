@@ -49,9 +49,22 @@ Spacing & shape:
   actionable insight. Stacks vertically: a rate line, then one row per window.
 - **Pacing pill** (`.burn-pill` + `.pill-good` / `.pill-warn` / `.pill-crit`): a
   small status-tinted chip (ON PACE / AT RISK / LIMIT REACHED) in each window's
-  pacing row inside the burn callout. Established at the weekly-pacing feature
-  (2026-06-17); color by remaining-% status, backed by the good-bg / warn-bg /
-  crit-bg tokens.
+  pacing row inside the burn callout. Color by remaining-% status, backed by
+  the good-bg / warn-bg / crit-bg tokens.
+- **Age pill** (`.age-pill` + `.pill-warn` / `.pill-crit`): inline status chip
+  in a tool header's sub line flagging the freshness of a reading ("aging" /
+  "stale"). Same chip grammar as the pacing pill (uppercase via CSS — DOM text
+  stays lowercase — mono, 999px radius) in an inline variant: padding 2px 9px,
+  margin-left 6px, vertical-align 1px, nowrap. A healthy state renders no pill
+  at all, so escalation is structural, never color-alone; the flag word itself
+  carries the meaning first.
+- **Stale-data note** (`.stale-note`): a crit-tinted callout for a data-quality
+  warning, rendered directly below the gauges it qualifies. Reuses the headroom
+  strip's grammar (tinted background + 3px left accent border) with the crit
+  tokens (`--crit-bg` background, `--crit` left border), radius 10px, padding
+  11px 14px, tabular-nums so live ages don't jitter. States the problem plainly
+  and names the remedy; lead words bolded. Qualified data keeps rendering —
+  flagged, never blanked.
 - **Section label** (`.section-label`): small uppercase header above a cluster.
 - **Freshness indicator:** pulse dot + "updated Ns ago", tabular-nums.
 - **Honesty line:** when a number's source or scope differs from the headline

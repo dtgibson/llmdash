@@ -8,6 +8,8 @@
 
 ## Patterns
 - Configuration lives in `config.js`, overridable via `LLMDASH_*` env vars.
+  **Never ship a dead knob** — an env var that drives nothing is dishonest
+  surface.
 - Persist only what has no other history: limit **snapshots** go to SQLite
   (deduped). Activity/token stats are derived on demand from Claude Code logs —
   no extra storage.
@@ -24,8 +26,14 @@
   flowing through the shared path — don't fork the store or the renderer.
 - **Clamp externally-sourced percentages** (limit used %) to 0–100 before storing
   or deriving from them.
+- **Normalize externally-sourced timestamps to canonical ISO at ingest**
+  (`new Date(Date.parse(v)).toISOString()`) — `Date.parse` validation alone
+  doesn't guarantee a clean string. Never default a missing/unparseable
+  timestamp to "now"; fall back to file mtime (a now-fallback makes malformed
+  data eternally fresh).
 - When refactoring a single-source view to multi-source, **diff the rendered stat
-  set** so nothing silently drops.
+  set** so nothing silently drops. When a shared formatting helper changes, the
+  diff must enumerate the helper's call sites, not just the feature's own block.
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path).
 - Limit and headroom logic consider **all windows** (5-hour and weekly), not just
@@ -44,6 +52,12 @@
 - Empty/error limit states cross the wire as **enum reason codes**
   (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
   the few free-form fields. The server knows the cause — the client never guesses.
+  A non-null diagnostic can coexist with rendered gauges (`stale-reading`).
+  `auto-refresh-failing` / `auto-refresh-disabled` are **reserved** code names
+  for a future auto-refresh revival — never reuse them.
+- **Freshness thresholds are server-supplied** in the API payload (`freshness`
+  on the tool object); the client derives display bands live from them on the
+  render tick and never hardcodes threshold values.
 - The startup data-source health readout lives in `src/health.js`
   (`healthLines()`): a new tool/source adds a line there naming what's missing,
   why it matters, and the fix. Health probes are cheap fs checks — no subprocess,
