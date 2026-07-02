@@ -35,7 +35,19 @@
   set** so nothing silently drops. When a shared formatting helper changes, the
   diff must enumerate the helper's call sites, not just the feature's own block.
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
-  subprocess; keep that off the request path).
+  subprocess; keep that off the request path). The Claude reading is also refreshed
+  there: when it goes stale **and** Claude has been active, the poller spawns a
+  short-lived pty session that sends `/usage` and scrapes the rendered pane into the
+  same reading file — activity-gated, on by default, off via
+  `LLMDASH_CLAUDE_AUTOREFRESH=0`. The TUI scrape is version-brittle; a layout it
+  can't parse fails loudly as `parse-failed`, never a partial or fabricated reading.
+- **Any subprocess/pty probe follows the fixed-runner pattern** in
+  `src/claude-refresh.js`: a fixed-constant runner (`/bin/sh` + `/usr/bin/script`
+  by absolute path), config entering **only** as quoted positional argv (never
+  interpolated into a shell string), an explicit env **allowlist** (never inherit
+  the parent's `CLAUDECODE*`/`ANTHROPIC_*`/`LLMDASH_*`), a dedicated fixed cwd, and
+  ancestry-gated teardown that structurally cannot signal the user's live sessions.
+  This is the codebase form of the zero-shell-injection rule.
 - Limit and headroom logic consider **all windows** (5-hour and weekly), not just
   one. Each tool shows a pacing predictor for **both** windows at once; a maxed
   window (≈0 remaining) reads "limit reached" and is binding **per window** (one
@@ -53,8 +65,16 @@
   (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
   the few free-form fields. The server knows the cause — the client never guesses.
   A non-null diagnostic can coexist with rendered gauges (`stale-reading`).
-  `auto-refresh-failing` / `auto-refresh-disabled` are **reserved** code names
-  for a future auto-refresh revival — never reuse them.
+  **Client enum→copy tables must use own-key lookups** — gate every code→copy
+  table with `Object.prototype.hasOwnProperty.call(TABLE, code)` (or a
+  null-prototype object), never a bare `TABLE[code] || fallback`. A bare bracket
+  lookup also hits `Object.prototype` keys (`constructor`, `toString`,
+  `__proto__`), so an unexpected code can bypass the fallback, throw mid-render,
+  or leak `[object …]` into copy.
+- `auto-refresh-failing` (with a `cause`: `spawn-error` / `timeout` /
+  `parse-failed`) and `auto-refresh-disabled` are the **live** diagnostic codes
+  for the Claude `/usage` auto-refresh probe — no longer reserved. The cause
+  crosses the wire as an enum; the client never renders it raw.
 - **Freshness thresholds are server-supplied** in the API payload (`freshness`
   on the tool object); the client derives display bands live from them on the
   render tick and never hardcodes threshold values.
@@ -77,4 +97,6 @@
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
   (node:test).
-- Limit data requires Claude Code's statusline pointed at `scripts/statusline.js`.
+- Claude limit data comes from either the statusline (`scripts/statusline.js`
+  writing the reading file) or the auto-refresh `/usage` probe; the latter needs a
+  resolvable `claude` binary (`LLMDASH_CLAUDE_CMD`, surfaced by `healthLines()`).

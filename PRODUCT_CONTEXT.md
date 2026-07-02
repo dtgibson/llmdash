@@ -20,19 +20,24 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 - **Usage trends** — a Trends section below the gauges charts usage over time per
   tool (limit burn, tokens per day, cache rate, estimated value) in vanilla SVG,
   with a 24h / 7d / 30d range switch.
-- **Claude reading freshness** — the Claude limit reading shows its age in the
-  tool header, flagged "aging" past 5 minutes and "stale" past 10 with a note
-  naming the CLI-session remedy, while stale gauges keep rendering the last
-  capture.
+- **Claude reading freshness & auto-refresh** — the Claude limit reading shows
+  its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
+  and keeps itself fresh automatically: while Claude is active, an activity-gated
+  probe scrapes a `/usage` pane into the reading file, so a desktop-app-only day
+  no longer leaves the headline number permanently stale — no manual CLI ritual.
+  It degrades honestly (a failing probe or a disabled one says so; gauges keep
+  rendering the last capture) and costs no usage quota.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain
   HTML/CSS/JS, no build step. Requires Node 24+.
 - Limit data comes from Claude Code's statusline: `scripts/statusline.js` writes
   the `rate_limits` block to `data/claude-ratelimits.json`, which the server
-  reads. Readings refresh only when a real Claude Code session renders its
-  statusline (the desktop app doesn't). Activity stats are computed on demand
-  from `~/.claude/projects/**/*.jsonl`.
+  reads. Readings also refresh on their own: when the reading goes stale and
+  Claude has been active, the interval poller spawns a short-lived session, sends
+  `/usage`, and scrapes that pane into the same reading file (the statusline
+  render itself never carries limits for a desktop-app user). Activity stats are
+  computed on demand from `~/.claude/projects/**/*.jsonl`.
 - Codex limits come from `codex app-server` (polled on the interval, not per
   request) with a rollout-file fallback; Codex activity from
   `~/.codex/sessions`. Both tools flow through one source-aware path and the same
@@ -54,11 +59,9 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   history from the logs.
 
 ## Deferred / Not yet built
-- Nothing major queued. See `ROADMAP.md` → On the Horizon (menu-bar badge, limit
-  alerts, strict tailnet-only binding).
-- Auto-refreshing the Claude reading via a spawned headless CLI session —
-  empirically refuted for now (an idle session receives no `rate_limits`); see
-  DECISIONS.md 2026-07-01.
+- Nothing major queued. See `ROADMAP.md` → Up Next (menu-bar badge, limit
+  alerts) and On the Horizon (strict tailnet-only binding, the auto-refresh
+  teardown follow-up, the Fable per-model weekly meter).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications; a menu-bar badge.

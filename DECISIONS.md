@@ -1,5 +1,58 @@
 # Decisions — llmdash
 
+## Claude reading now auto-refreshes via a /usage screen-scrape probe — 2026-07-02 (feature)
+**Decision:** Ship [R2-scrape]: when the Claude reading is older than the
+freshness threshold **and** Claude has been active recently, the interval
+poller spawns a short-lived Claude Code session in a dedicated cwd, sends
+`/usage`, scrapes the rendered pane into the same reading file the statusline
+writes, and tears the session down. Zero usage-quota cost (a client-side slash
+command submits no message — the probe's own pane reads 0 tokens),
+activity-gated (no idle spawning), on by default, switchable off. Failure
+degrades honestly through the reserved diagnostic codes: `auto-refresh-failing`
+(with a cause: `spawn-error` / `timeout` / `parse-failed`) and
+`auto-refresh-disabled`, both landing on the existing freshness-cue surface
+with gauges still rendering the last capture.
+**Rationale:** This **supersedes** the 2026-07-01 "auto-refresh refuted"
+conclusion — but only the half that was actually refuted. The
+statusline-payload avenue **is** dead (re-confirmed on CLI 2.1.198: neither
+`/status` nor `/usage` populates `rate_limits` in the statusline payload; the
+roadmap's named `/status` revival question is answered NO with evidence). What
+the prior spike never tested was whether the same data renders *on screen*: it
+does. `/usage` renders both contract windows in a spawned, transcript-free,
+zero-usage session, and the scraped pane parses into a `rate_limits`-equivalent
+reading whose reset instants matched the authoritative statusline epochs
+**exactly** (the decisive cross-check). The assumed transport was the
+statusline; the requirement was per-window used% + a capture timestamp
+cross-checked for agreement — the scrape delivers all three. This closes the
+desktop-app staleness problem: on a desktop-only day of active use the reading
+stays inside the aging band with no manual CLI ritual.
+**Implications:** Two Claude-owned-file boundary exceptions were surfaced by the
+spike and **ratified by the user** at design review: one permanent trust entry
+in `~/.claude.json` for the dedicated cwd (`~/.llmdash/claude-refresh-cwd`,
+created once), and ~1 line per refresh appended to `~/.claude/history.jsonl`.
+Both are performed by Claude Code itself in response to input llmdash sends
+(llmdash writes no Claude-owned path), both are disclosed loudly in the startup
+log and README, and the off-switch stops all of it. `/usage` also renders a
+**third meter** — *Current week (Fable)*, a per-model promotional weekly cap
+absent from the two-window statusline contract — deliberately **not** scraped;
+recorded as a possible future source-aware addition (see ROADMAP). The scrape
+is a **version-brittle TUI parse** (screen layouts change between CLI versions,
+dropped characters observed) and fails **loudly** as `parse-failed` rather than
+emitting a partial or fabricated reading — the parser is the accepted fragile
+surface. `capturedAt` is the pane-capture moment (never parse time);
+newest-`capturedAt`-wins so a probe write can never regress an organic
+statusline write. Security PASSED WITH NOTES (four Informational findings, none
+blocking): one resolved in-stage (the client cause→sentence lookup honored
+inherited `Object.prototype` keys — fixed to an own-key guard, now a CLAUDE.md
+convention), two accepted (a theoretical pid-reuse window in teardown; the
+attempt-spacing floor inheriting the freshness knob's absent lower clamp — both
+local-single-user posture). **Accepted OPEN follow-up:** an ungraceful llmdash
+exit mid-probe can orphan one probe session and leave a stale typescript;
+remediation is a SIGTERM/exit teardown hook plus a startup stale-typescript
+sweep — a deliberate engineering change, tracked on the roadmap, not this
+feature's scope. Anything downstream (menu-bar badge, limit alerts) now
+inherits a fresh-by-default reading while still respecting the freshness bands.
+
 ## Statusline auto-refresh refuted by spike; honest freshness layer shipped — 2026-07-01 (feature)
 **Decision:** Drop the auto-spawn mechanism (periodically spawning a headless
 Claude Code CLI session so the statusline refreshes the limit reading) and ship
