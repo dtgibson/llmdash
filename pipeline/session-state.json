@@ -1,23 +1,11 @@
 {
-  "activeFeature": "claude-auto-refresh",
-  "sessionType": "feature",
-  "currentStage": 8,
-  "lastCompletedStage": 7,
-  "lastCheckpointStatus": "in-progress",
+  "activeFeature": null,
+  "sessionType": null,
+  "currentStage": null,
+  "lastCompletedStage": 9,
+  "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
-  "confirmedArtifacts": [
-    "pipeline/claude-auto-refresh/strategic-brief.md",
-    "pipeline/claude-auto-refresh/prd.md",
-    "pipeline/claude-auto-refresh/spike-report.md",
-    "pipeline/claude-auto-refresh/schema.md",
-    "pipeline/claude-auto-refresh/design-spec.md",
-    "pipeline/claude-auto-refresh/design.html",
-    "src/claude-refresh.js",
-    "pipeline/claude-auto-refresh/pr-description.md",
-    "pipeline/claude-auto-refresh/how-to-see-it.md",
-    "pipeline/claude-auto-refresh/qa-report.md",
-    "pipeline/claude-auto-refresh/security-report.md"
-  ],
+  "confirmedArtifacts": [],
   "createdAt": "2026-07-02T06:13:25Z",
-  "updatedAt": "2026-07-02T17:58:00Z"
+  "updatedAt": "2026-07-02T18:10:00Z"
 }
