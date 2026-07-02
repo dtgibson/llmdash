@@ -157,6 +157,11 @@ config surface — each drives both the fetch and the *Open dashboard* link):
   llmdash is often served over your tailnet. Still the same `/api/state` — the
   badge never becomes a second, independent reading.
 
+One more, for install only (not the runtime fetch): **`LLMDASH_SWIFTBAR_DIR`**
+overrides where `--setup-badge` / `--remove-badge` look for SwiftBar's plugin
+folder. Set it if your SwiftBar plugin directory isn't the default location and
+isn't picked up automatically.
+
 **Reading the glyph.** It reads `▪ <tool> <number><marker>`:
 - `▪` — the stable llmdash mark (always there, so it's recognizable in the bar).
 - **`C` / `X`** — which tool is tightest: **C = Claude Code, X = code&#x200B;X (Codex)**.

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchState, emit, FETCH_TIMEOUT_MS } from '../scripts/menubar/llmdash.5s.js';
-import { startServer, runPlugin } from './helpers/menubar-run.js';
+import { startServer, runPlugin, runPluginViaSymlink } from './helpers/menubar-run.js';
 
 // A slow or unreachable dashboard must NEVER hang the menu bar and must NEVER
 // fabricate a number: every failure mode lands on the offline glyph, exit 0.
@@ -69,4 +69,19 @@ test('the offline output still offers the actions against the configured host:po
   const out = emit(null, { host: '100.64.0.9', port: '9999', offline: true });
   assert.match(out, /Dashboard offline — no server on 100\.64\.0\.9:9999/);
   assert.match(out, /Open dashboard \| href=http:\/\/100\.64\.0\.9:9999\//);
+});
+
+// Regression: SwiftBar invokes the plugin through a SYMLINK in its plugin dir
+// (setup-badge symlinks it in). Node de-symlinks import.meta.url but not
+// process.argv[1], so the run-guard must compare REAL paths or main() never
+// fires and the badge is blank. This exercises the real invocation path the
+// other tests missed (they always spawned `node <realpath>`).
+test('invoked via a symlink (as SwiftBar does) → main() still runs and emits', async () => {
+  const srv = await startServer((req, res) => res.end());
+  const deadPort = srv.port;
+  await srv.close(); // nothing listening → deterministic offline line, but main() MUST run
+  const r = await runPluginViaSymlink({ LLMDASH_BADGE_HOST: '127.0.0.1', LLMDASH_PORT: String(deadPort) });
+  assert.equal(r.status, 0);
+  assert.equal(firstLine(r.stdout), OFFLINE_TITLE, 'symlinked entry must still produce a badge line');
+  assert.ok(r.stdout.includes('Open dashboard'), 'the dropdown rendered — main() ran under the symlink');
 });

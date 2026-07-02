@@ -76,6 +76,14 @@ resolve_node() {
 # ~/Library/Application Support/SwiftBar/Plugins. Shared by setup/remove so both
 # target the SAME directory. Pure detection — reads prefs, touches nothing.
 swiftbar_plugin_dir() {
+  # An explicit override wins and is authoritative (even to "not detected" if it
+  # doesn't exist): a user with a custom SwiftBar plugin folder points at it, and
+  # the test suite sets it to a scratch dir so detection never reads real machine
+  # state (`defaults read` talks to the live user prefs regardless of $HOME).
+  if [ -n "${LLMDASH_SWIFTBAR_DIR:-}" ]; then
+    [ -d "$LLMDASH_SWIFTBAR_DIR" ] && echo "$LLMDASH_SWIFTBAR_DIR"
+    return 0
+  fi
   local sb_pref=""
   sb_pref="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null || true)"
   if [ -n "$sb_pref" ] && [ -d "$sb_pref" ]; then

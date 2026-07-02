@@ -341,9 +341,21 @@ export async function main() {
 }
 
 // Run only when invoked as the plugin, not when imported by the test suite.
-// (Mirrors the src/server.js entry-point guard.)
+// Compare REAL paths: SwiftBar runs the plugin through a symlink in its plugin
+// dir, and Node de-symlinks import.meta.url but not process.argv[1], so a plain
+// string compare would never match under a symlink and main() would never fire
+// (a blank badge). realpathSync on both sides collapses the symlink so the
+// symlinked entry — the actual delivery path — still runs.
 import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+import { realpathSync } from 'node:fs';
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+if (invokedDirectly()) {
   main();
 }

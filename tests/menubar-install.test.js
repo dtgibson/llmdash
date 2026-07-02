@@ -42,9 +42,14 @@ function fakeCheckout() {
 // resolution. resolve_node checks PATH first, so a fake node in front wins over
 // any real /usr/bin/node. (The resolve-only hooks keep the stricter empty PATH.)
 const SYS_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+// Hermetic by default: point SwiftBar-dir detection at a NON-EXISTENT scratch
+// path so the installer never reads the dev machine's real SwiftBar prefs
+// (`defaults read` ignores $HOME). Tests that want a DETECTED dir override
+// LLMDASH_SWIFTBAR_DIR with their own scratch sbDir.
+const NO_SWIFTBAR = path.join(tmp, 'no-swiftbar-dir');
 function run(args, env) {
   return spawnSync('/bin/bash', [script, ...args], {
-    env: { HOME: path.join(tmp, 'home'), PATH: emptyDir, ...env },
+    env: { HOME: path.join(tmp, 'home'), PATH: emptyDir, LLMDASH_SWIFTBAR_DIR: NO_SWIFTBAR, ...env },
     encoding: 'utf8',
   });
 }
@@ -105,7 +110,7 @@ test('--setup-badge: symlinks into a DETECTED SwiftBar plugin dir, never install
   const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
   fs.mkdirSync(sbDir, { recursive: true });
 
-  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home });
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0, r.stderr);
   const link = path.join(sbDir, 'llmdash.5s.js');
   assert.ok(fs.existsSync(link), 'plugin symlinked into the detected SwiftBar dir');
@@ -147,9 +152,9 @@ function fakeSwiftBarHome(kind) {
 }
 
 test('--remove-badge: unlinks the symlink; the repo plugin source is left intact', () => {
-  const { home, checkout, src, link } = fakeSwiftBarHome('symlink');
+  const { home, sbDir, checkout, src, link } = fakeSwiftBarHome('symlink');
   assert.ok(fs.lstatSync(link).isSymbolicLink());
-  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home });
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(fs.existsSync(link), false, 'the symlink was removed');
   assert.ok(fs.existsSync(src), 'the repo plugin source is untouched (rm did not follow the link)');
@@ -160,16 +165,16 @@ test('--remove-badge: unlinks the symlink; the repo plugin source is left intact
 });
 
 test('--remove-badge: no-op (exit 0) when nothing is linked', () => {
-  const { home, checkout } = fakeSwiftBarHome('none'); // dir exists, nothing linked
-  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home });
+  const { home, sbDir, checkout } = fakeSwiftBarHome('none'); // dir exists, nothing linked
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /nothing to remove/);
 });
 
 test('--remove-badge: NEVER deletes a non-symlink file named llmdash.5s.js', () => {
-  const { home, checkout, link } = fakeSwiftBarHome('realfile');
+  const { home, sbDir, checkout, link } = fakeSwiftBarHome('realfile');
   assert.ok(fs.lstatSync(link).isFile() && !fs.lstatSync(link).isSymbolicLink());
-  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home });
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0);
   // The real file is left exactly as it was.
   assert.ok(fs.existsSync(link), 'the real file was NOT deleted');
@@ -199,11 +204,11 @@ test('setup then remove is symmetric: setup links it, remove unlinks it, source 
   const src = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
   const link = path.join(sbDir, 'llmdash.5s.js');
 
-  const setup = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home });
+  const setup = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(setup.status, 0, setup.stderr);
   assert.ok(fs.lstatSync(link).isSymbolicLink(), 'setup created a symlink');
 
-  const remove = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home });
+  const remove = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(remove.status, 0, remove.stderr);
   assert.equal(fs.existsSync(link), false, 'remove unlinked it');
   assert.ok(fs.existsSync(src), 'the plugin source survived the round trip');

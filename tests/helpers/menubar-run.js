@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,10 +38,11 @@ export function startServer(handler, host = '127.0.0.1') {
 
 // Run the plugin as SwiftBar does (a child process reading its env), async so
 // the parent event loop stays live to serve the fixture server. Resolves with
-// { status, stdout, stderr }.
-export function runPlugin(env = {}) {
+// { status, stdout, stderr }. `entry` overrides the script path passed as
+// argv[1] (default: the real plugin path) — used to exercise symlink invocation.
+export function runPlugin(env = {}, entry = pluginPath) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [pluginPath], {
+    const child = spawn(process.execPath, [entry], {
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -49,4 +51,14 @@ export function runPlugin(env = {}) {
     child.stderr.on('data', (c) => { stderr += c; });
     child.on('close', (status) => resolve({ status, stdout, stderr }));
   });
+}
+
+// Run the plugin through a SYMLINK entry (how SwiftBar actually invokes it:
+// setup-badge symlinks the plugin into SwiftBar's plugin dir). Regression guard
+// for the ESM run-guard, which must de-symlink argv[1] or main() never fires.
+export function runPluginViaSymlink(env = {}) {
+  const linkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-badge-link-'));
+  const link = path.join(linkDir, 'llmdash.5s.js');
+  fs.symlinkSync(pluginPath, link);
+  return runPlugin(env, link).finally(() => fs.rmSync(linkDir, { recursive: true, force: true }));
 }
