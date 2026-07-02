@@ -25,7 +25,13 @@
   `usage_snapshots` and a tool block in the UI. Add a new tool as a new source
   flowing through the shared path — don't fork the store or the renderer.
 - **Clamp externally-sourced percentages** (limit used %) to 0–100 before storing
-  or deriving from them.
+  or deriving from them. More broadly: **coerce every externally-sourced number to
+  a finite number (or null) at ingest, and reach nested/aggregate sub-objects, not
+  just the top-level meter.** A "looks like data, keep the object as-is" pass on a
+  nested block (e.g. a fetched peer's `activity`) is a gap the moment a downstream
+  formatter has an unescaped string path (`String(n)` fallback, raw `n + ' …'`
+  concatenation) — a hostile string then reaches an `innerHTML` sink. Normalize
+  the whole payload tree, never just its head.
 - **Normalize externally-sourced timestamps to canonical ISO at ingest**
   (`new Date(Date.parse(v)).toISOString()`) — `Date.parse` validation alone
   doesn't guarantee a clean string. Never default a missing/unparseable
@@ -46,6 +52,20 @@
   same reading file — activity-gated, on by default, off via
   `LLMDASH_CLAUDE_AUTOREFRESH=0`. The TUI scrape is version-brittle; a layout it
   can't parse fails loudly as `parse-failed`, never a partial or fabricated reading.
+- **Any outbound HTTP llmdash makes follows the hardened-fetch template** in
+  `src/hosts.js` (`fetchPeerState`). llmdash is otherwise serve-only; a peer/host
+  read is the one outbound surface, and it is SSRF-shaped. The rules: target
+  **only** an explicitly-configured host (from `LLMDASH_HOSTS` via `parseHosts` —
+  **never** a host derived from a fetched payload, so there is no transitive
+  fan-out); a **credential-free `GET`** of a fixed path only (no auth header, no
+  cookie, no write method); the request built from an **options object**
+  (`{host, port, path}`), never a URL string, with `sanitizeHostPort` stripping
+  everything outside `[A-Za-z0-9._:\-\[\]]`; **no redirect-follow** (treat any 3xx
+  as an error state, never bounce to a new target); and **both** a bounded timeout
+  **and** a response-body cap (checked before appending each chunk, `req.destroy()`
+  on overflow) so a peer can neither hang the poller nor OOM the process. Every
+  fetched field is then untrusted data — clamp/normalize at ingest, `esc()` at
+  render (above). Runs on the poller, never the request path.
 - **Any subprocess/pty probe follows the fixed-runner pattern** in
   `src/claude-refresh.js`: a fixed-constant runner (`/bin/sh` + `/usr/bin/script`
   by absolute path), config entering **only** as quoted positional argv (never

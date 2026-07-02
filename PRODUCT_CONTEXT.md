@@ -35,6 +35,15 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   states mirroring the dashboard), and names the binding tool (C = Claude,
   X = Codex). The host is configurable so it can read a dashboard on any tailnet
   machine.
+- **Multi-host view** — one llmdash can show several of your tailnet machines
+  together: each host's account-wide limit windows and its per-machine activity,
+  side by side, honestly labeled and independently fresh / stale / offline. Because
+  limits are account-wide, same-account machines collapse into a single "Account
+  limits" banner (identical meters shown once, never N budgets) while each machine
+  leads with its own distinct activity; an unreachable host shows a named offline
+  callout, never a stale meter. It reads each peer's existing `/api/state` — no new
+  per-host data path. Unset (the default) leaves the single-host dashboard exactly
+  as before.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain
@@ -61,10 +70,21 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   installs it); `--setup-badge` wires it in by generating a wrapper in SwiftBar's
   plugin dir that runs the tracked plugin, so the checkout is never modified and
   the badge updates on pull (`--remove-badge` reverses it symmetrically).
+- Multi-host is a host dimension on top of the tool dimension. Set `LLMDASH_HOSTS`
+  (`host[:port][=label]`, comma-separated; the local host is always included) and
+  the interval poller fans out a bounded, credential-free `GET /api/state` to each
+  peer, caching the result per host in memory (peers are never persisted). A new
+  `GET /api/hosts` serves the combined view from that cache — off the request path.
+  `/api/state` and its badge/local consumers are byte-for-byte unchanged (a golden
+  test guards it); the same-account collapse is a client-side derivation (matching
+  reset epochs), so it needs no new server field.
 
 ## Data Sources & Honesty
-- **Limits** are account-wide (Claude Code's own numbers). **Activity stats** are
-  from this machine's logs only. The UI states this distinction.
+- **Limits** are account-wide (each tool's own numbers) — identical across every
+  machine signed in to the same account. **Activity stats** are per machine, from
+  that machine's logs only. The UI states this distinction, and in multi-host mode
+  it is load-bearing: same-account limits are shown once (never repeated as if
+  independent budgets), while per-machine activity leads the differentiation.
 - A gauge with no reading yet names the cause and the remedy (statusline not
   reporting yet, codex command not runnable) instead of silent dashes, and the
   startup log prints a data-source health readout naming anything missing.
@@ -73,9 +93,10 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
-  Horizon (multi-host badge, a tmux/terminal statusline emitter, strict
-  tailnet-only binding, the auto-refresh teardown follow-up, the Fable per-model
-  weekly meter).
+  Horizon (the multi-host *badge* — the host-list + switching in the menu bar, now
+  a thin consumer of the shipped peer plumbing — a tmux/terminal statusline
+  emitter, strict tailnet-only binding, the auto-refresh teardown follow-up, the
+  Fable per-model weekly meter).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

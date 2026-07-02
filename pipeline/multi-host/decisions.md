@@ -28,3 +28,22 @@
 - **Note:** a side-session task chip ("Ratify account-wide-limits framing," spawned
   during the Architect stage) was started by the user in parallel; this in-flow
   ratification supersedes it. Its output, if any, is informational only.
+
+## Stage 8 (Deployer) — 2026-07-02
+- **Shipped.** Commit f0d6992 on origin/main; installed copy at ~/llmdash
+  fast-forwarded and the launchd service restarted. Health-checked live:
+  `/api/state` still 200 (single-host, byte-for-byte unchanged — badge + local
+  view unaffected), and the new `/api/hosts` serves the single local host
+  (`self:true`, tools present). With `LLMDASH_HOSTS` unset the dashboard behaves
+  exactly as before — multi-host is dormant until the user configures peers.
+- **To enable:** set `LLMDASH_HOSTS` (e.g. in the launchd plist) to the other
+  machines' tailnet host[:port][=label] entries, each also running llmdash, and
+  restart. The local host is always included automatically.
+- **Side-session cleanup.** A duplicate Designer-stage session had been spawned as
+  a task chip during the Architect stage and run in its own git worktree/branch
+  (`claude/loving-haibt-fc4344`), redoing work the main flow already did and the
+  user approved. It was stopped and its work discarded by the user; the branch and
+  worktree were removed at deploy. The shipped design is the main-flow one the user
+  ratified (detect-and-collapse + offline-only). Lesson recorded for conventions:
+  don't spawn a side-task chip for a decision already handled by a pipeline
+  participate-gate; dismiss stray chips promptly.

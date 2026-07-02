@@ -1,5 +1,72 @@
 # Decisions — llmdash
 
+## Multi-host — a new `/api/hosts` endpoint, cached-only peers, account-wide-limits collapse — 2026-07-02 (feature)
+**Decision (endpoint):** The combined multi-host view is a **new `GET /api/hosts`**
+endpoint; `/api/state` and `buildState()` are left **byte-for-byte unchanged** (a
+golden-contract test, `state-unchanged.test.js`, guards it — tamper-verified). The
+local dashboard and the menu-bar badge keep consuming `/api/state` exactly as
+before. Because the fan-out target is always a peer's **`/api/state`** — a
+*different* path than the combined `/api/hosts` — the **no-transitive-fan-out** rule
+is structural, not a promise to test: a peer's own peer list is never traversed.
+**Decision (persistence):** **Cached-only.** Peer readings live in an in-memory
+per-host cache maintained by the interval poller; **nothing about a peer is
+persisted** (`usage_snapshots` stays local-host-only). Each peer already persists
+its own snapshots on its own machine, and a persisted-across-restart peer value
+would have to render as stale anyway (the next tick refills the cache in ≤ one
+interval) — the survivability gain is marginal, the cost (a peer-provenance column,
+a write path clamping every peer field, muddied snapshot semantics) is real.
+**Decision (account-wide-limits honesty — the load-bearing product call, ratified by
+the user):** Limits are the **account's** numbers, identical across same-account
+machines; **activity is per machine** and is the genuine new information. So
+same-account hosts (detected **client-side** by matching per-window `resetsAt`
+epochs within ~60 s) **collapse into a single "Account limits" banner** — the shared
+meter is *physically shown once* and cannot read as N independent budgets — while
+each host leads with its own distinct activity; a genuinely different-account host
+renders its own meters in-group; an **unreachable host shows a named offline
+callout, never a stale meter** (a stale gauge beside a live one invites the exact
+2×-budget misread the feature exists to prevent). The detect-and-collapse treatment
+is a pure client-side derivation over the combined payload — no new server field.
+**Decision (mechanism / security posture):** llmdash flips from serve-only to
+issuing outbound reads. Peers are polled **on the interval poller, never the request
+path** (bounded concurrency + single-flight so ticks never pile up); `/api/hosts` is
+a pure cache read. The outbound fetch is hardened: **configured tailnet hosts only**
+(no discovery, no host from a payload), **credential-free `GET /api/state`** built
+from an options object, **`sanitizeHostPort`**-scrubbed, **no redirect-follow** (3xx
+→ error state), **bounded timeout + response-body cap**. Every peer field is
+clamped/normalized/escaped at ingest and `esc()`'d at render.
+**Rationale:** A separate endpoint makes the two hardest invariants *structural*
+rather than test-enforced — `/api/state` untouched (badge + local view safe) and
+no transitive fan-out (separate path). Cached-only keeps the snapshot store's
+"this machine's own history" meaning intact and honors the settled "no cross-host
+history store" scope. The account-wide-limits collapse is squarely the product's
+"be honest in the UI" convention: the founding "one glance, all your usage" promise
+narrows silently the moment a second machine exists, and a naive N-meters view would
+imply N budgets that don't exist. Polling on the poller is the same hard convention
+that keeps Codex's subprocess and the Claude probe off the request path.
+**Implications:** "Source-aware" now has **two axes: host × tool** — a host is an
+outer loop wrapping the *unchanged* per-tool renderer and store (neither forked;
+peers never touch `db.js`). The **multi-host badge** and a **tmux/terminal
+statusline** are now thin consumers of this shipped peer plumbing (roadmap On the
+Horizon); **limit alerts** (Up Next) can now alert across hosts, building on this.
+Config: `LLMDASH_HOSTS` (`host[:port][=label]`; local host always included; unset =
+today's single-host behavior — no dead knob). New per-host `hostDiagnostic` enum
+codes (`peer-unreachable` / `peer-error` with a `cause`), own-key-mapped and escaped
+client-side; the reserved `auto-refresh-*` codes are **not** reused for peer
+failures. Security **PASSED WITH NOTES**: one Medium **fixed in-stage** (a peer's
+nested `activity` numbers were passed through un-coerced and reached two unescaped
+render sinks — markup injection, script blocked by the existing CSP; fixed by
+coercing every activity number at ingest, now a sharpened CLAUDE.md clamp
+convention: normalize nested sub-objects, not just the top-level meter), two
+Informational accepted (an operator label printed verbatim in the plain-text
+startup log — config, not peer data; best-effort self-identification without DNS
+can issue one loopback-ish fetch under a hostname alias — a correctness-preserving
+miss the account-wide collapse covers). The new hardened-outbound-fetch template is
+recorded as a CLAUDE.md convention (llmdash's one outbound surface). **Weft-process
+lesson** (recorded in the feature's `decisions.md`, not a code convention): don't
+spawn a side-task chip for a decision already handled by a pipeline participate-gate
+— a duplicate Designer-stage side-session was spawned during the Architect stage,
+redid ratified work in its own worktree, and was discarded at deploy.
+
 ## Menu-bar badge — a SwiftBar plugin, delivered via a wrapper, single host — 2026-07-02 (feature)
 **Decision (mechanism):** The macOS menu-bar surface is a **SwiftBar/xbar
 plugin** — a zero-dependency Node script rendered by a user-installed menu-bar
