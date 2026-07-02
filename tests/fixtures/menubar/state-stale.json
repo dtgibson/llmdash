@@ -1,0 +1,29 @@
+{
+  "tools": [
+    {
+      "source": "claude-code",
+      "label": "Claude Code",
+      "plan": "Max",
+      "haveLimits": true,
+      "limits": {
+        "five_hour": { "usedPct": 22, "remainingPct": 78, "resetsAt": "@10020000", "capturedAt": "@-1800000" },
+        "seven_day": { "usedPct": 34, "remainingPct": 66, "resetsAt": "@262800000", "capturedAt": "@-1800000" }
+      },
+      "freshness": { "capturedAt": "@-1800000", "freshForMs": 300000, "staleAfterMs": 600000 },
+      "limitsDiagnostic": { "reason": "stale-reading", "capturedAt": "@-1800000", "ageMs": 1800000 }
+    },
+    {
+      "source": "codex",
+      "label": "Codex",
+      "plan": "ChatGPT Plus",
+      "haveLimits": true,
+      "limits": {
+        "five_hour": { "usedPct": 1, "remainingPct": 99, "resetsAt": "@16800000", "capturedAt": "@-90000" },
+        "seven_day": { "usedPct": 1, "remainingPct": 99, "resetsAt": "@464400000", "capturedAt": "@-90000" }
+      },
+      "freshness": null,
+      "limitsDiagnostic": null
+    }
+  ],
+  "generatedAt": "@0"
+}

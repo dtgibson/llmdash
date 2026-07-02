@@ -1,0 +1,23 @@
+{
+  "tools": [
+    {
+      "source": "claude-code",
+      "label": "Claude Code",
+      "plan": "Max",
+      "haveLimits": false,
+      "limits": { "five_hour": null, "seven_day": null },
+      "freshness": { "capturedAt": null, "freshForMs": 300000, "staleAfterMs": 600000 },
+      "limitsDiagnostic": { "reason": "no-statusline-reading" }
+    },
+    {
+      "source": "codex",
+      "label": "Codex",
+      "plan": "ChatGPT Plus",
+      "haveLimits": false,
+      "limits": { "five_hour": null, "seven_day": null },
+      "freshness": null,
+      "limitsDiagnostic": { "reason": "codex-cmd-failed", "cmd": "codex", "detail": "spawn codex ENOENT | rm -rf /" }
+    }
+  ],
+  "generatedAt": "@0"
+}

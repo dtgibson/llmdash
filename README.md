@@ -103,6 +103,80 @@ safe to re-run and bakes in the path. When the command can't be run, the
 dashboard says so (startup log + UI) instead of failing silently.
 Codex activity stats read from `~/.codex/sessions` and fill in as you use Codex.
 
+## Menu-bar badge (SwiftBar) — optional
+A one-glance remaining-% badge for your macOS menu bar: the **most-constrained
+window** across Claude Code and Codex, updating on its own, with a dropdown that
+carries the full picture (both tools × both windows, reset countdowns, freshness,
+diagnostics). It's a tiny **zero-dependency Node plugin** (`scripts/menubar/llmdash.5s.js`)
+that reads the dashboard's existing `/api/state` — no second data path, no extra
+dependency for llmdash itself.
+
+**SwiftBar is a prerequisite you install once — llmdash never installs it for you.**
+It's a free third-party menu-bar host (the badge also works on xbar):
+```
+brew install --cask swiftbar
+```
+Open SwiftBar once and pick a plugin folder when it asks (e.g.
+`~/Library/Application Support/SwiftBar/Plugins`).
+
+**Install the plugin** — one command bakes the absolute `node` path into the
+plugin (the menu-bar host spawns it under a minimal PATH where a bare `node`,
+especially under nvm, can't resolve — the same reason `codex`/`claude` need
+absolute paths) and, if it finds SwiftBar's plugin folder, symlinks the plugin in:
+```
+~/llmdash/scripts/install-macos.sh --setup-badge
+```
+Prefer to do it by hand? Copy or symlink the plugin into your SwiftBar plugin
+folder and mark it executable (edit its first line to your absolute `node` path,
+from `which node`):
+```
+ln -s ~/llmdash/scripts/menubar/llmdash.5s.js "<your-SwiftBar-plugin-dir>/llmdash.5s.js"
+chmod +x ~/llmdash/scripts/menubar/llmdash.5s.js
+```
+The `.5s.` in the filename is SwiftBar's refresh-interval convention (re-run every
+5 seconds); change the number, not the pattern, to slow it down.
+
+**Remove it** — one symmetric command. It unlinks only the plugin symlink from
+SwiftBar's plugin folder (it never deletes the repo file, and never touches a
+real file you placed there yourself):
+```
+~/llmdash/scripts/install-macos.sh --remove-badge
+```
+That removes the *plugin*, not SwiftBar. If you want the host gone too, that stays
+your explicit choice — llmdash never uninstalls it for you:
+```
+brew uninstall --cask swiftbar
+```
+
+**Point it at your dashboard.** By default the badge reads `http://127.0.0.1:8787`.
+Two knobs, at the top of the plugin file or as environment variables (the only
+config surface — each drives both the fetch and the *Open dashboard* link):
+- **`LLMDASH_PORT`** (default `8787`) — match a non-default dashboard port.
+- **`LLMDASH_BADGE_HOST`** (default `127.0.0.1`) — point the badge at a dashboard
+  running on **another machine** (e.g. a Tailscale IP like `100.x.y.z`), since
+  llmdash is often served over your tailnet. Still the same `/api/state` — the
+  badge never becomes a second, independent reading.
+
+**Reading the glyph.** It reads `▪ <tool> <number><marker>`:
+- `▪` — the stable llmdash mark (always there, so it's recognizable in the bar).
+- **`C` / `X`** — which tool is tightest: **C = Claude Code, X = code&#x200B;X (Codex)**.
+- The number is the lowest remaining % across both tools' windows, colored
+  **green / amber / red** by how much is left.
+
+The badge mirrors the dashboard's honesty — it never shows a confident number
+that's secretly old, and it never fabricates one:
+- **fresh** — a plain, confident number (`▪ C 46%`).
+- **aging** — the number kept, with a trailing `·` and a slight dim (the reading
+  is getting old but you still see how much).
+- **stale** — the number tinted amber with a trailing `⚠`.
+- **no reading yet** — `▪ —` (a dash, never a number); the dropdown says why per tool.
+- **offline** — `▪ llmdash ⚠` when the dashboard isn't reachable — unmistakably
+  "no server," **never** a number that could be mistaken for headroom.
+
+The **live in-menu-bar view requires SwiftBar** (the one prerequisite). Without it,
+the plugin still runs from a terminal (`node scripts/menubar/llmdash.5s.js`) and
+prints the same SwiftBar-format output, which is how you can preview the states.
+
 ## How it works
 - **Claude limits** come from Claude Code's statusline output (the sanctioned
   path — no credentials reused). The script writes `rate_limits` to
@@ -185,6 +259,12 @@ All optional, via environment variables:
 - `LLMDASH_CODEX_CMD` (default `codex`) — path to the codex binary for the limits read
 - `LLMDASH_CODEX_DIR` (default `~/.codex`) — where Codex's session logs live
 
+The **menu-bar badge** reads two of its own (in the plugin's environment, not the
+server's — see [Menu-bar badge](#menu-bar-badge-swiftbar--optional)):
+- `LLMDASH_PORT` (default `8787`) — the badge honors the same port knob as the server
+- `LLMDASH_BADGE_HOST` (default `127.0.0.1`) — point the badge at a dashboard on
+  another tailnet machine; drives both the badge's fetch and its *Open dashboard* link
+
 The pricing table behind "estimated value" lives in `config.js` — edit it freely.
 Snapshots and the captured reading are stored under `./data/` (gitignored).
 
@@ -195,5 +275,6 @@ npm test
 
 ## Status & roadmap
 Personal project. Claude Code and Codex are both tracked, with usage-over-time
-trends and auto-refreshing Claude readings all shipped. Next up: a menu-bar /
-tray badge for at-a-glance remaining %, then low-limit alerts. See `ROADMAP.md`.
+trends, auto-refreshing Claude readings, and an optional SwiftBar menu-bar badge
+all shipped. Next up: low-limit alerts (and, on the horizon, a multi-host badge
+that shows several tailnet dashboards at once). See `ROADMAP.md`.

@@ -50,13 +50,160 @@ resolve_claude() {
   return 1
 }
 
-# Test/maintenance hooks: print the resolved codex/claude path (exit 1 if none)
-# without running the installer. Used by tests/install-macos.test.js.
+# Resolve node to an ABSOLUTE path, for the SAME minimal-PATH reason as codex/
+# claude: the menu-bar host (SwiftBar/xbar) spawns the badge plugin under a
+# minimal PATH, where a bare "node" (esp. under nvm) can never resolve — a
+# #!/usr/bin/env node shebang there produces a DEAD badge (measured, spike-report
+# 2026-07-02). The badge install bakes this absolute node path into the plugin's
+# line-1 shebang.
+resolve_node() {
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return 0
+  fi
+  local d
+  for d in "$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin; do
+    if [ -x "$d/node" ]; then
+      echo "$d/node"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Detect the SwiftBar plugin directory (empty string if none found). SwiftBar
+# stores the user-chosen folder in its prefs; the common default is
+# ~/Library/Application Support/SwiftBar/Plugins. Shared by setup/remove so both
+# target the SAME directory. Pure detection — reads prefs, touches nothing.
+swiftbar_plugin_dir() {
+  local sb_pref=""
+  sb_pref="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null || true)"
+  if [ -n "$sb_pref" ] && [ -d "$sb_pref" ]; then
+    echo "$sb_pref"
+  elif [ -d "$HOME/Library/Application Support/SwiftBar/Plugins" ]; then
+    echo "$HOME/Library/Application Support/SwiftBar/Plugins"
+  fi
+}
+
+# Menu-bar badge setup (FR-20, opt-in): bake the absolute node path into the
+# plugin's shebang so it survives the host's minimal PATH, and — if a SwiftBar
+# plugin directory is detected — symlink the plugin into it. NEVER installs
+# SwiftBar/xbar (that stays the user's explicit `brew install --cask swiftbar`).
+# Prints exactly what it did and what the user must still do. An unresolved node
+# is a loud failure with the fix, never a silently dead badge.
+#
+# $1 = project dir (the checkout that holds scripts/menubar/llmdash.5s.js)
+setup_badge() {
+  local dir="$1"
+  local plugin="$dir/scripts/menubar/llmdash.5s.js"
+  if [ ! -f "$plugin" ]; then
+    echo "  Badge: plugin not found at $plugin — skipping badge setup." >&2
+    return 1
+  fi
+
+  local node_bin
+  if ! node_bin="$(resolve_node)"; then
+    echo "  Badge: node not found (checked PATH, ~/.local/bin, /opt/homebrew/bin, /usr/local/bin)." >&2
+    echo "  The menu-bar badge needs an ABSOLUTE node path baked into its shebang: the" >&2
+    echo "  host spawns it under a minimal PATH where a bare 'node' can't resolve." >&2
+    echo "  Fix: install Node 24+, then re-run with --setup-badge." >&2
+    return 1
+  fi
+
+  # Rewrite line 1 to the absolute node path (idempotent: re-run overwrites it).
+  local tmp="$plugin.tmp.$$"
+  { echo "#!$node_bin"; tail -n +2 "$plugin"; } > "$tmp" && mv "$tmp" "$plugin"
+  chmod +x "$plugin"
+  echo "- Badge: baked absolute node path into the plugin shebang (#!$node_bin) and marked it executable"
+
+  local sb_dir
+  sb_dir="$(swiftbar_plugin_dir)"
+  if [ -n "$sb_dir" ]; then
+    ln -sf "$plugin" "$sb_dir/llmdash.5s.js"
+    echo "- Badge: symlinked the plugin into SwiftBar's plugin dir ($sb_dir)"
+    echo "  Next: in SwiftBar, refresh (or it appears within ~5s). Set LLMDASH_BADGE_HOST /"
+    echo "  LLMDASH_PORT at the top of $plugin if your dashboard isn't on 127.0.0.1:${PORT:-8787}."
+    echo "  To remove it later: $dir/scripts/install-macos.sh --remove-badge"
+  else
+    echo "  Badge: no SwiftBar plugin directory detected (SwiftBar may not be installed)."
+    echo "  SwiftBar is NOT installed for you — it's a user-installed prerequisite:"
+    echo "    brew install --cask swiftbar"
+    echo "  Then point SwiftBar at a plugin folder and symlink the plugin into it:"
+    echo "    ln -s \"$plugin\" \"<your-SwiftBar-plugin-dir>/llmdash.5s.js\""
+    echo "  (The plugin's shebang is already baked with the absolute node path.)"
+  fi
+}
+
+# Menu-bar badge removal (the symmetric uninstall of setup_badge). Removes ONLY
+# the symlink setup_badge created — verified to be a SYMLINK before unlinking, so
+# it can never rm a real user file and never follows the link to delete its
+# target (the repo's plugin source is untouched). NEVER uninstalls SwiftBar
+# itself. Idempotent: "nothing to remove" is a friendly exit 0.
+#
+# $1 = project dir (only used to name the source plugin in messages).
+remove_badge() {
+  local dir="$1"
+  local sb_dir
+  sb_dir="$(swiftbar_plugin_dir)"
+
+  if [ -z "$sb_dir" ]; then
+    echo "  Badge: no SwiftBar plugin directory detected — nothing to remove automatically."
+    echo "  If you symlinked the plugin into a custom SwiftBar folder by hand, delete the"
+    echo "  'llmdash.5s.js' link there yourself (it is a symlink; the repo file stays):"
+    echo "    rm \"<your-SwiftBar-plugin-dir>/llmdash.5s.js\""
+    echo "  Note: this does NOT uninstall SwiftBar. To remove the host too:"
+    echo "    brew uninstall --cask swiftbar"
+    return 0
+  fi
+
+  local link="$sb_dir/llmdash.5s.js"
+  if [ -L "$link" ]; then
+    # It's a symlink: rm removes the LINK itself, never follows it to the target,
+    # so the repo's plugin source is untouched. Report where it pointed.
+    local target=""
+    target="$(readlink "$link" 2>/dev/null || true)"
+    rm "$link"
+    echo "- Badge: unlinked the plugin symlink from SwiftBar's plugin dir ($link${target:+ -> $target})"
+  elif [ -e "$link" ]; then
+    # A real (non-symlink) file named llmdash.5s.js is NOT ours to delete — we
+    # only ever create a symlink. Leave it and tell the user, so we can never
+    # rm a file the user placed there deliberately.
+    echo "  Badge: $link exists but is NOT a symlink — leaving it untouched (setup only ever"
+    echo "  creates a symlink). If you put it there and want it gone, remove it yourself:"
+    echo "    rm \"$link\""
+  else
+    echo "- Badge: nothing to remove — no llmdash.5s.js linked in SwiftBar's plugin dir ($sb_dir)"
+  fi
+
+  echo "  This did NOT uninstall SwiftBar (a user-installed prerequisite) or delete the"
+  echo "  plugin source at $dir/scripts/menubar/llmdash.5s.js. To remove the host too:"
+  echo "    brew uninstall --cask swiftbar"
+  return 0
+}
+
+# Test/maintenance hooks: print the resolved codex/claude/node path (exit 1 if
+# none) without running the installer. Used by tests/install-macos.test.js and
+# tests/menubar-install.test.js.
 if [ "${1:-}" = "--resolve-codex" ]; then
   if p="$(resolve_codex)"; then echo "$p"; exit 0; else exit 1; fi
 fi
 if [ "${1:-}" = "--resolve-claude" ]; then
   if p="$(resolve_claude)"; then echo "$p"; exit 0; else exit 1; fi
+fi
+if [ "${1:-}" = "--resolve-node" ]; then
+  if p="$(resolve_node)"; then echo "$p"; exit 0; else exit 1; fi
+fi
+# Opt-in badge setup: `install-macos.sh --setup-badge [project-dir]`. Defaults
+# to $DIR (the standard checkout). Never installs SwiftBar.
+if [ "${1:-}" = "--setup-badge" ]; then
+  setup_badge "${2:-$DIR}"
+  exit $?
+fi
+# Symmetric badge removal: `install-macos.sh --remove-badge [project-dir]`.
+# Removes only the symlink setup created; never uninstalls SwiftBar; re-run-safe.
+if [ "${1:-}" = "--remove-badge" ]; then
+  remove_badge "${2:-$DIR}"
+  exit $?
 fi
 
 echo "llmdash installer (macOS)"
@@ -175,3 +322,12 @@ else
 fi
 echo "  - The server's startup log (/tmp/llmdash.log) prints a data-source health"
 echo "    readout naming anything that's missing and how to fix it."
+echo
+echo "Optional: menu-bar badge (SwiftBar)"
+echo "  - A one-glance remaining-% badge for your menu bar. It needs SwiftBar, a"
+echo "    user-installed third-party app — NOT installed for you:"
+echo "      brew install --cask swiftbar"
+echo "  - Then set it up (bakes the absolute node path into the plugin shebang and,"
+echo "    if SwiftBar's plugin dir is found, symlinks the plugin in):"
+echo "      \"$DIR/scripts/install-macos.sh\" --setup-badge"
+echo "  - Details, host/port config, and the C/X tool cue are in the README."

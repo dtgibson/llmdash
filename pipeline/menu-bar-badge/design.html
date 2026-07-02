@@ -1,0 +1,962 @@
+<style>
+  /* ============================================================
+     llmdash — menu-bar-badge design mockup
+     A macOS menu-bar surface, NOT a web page. Everything below
+     reuses the established llmdash design system tokens
+     (pipeline/design-system.md + public/styles.css) so the badge
+     reads as the dashboard's honesty language, miniaturized.
+     Self-contained: all CSS/JS inline, no external deps.
+     ============================================================ */
+
+  :root {
+    /* ---- llmdash design-system tokens (verbatim from styles.css) ---- */
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e6e6e6;
+    --text: #15171a;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --good: #16a34a;
+    --warn: #d97706;
+    --crit: #dc2626;
+    --accent: #2563eb;
+    --accent-bg: #eef2ff;
+    --warn-bg: #fef3e7;
+    --good-bg: #e7f6ec;
+    --crit-bg: #fdeaea;
+    --track: #eceef0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    /* ---- surfaces specific to this mockup's stage (not the badge itself) ---- */
+    --stage-bg: #eef1f4;
+    --stage-panel: #ffffff;
+
+    /* ---- the macOS menu bar + SwiftBar dropdown chrome ----
+       These are the OS's colors, not llmdash's — a real menu bar is a
+       translucent dark strip and the dropdown is a light vibrancy panel.
+       The badge GLYPH inside it is where our tokens live. */
+    --menubar-bg: #2b2d31;
+    --menubar-text: #f4f5f7;
+    --menubar-text-dim: #9b9ea6;
+    --dropdown-bg: #f6f6f7;
+    --dropdown-panel: #ffffff;
+    --dropdown-text: #1d1d1f;
+    --dropdown-sep: #e2e2e5;
+    --dropdown-muted: #86868b;
+    --dropdown-highlight: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013;
+      --panel: #161a1f;
+      --border: #262b32;
+      --text: #e7eaee;
+      --muted: #9aa3ad;
+      --faint: #6b7480;
+      --accent: #6b9bff;
+      --accent-bg: #18203a;
+      --warn-bg: #2a1f12;
+      --good-bg: #122a1b;
+      --crit-bg: #2c1517;
+      --track: #232830;
+
+      --stage-bg: #0a0b0d;
+      --stage-panel: #14171b;
+
+      --menubar-bg: #1c1d20;
+      --menubar-text: #f4f5f7;
+      --menubar-text-dim: #7c7f87;
+      --dropdown-bg: #2a2b2e;
+      --dropdown-panel: #313236;
+      --dropdown-text: #ececee;
+      --dropdown-sep: #3a3b3f;
+      --dropdown-muted: #9295a0;
+      --dropdown-highlight: #4a7dff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--stage-bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 72px;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; }
+
+  /* ---------------- page masthead ---------------- */
+  .masthead { margin-bottom: 8px; }
+  .masthead .kicker {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .masthead h1 {
+    font-family: var(--sans);
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0 0 12px;
+    max-width: 20ch;
+  }
+  .masthead .lede {
+    font-size: 1.02rem;
+    color: var(--muted);
+    max-width: 62ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .masthead .lede b { color: var(--text); font-weight: 600; }
+
+  .rule {
+    height: 1px;
+    background: var(--border);
+    border: 0;
+    margin: 34px 0 30px;
+  }
+
+  /* ---------------- section headers ---------------- */
+  .section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0 0 4px;
+    font-family: var(--mono);
+  }
+  .section-lede {
+    font-size: 0.9rem;
+    color: var(--faint);
+    margin: 0 0 22px;
+    max-width: 70ch;
+  }
+  .section { margin-bottom: 52px; }
+
+  /* =========================================================
+     THE MENU-BAR STRIP — a realistic macOS top bar.
+     Dark translucent strip; llmdash glyph sits among real
+     system status items so the scale reads true.
+     ========================================================= */
+  .menubar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    border-radius: 10px 10px 0 0;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 12px;
+    gap: 16px;
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    color: var(--menubar-text);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+    user-select: none;
+  }
+  .menubar .sys {
+    color: var(--menubar-text);
+    opacity: 0.86;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .menubar .sys.time { font-variant-numeric: tabular-nums; opacity: 0.95; }
+
+  /* The badge glyph itself — monospace, tabular, sits in the bar.
+     The leading mark ▪ is the stable llmdash identity; the number +
+     trailing marker + color carry the honest state. */
+  .glyph {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    padding: 3px 7px;
+    border-radius: 6px;
+    cursor: default;
+    position: relative;
+  }
+  .glyph.selected { background: rgba(255,255,255,0.16); }
+  .glyph .mark { opacity: 0.92; }
+  /* tool cue — a single muted letter naming the binding tool (C=Claude, X=codeX).
+     Muted so the eye still lands on the number; rides the glyph's honesty state. */
+  .glyph .cue {
+    color: var(--menubar-text-dim);
+    font-weight: 600;
+    margin-right: 1px;
+    margin-left: -1px;
+  }
+  /* state colors — mapped to the design system's status semantics,
+     but rendered on the dark menu-bar (so we use slightly lifted
+     variants for contrast, same hue family as --good/--warn/--crit). */
+  .glyph .num.good { color: #5bd88a; }   /* --good, lifted for dark bar */
+  .glyph .num.warn { color: #f0a94b; }   /* --warn, lifted */
+  .glyph .num.crit { color: #ff6b6b; }   /* --crit, lifted */
+  /* aging — KEEP the status hue and the number (so "how much" survives), but
+     mark it cleanly: a slight de-emphasis (opacity, not a grey wash) + the
+     load-bearing trailing '·'. The '·' is what makes aging instantly distinct
+     from fresh, and it reads in a monochrome bar too (xbar-safe floor). */
+  .glyph.aging  { opacity: 0.82; }
+  .glyph.aging .agedot { opacity: 0.9; margin-left: 1px; }
+  .glyph.stale .marker { color: #f0a94b; }                /* amber warn triangle */
+  .glyph.stale .num { color: #e6c07b; }                   /* number tinted toward warn, not confident */
+  .glyph.nodata { color: var(--menubar-text); opacity: 0.9; }
+  .glyph.nodata .dash { color: var(--menubar-text-dim); }
+  .glyph.offline { color: var(--menubar-text-dim); opacity: 0.75; }
+  .glyph.offline .marker { color: var(--menubar-text-dim); }
+  .glyph .marker { font-size: 0.78rem; }
+  .glyph .agedot { opacity: 0.7; }
+
+  /* =========================================================
+     STATE GALLERY — the five honesty states side by side.
+     Each is a captioned card: a mini menu-bar strip showing
+     only the glyph, plus the state name and what triggers it.
+     ========================================================= */
+  .states {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 14px;
+  }
+  .state-card {
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .state-strip {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+  }
+  .state-body { padding: 13px 15px 15px; }
+  .state-name {
+    font-size: 0.86rem;
+    font-weight: 600;
+    font-family: var(--mono);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .state-name .swatch {
+    width: 9px; height: 9px; border-radius: 2px; flex: none;
+  }
+  .sw-good { background: var(--good); }
+  .sw-warn { background: var(--warn); }
+  .sw-crit { background: var(--crit); }
+  .sw-muted { background: var(--faint); }
+  .state-trigger {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .state-trigger code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .state-rule {
+    font-size: 0.72rem;
+    color: var(--faint);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    font-style: italic;
+  }
+
+  /* =========================================================
+     THE DROPDOWN — a SwiftBar-style menu opened from the glyph.
+     Light vibrancy panel, rounded, separators, muted secondary
+     text. Rows are tool × window. Freshness tags + diagnostics
+     + actions. This is the FR-11/12/15/16 surface.
+     ========================================================= */
+  .dropdown-demo {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 26px;
+    align-items: start;
+  }
+  .demo-col { min-width: 0; }
+  .demo-caption {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: 0 0 12px;
+    line-height: 1.5;
+  }
+  .demo-caption b { color: var(--text); font-weight: 600; }
+
+  /* the anchoring mini menu-bar the dropdown hangs from */
+  .anchor-bar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 30px;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 10px;
+    gap: 14px;
+    position: relative;
+    z-index: 2;
+  }
+  .anchor-bar .sys { color: var(--menubar-text); opacity: 0.82; font-size: 0.78rem; }
+
+  .dropdown {
+    background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12);
+    padding: 6px;
+    margin-top: -2px;
+    width: 100%;
+    max-width: 380px;
+    font-family: var(--sans);
+    color: var(--dropdown-text);
+    position: relative;
+    z-index: 1;
+  }
+  /* SwiftBar renders the plugin's own title line at the top of the
+     dropdown too — a header echoing the glyph, then the detail. */
+  .dd-title {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 7px 10px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--dropdown-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .dd-title .num.crit { color: var(--crit); }
+  .dd-title .num.warn { color: var(--warn); }
+  .dd-title .num.good { color: var(--good); }
+  .dd-title .binding {
+    margin-left: auto;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dropdown-muted);
+  }
+
+  .dd-sep { height: 1px; background: var(--dropdown-sep); margin: 5px 4px; border: 0; }
+
+  /* a tool group: header line, then its two window rows */
+  .dd-tool-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px 3px;
+  }
+  .dd-tool-name {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--dropdown-text);
+  }
+  /* freshness tag — the age-pill vocabulary from the dashboard,
+     miniaturized. aging → warn, stale → crit. fresh → no tag. */
+  .dd-tag {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .tag-aging { color: var(--warn); background: var(--warn-bg); }
+  .tag-stale { color: var(--crit); background: var(--crit-bg); }
+
+  .dd-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+  }
+  .dd-row:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-row:hover .dd-win, .dd-row:hover .dd-reset, .dd-row:hover .dd-rem { color: #fff; }
+  .dd-win {
+    color: var(--dropdown-muted);
+    font-size: 0.78rem;
+  }
+  .dd-metrics {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .dd-rem { font-weight: 600; }
+  .dd-rem.good { color: var(--good); }
+  .dd-rem.warn { color: var(--warn); }
+  .dd-rem.crit { color: var(--crit); }
+  .dd-rem.na, .dd-rem.reached { color: var(--dropdown-muted); font-weight: 500; }
+  .dd-rem.reached { color: var(--crit); }
+  .dd-reset { color: var(--dropdown-muted); font-size: 0.76rem; }
+
+  /* diagnostics block — honest reason-mapped copy, muted, italic-free */
+  .dd-diag {
+    padding: 6px 10px 7px;
+    font-size: 0.74rem;
+    line-height: 1.42;
+    color: var(--dropdown-muted);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+  .dd-diag .ic { line-height: 1.42; }
+  .dd-diag.warn .ic { color: var(--warn); }
+  .dd-diag.crit .ic { color: var(--crit); }
+  .dd-diag b { color: var(--dropdown-text); font-weight: 600; }
+
+  /* actions — like ordinary menu items, with the SwiftBar caret cue */
+  .dd-action {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    cursor: default;
+    color: var(--dropdown-text);
+  }
+  .dd-action:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-action:hover .kbd, .dd-action:hover .ic { color: #fff; opacity: 0.9; }
+  .dd-action .ic { color: var(--dropdown-muted); width: 15px; text-align: center; }
+  .dd-action .kbd {
+    margin-left: auto;
+    color: var(--dropdown-muted);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+
+  /* a small caption strip under a dropdown pointing out what to notice */
+  .demo-notes {
+    margin-top: 14px;
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .demo-notes b { color: var(--text); font-weight: 600; }
+  .demo-notes.warn { border-left-color: var(--warn); }
+  .demo-notes.crit { border-left-color: var(--crit); }
+
+  /* ---------------- symbol legend table ---------------- */
+  .legend-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .legend-table th, .legend-table td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .legend-table thead th {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+    background: color-mix(in srgb, var(--stage-panel) 88%, var(--track));
+  }
+  .legend-table tbody tr:last-child td { border-bottom: 0; }
+  .legend-table .st { font-family: var(--mono); font-weight: 600; }
+  .legend-table .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--menubar-bg);
+    color: var(--menubar-text);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .legend-table .tok {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .legend-table td.rule-cell { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+
+  .footnote {
+    margin-top: 34px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--faint);
+    line-height: 1.6;
+  }
+  .footnote b { color: var(--muted); font-weight: 600; }
+  .footnote code {
+    font-family: var(--mono);
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.86em;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">llmdash · menu-bar badge · design draft</div>
+    <h1>The dashboard's honesty, shrunk to one glyph in your menu bar.</h1>
+    <p class="lede">
+      One number sits in the corner of the screen you're already staring at —
+      the <b>most-constrained window</b> across Claude Code and Codex, tagged with
+      <b>which tool</b> it belongs to. Fresh looks confident. Aging and stale look
+      <b>visibly marked</b> while still showing how much. No reading and offline
+      <b>never show a number</b>. Every color maps to the same
+      <b>good / warn / crit</b> semantics the dashboard already uses.
+    </p>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ============ FULL MENU BAR — the badge in context ============ -->
+  <section class="section">
+    <p class="section-label">The badge, in a real menu bar</p>
+    <p class="section-lede">
+      Fresh state, Claude's 5-hour window binding at 46% remaining (warn) — the
+      <code style="font-family:var(--mono)">C</code> cue names the tool. The glyph
+      sits among the system status items so the scale reads true.
+    </p>
+    <div class="menubar" role="img" aria-label="macOS menu bar with the llmdash badge">
+      <span class="glyph selected fresh" title="llmdash — fresh — Claude 5-hour">
+        <span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span>
+      </span>
+      <span class="sys">🔋 84%</span>
+      <span class="sys">📶</span>
+      <span class="sys">🔍</span>
+      <span class="sys time">Thu 2 Jul&nbsp;&nbsp;11:52</span>
+    </div>
+  </section>
+
+  <!-- ============ TOOL CUE — evaluated & adopted ============ -->
+  <section class="section">
+    <p class="section-label">Which tool is tight? — a compact binding-tool cue (adopted)</p>
+    <p class="section-lede">
+      The glyph shows the tightest number but not <b>which</b> tool it belongs to. A
+      single-letter cue after the mark answers that at a glance without clutter:
+      <code style="font-family:var(--mono)">C</code> = Claude, <code style="font-family:var(--mono)">X</code> = code<b>X</b>.
+      One extra monospace character, xbar-safe (text floor; an SF Symbol is optional
+      SwiftBar polish). It reads <code style="font-family:var(--mono)">▪C 46%</code> —
+      "llmdash · Claude · 46% left." Compared side by side below; adopted because it
+      stays clean.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="num warn">46%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name" style="font-size:.8rem;">without cue</div>
+          <div class="state-trigger">Clean, but you can't tell if it's Claude or Codex that's tight without opening the dropdown.</div>
+        </div>
+      </div>
+
+      <div class="state-card" style="border-color:var(--accent);">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name" style="font-size:.8rem;color:var(--accent);">with cue — Claude tight ✓ adopted</div>
+          <div class="state-trigger">One extra character. Still a single clean token; the <code>C</code> answers "which tool" instantly.</div>
+        </div>
+      </div>
+
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="cue">X</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name" style="font-size:.8rem;">with cue — Codex tight</div>
+          <div class="state-trigger"><code>X</code> = code<b>X</b>. Here Codex is the binding tool at 12% (crit) — the cue tells you where to look.</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="demo-notes" style="margin-top:14px;">
+      <b>Verdict: adopted.</b> On a narrow bar the cue stays a single clean token
+      (<code style="font-family:var(--mono)">▪C 46%</code> / <code style="font-family:var(--mono)">▪X 12%</code>), never busy, and it carries genuinely useful
+      information — <b>which</b> tool is about to throttle you. The cue is muted (it's a
+      label, not the number), so the eye still lands on the percentage first. It rides
+      the same honesty treatment as the number: dimmed slightly on aging, present on
+      stale. It is <b>omitted</b> in the no-reading and offline states (there's no
+      binding tool to name).
+    </div>
+  </section>
+
+  <!-- ============ FIVE STATES ============ -->
+  <section class="section">
+    <p class="section-label">The five honesty states</p>
+    <p class="section-lede">
+      The leading <code style="font-family:var(--mono)">▪</code> is the stable llmdash
+      mark — it never changes, so the badge is always recognizable. The tool cue
+      (<code style="font-family:var(--mono)">C</code>/<code style="font-family:var(--mono)">X</code>),
+      the number, the trailing marker, and the color carry the state. Two rules are
+      structural: an aging/stale reading is never shown as confidently fresh, and
+      offline / no-reading never show a number.
+    </p>
+    <div class="states">
+
+      <!-- fresh -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-warn"></span>fresh</div>
+          <div class="state-trigger">Binding window's band is <b>fresh</b> (or a Codex-owned reading, which has no freshness band).</div>
+          <div class="state-rule">Plain, confident. Number colored by its own status.</div>
+        </div>
+      </div>
+
+      <!-- aging -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph aging"><span class="mark">▪</span><span class="cue">C</span><span class="num good">78%</span><span class="agedot">·</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-good"></span>aging</div>
+          <div class="state-trigger">Reading older than <code>freshForMs</code>. The number <b>keeps its status color</b> (you still see how much) but takes a trailing <code>·</code> and a hair of de-emphasis.</div>
+          <div class="state-rule">Marked, not greyed — tells you "getting uncertain" AND "how much".</div>
+        </div>
+      </div>
+
+      <!-- stale -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph stale"><span class="mark">▪</span><span class="cue">C</span><span class="num">78%</span><span class="marker">⚠</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-warn"></span>stale</div>
+          <div class="state-trigger">Reading older than <code>staleAfterMs</code>. Number goes <b>amber</b> with a trailing <b>⚠</b>.</div>
+          <div class="state-rule">Marked stale — the number is present but flagged, never confident.</div>
+        </div>
+      </div>
+
+      <!-- no-reading -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph nodata"><span class="mark">▪</span><span class="dash">—</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>no-reading</div>
+          <div class="state-trigger">No window on either tool has a reading yet. A <b>dash</b>, never a number.</div>
+          <div class="state-rule">Dropdown explains why, per tool.</div>
+        </div>
+      </div>
+
+      <!-- offline -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph offline"><span class="mark">▪</span>&nbsp;llmdash&nbsp;<span class="marker">⚠</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>offline / error</div>
+          <div class="state-trigger">Fetch failed, timed out, non-200, or bad JSON. Shows the <b>wordmark</b> + slash, dimmed. <b>Never</b> a number.</div>
+          <div class="state-rule">"No server" is unmistakable from "lots of headroom".</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ THE DROPDOWN — two variants ============ -->
+  <section class="section">
+    <p class="section-label">The dropdown — the full picture the glyph can't hold</p>
+    <p class="section-lede">
+      Click the glyph and SwiftBar renders the plugin's dropdown: both tools × both
+      windows, remaining % and reset countdowns, freshness tags, honest diagnostics,
+      and actions. Two variants below — a healthy day, and a degraded one.
+    </p>
+
+    <div class="dropdown-demo">
+
+      <!-- ---------- VARIANT A: healthy, fresh ---------- -->
+      <div class="demo-col">
+        <p class="demo-caption"><b>Healthy variant.</b> Claude's 5-hour window is the binding constraint (46%, warn). Everything is fresh — no freshness tags, no diagnostics.</p>
+        <div class="anchor-bar">
+          <span class="glyph selected fresh"><span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num warn">46%</span>
+            <span style="color:var(--dropdown-muted);font-weight:500;font-family:var(--sans);font-size:.76rem;">remaining</span>
+            <span class="binding">Claude · 5-hour</span>
+          </div>
+          <hr class="dd-sep" />
+
+          <div class="dd-tool-head">
+            <span class="dd-tool-name">Claude Code</span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem warn">46%</span><span class="dd-reset">resets 3h 12m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem good">61%</span><span class="dd-reset">resets 2d 4h</span></span>
+          </div>
+
+          <hr class="dd-sep" />
+
+          <div class="dd-tool-head">
+            <span class="dd-tool-name">Codex</span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem good">88%</span><span class="dd-reset">resets 4h 40m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem good">72%</span><span class="dd-reset">resets 5d 9h</span></span>
+          </div>
+
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+        <div class="demo-notes">
+          <b>What to notice:</b> the glyph number (46%) is exactly the lowest remaining % across all four windows — the binding constraint. Every reading is fresh, so nothing is tagged or flagged. Codex windows show no freshness tag ever (Codex has no freshness band).
+        </div>
+      </div>
+
+      <!-- ---------- VARIANT B: degraded — stale + maxed + not-available ---------- -->
+      <div class="demo-col">
+        <p class="demo-caption"><b>Degraded variant.</b> Claude's reading has gone <b>stale</b>, its Weekly window is <b>maxed</b> (limit reached — the binding constraint), and Codex's Weekly window has <b>no reading</b>. The honesty carries end to end.</p>
+        <div class="anchor-bar">
+          <span class="glyph selected stale"><span class="mark">▪</span><span class="cue">C</span><span class="num">0%</span><span class="marker">⚠</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num crit">limit reached</span>
+            <span class="binding">Claude · Weekly · stale</span>
+          </div>
+          <hr class="dd-sep" />
+
+          <div class="dd-tool-head">
+            <span class="dd-tool-name">Claude Code</span>
+            <span class="dd-tag tag-stale">stale</span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem warn">31%</span><span class="dd-reset">resets 1h 08m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem reached">limit reached</span><span class="dd-reset">resets 1d 22h</span></span>
+          </div>
+          <div class="dd-diag crit">
+            <span class="ic">⚠</span>
+            <span><b>Stale reading</b> — updated 1h 24m ago; the limits may have moved since. Open a Claude Code CLI session to refresh.</span>
+          </div>
+
+          <hr class="dd-sep" />
+
+          <div class="dd-tool-head">
+            <span class="dd-tool-name">Codex</span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem good">88%</span><span class="dd-reset">resets 4h 40m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem na">not available</span><span class="dd-reset">—</span></span>
+          </div>
+          <div class="dd-diag warn">
+            <span class="ic">›</span>
+            <span>No Codex weekly limit reading yet.</span>
+          </div>
+
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+        <div class="demo-notes crit">
+          <b>What to notice:</b> a maxed window reads <b>limit reached</b>, never <code style="font-family:var(--mono)">0%</code> — and it is a valid binding constraint, so the glyph shows it (marked stale). Codex's null window reads <b>not available</b>, never <code style="font-family:var(--mono)">0%</code>. The stale note names the remedy. The glyph is <b>marked</b> the whole time — a maxed, hours-old reading is never shown as a confident fresh number.
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ AUTO-REFRESH DIAGNOSTIC VARIANT ============ -->
+  <section class="section">
+    <p class="section-label">Diagnostics carry the same honest copy as the dashboard</p>
+    <p class="section-lede">
+      When the Claude reading can't refresh itself, the badge says so — reason codes
+      map to fixed, honest lines (never rendered raw). Here: auto-refresh is failing,
+      so the reading is aging toward stale.
+    </p>
+    <div style="max-width:380px;">
+      <div class="anchor-bar">
+        <span class="glyph selected aging"><span class="mark">▪</span><span class="cue">C</span><span class="num good">54%</span><span class="agedot">·</span></span>
+        <span class="sys">Thu&nbsp;11:52</span>
+      </div>
+      <div class="dropdown">
+        <div class="dd-title">
+          <span class="mark" style="opacity:.6">▪</span>
+          <span class="num good">54%</span>
+          <span style="color:var(--dropdown-muted);font-weight:500;font-family:var(--sans);font-size:.76rem;">remaining · aging</span>
+          <span class="binding">Claude · 5-hour</span>
+        </div>
+        <hr class="dd-sep" />
+        <div class="dd-tool-head">
+          <span class="dd-tool-name">Claude Code</span>
+          <span class="dd-tag tag-aging">aging</span>
+        </div>
+        <div class="dd-row">
+          <span class="dd-win">5-hour</span>
+          <span class="dd-metrics"><span class="dd-rem good">54%</span><span class="dd-reset">resets 2h 47m</span></span>
+        </div>
+        <div class="dd-row">
+          <span class="dd-win">Weekly</span>
+          <span class="dd-metrics"><span class="dd-rem good">66%</span><span class="dd-reset">resets 3d 1h</span></span>
+        </div>
+        <div class="dd-diag warn">
+          <span class="ic">⚠</span>
+          <span><b>Auto-refresh is failing</b> — open a Claude Code CLI session to refresh manually.</span>
+        </div>
+        <hr class="dd-sep" />
+        <div class="dd-tool-head">
+          <span class="dd-tool-name">Codex</span>
+        </div>
+        <div class="dd-row">
+          <span class="dd-win">5-hour</span>
+          <span class="dd-metrics"><span class="dd-rem good">88%</span><span class="dd-reset">resets 4h 40m</span></span>
+        </div>
+        <div class="dd-row">
+          <span class="dd-win">Weekly</span>
+          <span class="dd-metrics"><span class="dd-rem good">72%</span><span class="dd-reset">resets 5d 9h</span></span>
+        </div>
+        <hr class="dd-sep" />
+        <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+        <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SYMBOL / COLOR TABLE — the binding spec ============ -->
+  <section class="section">
+    <p class="section-label">Glyph symbol + color — the binding spec (OQ-03 resolved)</p>
+    <p class="section-lede">
+      This is what the Engineer implements verbatim. Colors are named against the
+      design system's status tokens; the menu-bar strip uses lifted variants of the
+      same hue for contrast on a dark bar. The tool cue
+      (<code style="font-family:var(--mono)">C</code> Claude / <code style="font-family:var(--mono)">X</code> codeX)
+      is muted and rides the glyph's state; it is omitted in no-reading and offline
+      (no binding tool to name).
+    </p>
+    <table class="legend-table">
+      <thead>
+        <tr>
+          <th>State</th>
+          <th>Glyph</th>
+          <th>Color token</th>
+          <th>The rule it enforces</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="st">fresh</td>
+          <td><span class="chip">▪ <span style="color:var(--menubar-text-dim)">C</span> <span style="color:#5bd88a;">46%</span></span></td>
+          <td class="tok">status of the % (<span style="color:var(--good)">good</span>/<span style="color:var(--warn)">warn</span>/<span style="color:var(--crit)">crit</span>)</td>
+          <td class="rule-cell">Plain, confident. The number's own status color shows through; muted tool cue.</td>
+        </tr>
+        <tr>
+          <td class="st">aging</td>
+          <td><span class="chip" style="opacity:.82">▪ <span style="color:var(--menubar-text-dim)">C</span> <span style="color:#5bd88a;">78%</span>·</span></td>
+          <td class="tok">status hue kept, ~0.82 opacity</td>
+          <td class="rule-cell"><b>Keeps its status color</b> (you still see how much) + trailing <code style="font-family:var(--mono)">·</code> and a hair of de-emphasis. The <code style="font-family:var(--mono)">·</code> is the load-bearing marker — reads in a monochrome bar.</td>
+        </tr>
+        <tr>
+          <td class="st">stale</td>
+          <td><span class="chip">▪ <span style="color:var(--menubar-text-dim)">C</span> <span style="color:#e6c07b;">78%</span> <span style="color:#f0a94b;">⚠</span></span></td>
+          <td class="tok">warn / <code style="font-family:var(--mono)">#f0a94b</code></td>
+          <td class="rule-cell">Number tinted amber + trailing <b>⚠</b>. Present but flagged, never confident.</td>
+        </tr>
+        <tr>
+          <td class="st">no-reading</td>
+          <td><span class="chip">▪ <span style="color:var(--menubar-text-dim)">—</span></span></td>
+          <td class="tok">muted / <code style="font-family:var(--mono)">#9b9ea6</code></td>
+          <td class="rule-cell">A dash, <b>never a number</b>, no tool cue. Dropdown explains why per tool.</td>
+        </tr>
+        <tr>
+          <td class="st">offline</td>
+          <td><span class="chip" style="color:var(--menubar-text-dim)">▪ llmdash ⚠</span></td>
+          <td class="tok">muted / <code style="font-family:var(--mono)">#8b8b8b</code></td>
+          <td class="rule-cell">Wordmark + slash, dimmed. <b>Never a number.</b> "No server" ≠ "lots of headroom".</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="footnote">
+    <b>xbar-safe floor + SwiftBar polish.</b> Every state above is carried by
+    <b>text/emoji + <code>color=</code></b> — nothing here depends on a SwiftBar-only
+    SF Symbol, so the badge stays honest on xbar too. On SwiftBar, the leading
+    <code>▪</code> mark <em>may</em> optionally be swapped for a monochrome
+    <code>sfimage=</code> template glyph as polish; the text mark is the floor and
+    always ships. &nbsp;·&nbsp; The trailing marker on stale (<code>⚠</code>) and the
+    dimming on aging are the honesty signals; they are <b>never color-alone</b> — the
+    marker/dash/dim reads even in a monochrome menu bar. &nbsp;·&nbsp; Countdowns
+    (<code>resets 3h 12m</code>) format exactly as the dashboard's <code>fmtDur</code>;
+    they reflect the moment the plugin last ran and need not tick between runs.
+  </div>
+
+</div>
