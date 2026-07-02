@@ -30,3 +30,37 @@
   clean single-glyph scope; the plugin is built so a host list can slot in later
   without a rewrite. Roadmap "On the Horizon" gets the multi-host follow-on at
   close-out.
+
+## Stage 8 (Deployer) — 2026-07-02
+- **Shipped and verified live.** Commits 7c2105a (feature), 086896a (symlink
+  run-guard fix + hermetic install tests), 9eb3e3f (wrapper redesign) on
+  origin/main; installed copy at ~/llmdash fast-forwarded. The badge renders
+  live in the real macOS menu bar via SwiftBar: `▪ C 44%` (Claude weekly, the
+  tightest window), pulled from the live 8787 dashboard. The user installed
+  SwiftBar (`brew install --cask swiftbar`); the badge was wired via
+  `--setup-badge`.
+- **Two real defects found at deploy by exercising the true delivery path
+  (running the plugin the way SwiftBar does, via a symlink/wrapper — the unit
+  tests had only ever spawned it by its real path):**
+  1. **Blank badge under SwiftBar** — the plugin's ESM run-guard compared
+     `process.argv[1]` to `import.meta.url`; Node de-symlinks the latter but not
+     the former, so under the symlink `main()` never fired. Fixed with a realpath
+     comparison; added a symlink-invocation regression test (the missing seam).
+  2. **Installer dirtied its own checkout** — `--setup-badge` baked the absolute
+     node path into the *tracked* plugin shebang and symlinked it in, dirtying
+     ~/llmdash so the installer's main-flow `git pull --ff-only` would abort on
+     re-run (breaking "safe to re-run"). Redesigned: `--setup-badge` now writes a
+     generated POSIX-sh **wrapper** into SwiftBar's dir that execs an absolute node
+     against the tracked plugin — the tracked source is never modified, the
+     checkout stays clean, and the badge auto-updates on pull. A self-heal restores
+     a shebang an older installer baked. `--remove-badge` deletes only a legacy
+     symlink or a marker-carrying wrapper — never a user's unmarked file.
+- **Test-hermeticity fix (found because the real SwiftBar install changed machine
+  state):** the install tests read the real user's SwiftBar preference
+  (`defaults read` ignores `$HOME`), so they leaked into the real plugin dir and
+  went red once SwiftBar was actually installed. Added `LLMDASH_SWIFTBAR_DIR` as an
+  authoritative detection override (also useful for a custom SwiftBar plugin
+  folder); every install test now pins a scratch dir. Suite hermetic regardless of
+  the dev's machine. 181 tests (179 pass, 2 graceful skips).
+- Security re-checked twice in-stage (the `--remove-badge` addition, then the
+  wrapper redesign): PASSED WITH NOTES, no blocking findings.

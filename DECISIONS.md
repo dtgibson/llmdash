@@ -1,5 +1,46 @@
 # Decisions — llmdash
 
+## Menu-bar badge — a SwiftBar plugin, delivered via a wrapper, single host — 2026-07-02 (feature)
+**Decision (mechanism):** The macOS menu-bar surface is a **SwiftBar/xbar
+plugin** — a zero-dependency Node script rendered by a user-installed menu-bar
+host — **not** a native compiled app or an Electron shell. SwiftBar
+(`brew install --cask swiftbar`) is a **disclosed user prerequisite**, never
+auto-installed. The plugin is a pure consumer of the existing `/api/state`: it
+recomputes no limits and opens no second data path.
+**Decision (delivery model):** `--setup-badge` writes a **generated POSIX-sh
+wrapper** into SwiftBar's plugin dir that `exec`s an absolute node against the
+**tracked** plugin — chosen over baking the absolute-node shebang into the
+tracked source and symlinking it in. `--remove-badge` reverses it; removal is
+**marker-gated** (deletes only a symlink or a wrapper carrying the
+`llmdash-menu-bar-badge` marker), never a user's own unmarked file.
+**Decision (scope):** Ship a **configurable single host** (`LLMDASH_BADGE_HOST`,
+default loopback) so the badge can read a dashboard on any tailnet machine.
+**Multi-host** (a host list with per-machine dropdown grouping and glyph
+switching) is **deferred**; the plugin is built so a host list slots in without
+a rewrite.
+**Rationale:** SwiftBar keeps a real native menu-bar surface *inside* the
+project's zero-dependency / no-build constitution — a compiled app or Electron
+would violate it and add a toolchain. The wrapper was forced by a real deploy
+defect: baking the shebang into the tracked plugin dirtied the git checkout, so
+the installer's "safe to re-run" `git pull --ff-only` aborted; the wrapper keeps
+the tracked source pristine (the badge auto-updates on pull), self-heals an old
+baked shebang, and marker-gated removal makes uninstall non-destructive. The
+single-host scope keeps the one-glance glyph unambiguous; multi-host is real
+scope, not a config flag, so it was kept out deliberately.
+**Implications:** The badge inherits the fresh-by-default reading and respects
+the freshness bands (five honesty states miniaturize the dashboard's language;
+a C/X cue names the binding tool). The wrapper pattern is the template for any
+future machine-specific install artifact (never rewrite a tracked file in
+place — it breaks re-runnable `git pull`). Multi-host and a tmux/terminal
+statusline emitter are logged on the roadmap as the two follow-ons this feature
+surfaced. Security PASSED WITH NOTES: one Low fixed in-stage (operator
+`LLMDASH_BADGE_HOST`/`LLMDASH_PORT` flowed unsanitized into the clickable
+`href=` line where a stray space could append a `bash=` param — fixed with
+`sanitizeHostPort()` stripping whitespace + `|`, now a CLAUDE.md convention),
+two Informational accepted (an uncapped response body bounded to one short-lived
+tick; a hostile numeric field rendering as inert text — both requiring an
+in-model-excluded impersonating peer).
+
 ## Claude reading now auto-refreshes via a /usage screen-scrape probe — 2026-07-02 (feature)
 **Decision:** Ship [R2-scrape]: when the Claude reading is older than the
 freshness threshold **and** Claude has been active recently, the interval

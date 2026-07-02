@@ -34,6 +34,11 @@
 - When refactoring a single-source view to multi-source, **diff the rendered stat
   set** so nothing silently drops. When a shared formatting helper changes, the
   diff must enumerate the helper's call sites, not just the feature's own block.
+  A call site **outside the app bundle** (a non-browser client — the menu-bar
+  badge, a future terminal statusline — that can't `import` `public/app.js` and
+  must **copy** a presentation helper) ships a **parity guard test** (byte +
+  behavioral equality) in the same commit as the copy, never a bare copy: a diff
+  can't catch drift the copier never sees. See `tests/menubar-parity.test.js`.
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path). The Claude reading is also refreshed
   there: when it goes stale **and** Claude has been active, the poller spawns a
@@ -93,10 +98,38 @@
 - Charts are plain SVG built into `innerHTML`. Verify the UI actually **renders**
   (not just that the page loads) — a blank-bar regression once passed a
   "page loads" check.
+- **Verify an artifact the way its host actually runs it, not just the way a test
+  is convenient.** This generalizes the "renders, not just loads" rule to
+  out-of-process / host-run artifacts. The menu-bar badge passed every unit test
+  while blank in the real menu bar because tests spawned `node <realpath>` but
+  SwiftBar runs it through a wrapper/symlink (ESM de-symlinks `import.meta.url`
+  but not `argv[1]`, so the entry-point run-guard never fired). For anything a
+  foreign host invokes, exercise the **real invocation path** (wrapper/symlink) in
+  a test and once at deploy — the convenient path can hide a host-only defect.
+- **A value that flows into a menu-bar (SwiftBar/xbar) line must be sanitized for
+  *that* grammar before output**, config-derived values included — not only wire
+  payload text. A SwiftBar param list is space-separated after `|`, so a stray
+  space in a `href=` value (built from `LLMDASH_BADGE_HOST`/`LLMDASH_PORT`) can
+  append a second param — including the arbitrary-command `bash=`/`shell=`. Strip
+  whitespace and `|` (`sanitizeHostPort`); a real host/IP/port never contains
+  them. This is the menu-bar form of "never interpolate untrusted input into raw
+  output."
 
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
   (node:test).
+- **An installer/setup step must never dirty the tracked checkout.** Generate
+  machine-specific artifacts (a wrapper that `exec`s an absolute node against the
+  tracked plugin) *beside* the tracked source — never rewrite a tracked file in
+  place. A rewritten tracked file makes `git pull --ff-only` abort on re-run, so
+  the installer stops being safe to re-run (this is why the badge install baking
+  an absolute-node shebang into the tracked plugin was replaced by a generated
+  wrapper). Make a setup step idempotent; make its inverse marker-gated (delete
+  only a symlink or a marker-carrying generated file, never a user's own file).
+- **Install/setup tests must be hermetic** — pin machine state through an override
+  (`LLMDASH_SWIFTBAR_DIR`) rather than reading the real user's config, or the
+  suite leaks into and depends on the dev's real machine (`defaults read` ignores
+  `$HOME`; the install tests went red once SwiftBar was actually installed).
 - Claude limit data comes from either the statusline (`scripts/statusline.js`
   writing the reading file) or the auto-refresh `/usage` probe; the latter needs a
   resolvable `claude` binary (`LLMDASH_CLAUDE_CMD`, surfaced by `healthLines()`).

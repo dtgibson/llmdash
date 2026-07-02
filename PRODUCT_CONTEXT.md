@@ -27,6 +27,14 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   no longer leaves the headline number permanently stale — no manual CLI ritual.
   It degrades honestly (a failing probe or a disabled one says so; gauges keep
   rendering the last capture) and costs no usage quota.
+- **macOS menu-bar badge** — a glanceable badge in the menu bar (via SwiftBar/xbar)
+  showing the most-constrained remaining % across Claude Code and Codex (both
+  windows), with a dropdown carrying the full per-tool picture and a link to the
+  dashboard. It is a pure consumer of `/api/state` (no second data path, no
+  recomputed limits), honest about freshness and offline state (five honesty
+  states mirroring the dashboard), and names the binding tool (C = Claude,
+  X = Codex). The host is configurable so it can read a dashboard on any tailnet
+  machine.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain
@@ -48,6 +56,11 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   scripts stay locked to `'self'`.
 - Served on `0.0.0.0:8787`, reachable over the tailnet. Runs as a systemd user
   service (`llmdash.service`) with lingering enabled, so it survives reboots.
+- The menu-bar badge is a zero-dependency Node plugin that only does a loopback
+  `GET /api/state`. SwiftBar is a user-installed prerequisite (llmdash never
+  installs it); `--setup-badge` wires it in by generating a wrapper in SwiftBar's
+  plugin dir that runs the tracked plugin, so the checkout is never modified and
+  the badge updates on pull (`--remove-badge` reverses it symmetrically).
 
 ## Data Sources & Honesty
 - **Limits** are account-wide (Claude Code's own numbers). **Activity stats** are
@@ -59,9 +72,10 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   history from the logs.
 
 ## Deferred / Not yet built
-- Nothing major queued. See `ROADMAP.md` → Up Next (menu-bar badge, limit
-  alerts) and On the Horizon (strict tailnet-only binding, the auto-refresh
-  teardown follow-up, the Fable per-model weekly meter).
+- Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
+  Horizon (multi-host badge, a tmux/terminal statusline emitter, strict
+  tailnet-only binding, the auto-refresh teardown follow-up, the Fable per-model
+  weekly meter).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
-- Limit alerts/notifications; a menu-bar badge.
+- Limit alerts/notifications.
