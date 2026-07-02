@@ -54,14 +54,16 @@ which is handy to see the different states quickly.
    Open SwiftBar once. It asks you to pick a **plugin folder** — pick one (the
    common default is `~/Library/Application Support/SwiftBar/Plugins`).
 
-6. **Install the plugin.** One command bakes the correct absolute `node` path into
-   the plugin (the menu bar spawns it with a stripped-down PATH where a plain
-   `node` won't be found) and, if it sees SwiftBar's folder, drops the plugin in:
+6. **Install the plugin.** One command writes a tiny **wrapper** into SwiftBar's
+   folder that runs the plugin with the correct absolute `node` path (the menu bar
+   spawns it with a stripped-down PATH where a plain `node` won't be found):
    ```
    ~/llmdash/scripts/install-macos.sh --setup-badge
    ```
    It prints exactly what it did and anything left for you to do. (If you cloned
-   somewhere other than `~/llmdash`, use that path.)
+   somewhere other than `~/llmdash`, use that path.) The wrapper points at the
+   plugin in your checkout, so **your checkout is never modified** — re-running the
+   installer or `git pull` stays clean and the badge updates itself when you pull.
 
 7. **Look at your menu bar.** Within about 5 seconds a small `▪ C 45%`-style badge
    appears near the clock. Click it to open the dropdown; click **Open dashboard**
@@ -84,9 +86,10 @@ One command each way. To take the badge out of your menu bar:
 ```
 ~/llmdash/scripts/install-macos.sh --remove-badge
 ```
-It unlinks only the plugin from SwiftBar's folder — it never deletes the copy in
-your llmdash checkout, and it never removes a file you put there yourself. It's
-safe to run even if the badge isn't installed (it just says "nothing to remove").
+It removes only llmdash's own wrapper from SwiftBar's folder (it recognizes it by
+a marker line) — it never deletes the copy in your llmdash checkout, and it never
+removes a file you put there yourself. It's safe to run even if the badge isn't
+installed (it just says "nothing to remove").
 
 That removes the badge, **not SwiftBar**. If you want the menu-bar app gone too,
 that's your call — llmdash never uninstalls it for you:

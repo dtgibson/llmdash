@@ -213,3 +213,31 @@ added to `scripts/install-macos.sh` at the user's request. Re-checked the new co
 
 **Verdict: no new findings.** Outcome stands **PASSED WITH NOTES**. Suite green at
 175 tests (173 pass / 2 graceful skips) after the +5 remove-badge tests.
+
+---
+
+## Addendum 2 — wrapper redesign re-check (Orchestrator, 2026-07-02)
+
+The badge install was redesigned mid-deploy (a generated wrapper replaces the
+shebang-baked symlink, so the tracked source — and the git checkout — is never
+modified). Re-checked the new `scripts/install-macos.sh` code:
+
+- **`remove_badge` is still safe.** It deletes `$sb_dir/llmdash.5s.js` only when
+  it is a symlink (`rm` the link, never followed) OR a real file that contains the
+  `llmdash-menu-bar-badge` marker. A real file **without** the marker is a user's
+  own file and is explicitly left untouched. Fixed single filename, quoted, no
+  glob, no `-rf`.
+- **`setup_badge` migration is safe.** It `rm -f`s the target only if it's a
+  symlink or a marker wrapper; a non-marker real file makes setup refuse (exit 1)
+  rather than clobber it.
+- **`restore_tracked_shebang` is bounded.** It rewrites line 1 only when it is
+  exactly the committed `#!/usr/bin/env node` (no-op) or a baked `#!/<abs>/node`
+  shape (restore); every other first line is left untouched. Temp-file + `mv`,
+  quoted.
+- **Wrapper contents** are `exec "<abs-node>" "<tracked-plugin>" "$@"`, both paths
+  quoted. Informational (Accepted, single-user posture): a double-quote in the
+  install-dir path could break the generated wrapper's quoting — self-inflicted,
+  local, consistent with the accepted operator-config stance.
+
+**Verdict: no new blocking findings.** Outcome stands **PASSED WITH NOTES**.
+Suite green at 181 (179 pass / 2 graceful skips).

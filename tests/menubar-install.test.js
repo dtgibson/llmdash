@@ -6,12 +6,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-// The badge plugin's INSTALLED artifact must carry an ABSOLUTE node path in its
-// shebang — the host spawns it under a minimal PATH where a bare "node" (esp.
-// under nvm) can't resolve → a dead badge (spike-report 2026-07-02). These
-// tests exercise the installer's --resolve-node and --setup-badge hooks in a
-// fully sandboxed temp checkout: no real SwiftBar dir and no repo file is
-// touched. The installer NEVER installs SwiftBar.
+// The badge is delivered by a GENERATED WRAPPER written into SwiftBar's plugin
+// dir: a small POSIX-sh script that execs an ABSOLUTE node against the TRACKED
+// plugin (the host spawns it under a minimal PATH where a bare "node" — esp.
+// under nvm — can't resolve; spike-report 2026-07-02). The tracked source is
+// NEVER modified, so the installed checkout stays clean and `git pull --ff-only`
+// on re-run never aborts. These tests exercise --resolve-node / --setup-badge /
+// --remove-badge in a fully sandboxed temp checkout with a scratch SwiftBar dir;
+// no real SwiftBar dir and no repo file is touched. The installer NEVER installs
+// SwiftBar.
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(repoRoot, 'scripts', 'install-macos.sh');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-badge-install-'));
@@ -26,8 +29,9 @@ function fakeBin(dir, name) {
   return fp;
 }
 
-// A throwaway "checkout" containing just the plugin, so --setup-badge rewrites
-// a COPY, never the repo's real scripts/menubar/llmdash.5s.js.
+// A throwaway "checkout" containing just the plugin (a COPY of the repo's
+// scripts/menubar/llmdash.5s.js), so tests act on the copy, never the real repo
+// file.
 function fakeCheckout() {
   const dir = fs.mkdtempSync(path.join(tmp, 'checkout-'));
   const menubar = path.join(dir, 'scripts', 'menubar');
@@ -36,6 +40,8 @@ function fakeCheckout() {
     path.join(menubar, 'llmdash.5s.js'));
   return dir;
 }
+const DEV_SHEBANG = '#!/usr/bin/env node';
+const WRAPPER_MARKER = 'llmdash-menu-bar-badge';
 
 // setup_badge shells out to coreutils (tail/mv/ln/chmod/defaults), so the base
 // PATH includes the system dirs; a caller prepends a fake-node dir to control
@@ -79,43 +85,153 @@ test('--resolve-node: exits non-zero when node cannot be resolved (loud failure)
   assert.equal(r.stdout.trim(), '');
 });
 
-test('--setup-badge: bakes the absolute node path into the plugin shebang', () => {
+test('--setup-badge: writes a real wrapper (marker + abs-node + tracked path), NOT a symlink', () => {
   const checkout = fakeCheckout();
-  const bin = path.join(tmp, 'node-forbake');
+  const bin = path.join(tmp, 'node-forwrap');
   const nodeFp = fakeBin(bin, 'node');
-  const plugin = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
-
-  // Before: the checked-in dev shebang.
-  assert.match(fs.readFileSync(plugin, 'utf8').split('\n')[0], /^#!\/usr\/bin\/env node$/);
-
-  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: path.join(tmp, 'home-nosb') });
-  assert.equal(r.status, 0, r.stderr);
-  // After: line 1 is the ABSOLUTE node path; the rest of the file is intact.
-  const after = fs.readFileSync(plugin, 'utf8');
-  assert.equal(after.split('\n')[0], `#!${nodeFp}`);
-  assert.match(after, /export function computeBadge/); // body preserved
-  // It marks the plugin executable.
-  assert.ok(fs.statSync(plugin).mode & 0o111);
-  // With no SwiftBar dir, it names SwiftBar as a user-installed prerequisite and
-  // does NOT claim to have installed it.
-  assert.match(r.stdout, /brew install --cask swiftbar/);
-  assert.doesNotMatch(r.stdout, /installed SwiftBar/i);
-});
-
-test('--setup-badge: symlinks into a DETECTED SwiftBar plugin dir, never installs SwiftBar', () => {
-  const checkout = fakeCheckout();
-  const bin = path.join(tmp, 'node-forsymlink');
-  fakeBin(bin, 'node');
-  const home = path.join(tmp, 'home-withsb');
+  const home = path.join(tmp, 'home-wrap');
   const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
   fs.mkdirSync(sbDir, { recursive: true });
+  const plugin = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
 
   const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0, r.stderr);
-  const link = path.join(sbDir, 'llmdash.5s.js');
-  assert.ok(fs.existsSync(link), 'plugin symlinked into the detected SwiftBar dir');
-  assert.equal(fs.realpathSync(link), fs.realpathSync(path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js')));
-  assert.match(r.stdout, /symlinked the plugin into SwiftBar/);
+
+  const wrapper = path.join(sbDir, 'llmdash.5s.js');
+  const lst = fs.lstatSync(wrapper);
+  assert.ok(lst.isFile() && !lst.isSymbolicLink(), 'the wrapper is a REAL file, not a symlink');
+  const body = fs.readFileSync(wrapper, 'utf8');
+  assert.match(body, /^#!\/bin\/sh/);                 // POSIX-sh wrapper
+  assert.match(body, new RegExp(WRAPPER_MARKER));      // the unique marker
+  assert.ok(body.includes(`exec "${nodeFp}" "${plugin}"`), 'execs abs-node against the TRACKED plugin');
+  assert.ok(fs.statSync(wrapper).mode & 0o111, 'the wrapper is executable');
+  assert.match(r.stdout, /wrote the menu-bar wrapper/);
+});
+
+test('--setup-badge: does NOT modify the tracked plugin (anti-dirty guarantee)', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-antidirty');
+  fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-antidirty');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const plugin = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
+
+  const before = fs.readFileSync(plugin, 'utf8');
+  assert.equal(before.split('\n')[0], DEV_SHEBANG); // committed shebang before
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  const after = fs.readFileSync(plugin, 'utf8');
+  // Byte-for-byte identical — the tracked source is untouched, so the checkout
+  // stays clean and `git pull --ff-only` never aborts on a re-run.
+  assert.equal(after, before, 'the tracked plugin file must be unchanged');
+  assert.equal(after.split('\n')[0], DEV_SHEBANG);
+});
+
+test('--setup-badge: the generated wrapper actually launches the plugin end-to-end', async () => {
+  // Point the wrapper at a REAL node and a scratch dashboard, then run the
+  // wrapper the way SwiftBar would and confirm it emits a valid badge line.
+  const http = await import('node:http');
+  const { loadFixture } = await import('./helpers/menubar-run.js');
+  const checkout = fakeCheckout();
+  const home = path.join(tmp, 'home-e2e');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  // Bake the REAL node (process.execPath) so the wrapper can actually exec it.
+  const bin = path.join(tmp, 'realnode-e2e');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+
+  const setup = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(setup.status, 0, setup.stderr);
+  const wrapper = path.join(sbDir, 'llmdash.5s.js');
+
+  // A scratch dashboard serving a fresh fixture.
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(loadFixture('state-fresh')));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+
+  // Run the wrapper as SwiftBar does (its own shell), under a MINIMAL PATH so
+  // the abs-node baked into the wrapper is the only way node resolves. ASYNC so
+  // this event loop stays live to serve the fetch (a blocking spawnSync would
+  // freeze the server and the plugin would time out to offline).
+  const { spawn } = await import('node:child_process');
+  const out = await new Promise((resolve) => {
+    const child = spawn('/bin/sh', [wrapper], {
+      env: { PATH: '/usr/bin:/bin', LLMDASH_BADGE_HOST: '127.0.0.1', LLMDASH_PORT: String(port) },
+    });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+  await new Promise((r) => server.close(r));
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout.split('\n')[0], /^▪ C \d+% \|/); // a real badge line, not offline
+  assert.match(out.stdout, /Open dashboard \| href=http:\/\/127\.0\.0\.1:/);
+});
+
+test('--setup-badge: self-heals a baked tracked shebang (restores the committed shebang)', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-selfheal');
+  const nodeFp = fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-selfheal');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const plugin = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
+
+  // Simulate the OLD model having baked an absolute-node shebang (dirtying the
+  // checkout): replace line 1 with a #!<abspath>/node form.
+  const bakedNode = '/opt/somewhere/bin/node';
+  const orig = fs.readFileSync(plugin, 'utf8').split('\n');
+  orig[0] = `#!${bakedNode}`;
+  fs.writeFileSync(plugin, orig.join('\n'));
+
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  // The tracked shebang is restored to the committed form → checkout is clean.
+  assert.equal(fs.readFileSync(plugin, 'utf8').split('\n')[0], DEV_SHEBANG);
+  assert.match(r.stdout, /restored the tracked plugin shebang/);
+});
+
+test('--setup-badge: migrates a legacy symlink to the wrapper model', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-migrate');
+  fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-migrate');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const plugin = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
+  const dest = path.join(sbDir, 'llmdash.5s.js');
+  // The old model: a symlink into the checkout.
+  fs.symlinkSync(plugin, dest);
+  assert.ok(fs.lstatSync(dest).isSymbolicLink());
+
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  const lst = fs.lstatSync(dest);
+  assert.ok(lst.isFile() && !lst.isSymbolicLink(), 'the legacy symlink was replaced by a real wrapper');
+  assert.match(fs.readFileSync(dest, 'utf8'), new RegExp(WRAPPER_MARKER));
+});
+
+test('--setup-badge: refuses to clobber a real user file (no marker) in the SwiftBar dir', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-noclobber');
+  fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-noclobber');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const dest = path.join(sbDir, 'llmdash.5s.js');
+  fs.writeFileSync(dest, 'a user file that happens to share the name\n');
+
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /not a llmdash wrapper/);
+  // The user's file is untouched.
+  assert.equal(fs.readFileSync(dest, 'utf8'), 'a user file that happens to share the name\n');
 });
 
 test('--setup-badge: node unresolved → loud failure with the fix, non-zero, no dead badge', (t) => {
@@ -127,91 +243,109 @@ test('--setup-badge: node unresolved → loud failure with the fix, non-zero, no
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /node not found/);
   assert.match(r.stderr, /install Node 24\+/i);
-  // The plugin shebang was NOT rewritten to something dead.
-  assert.match(fs.readFileSync(path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js'), 'utf8').split('\n')[0],
-    /^#!\/usr\/bin\/env node$/);
+  // The tracked plugin shebang was NOT rewritten to something dead.
+  assert.equal(fs.readFileSync(path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js'), 'utf8').split('\n')[0],
+    DEV_SHEBANG);
 });
 
 // ── --remove-badge: the symmetric uninstall ──────────────────────────────────
-// Removes ONLY the symlink setup created. It is symlink-only (never deletes a
-// real file), never follows the link to delete its target (the repo source
-// stays), never uninstalls SwiftBar, and is re-run-safe.
+// Removes the SwiftBar-dir llmdash.5s.js ONLY when it is a marker-carrying
+// wrapper (our generated file) OR a legacy symlink. A real file WITHOUT the
+// marker is a user's own file and is NEVER deleted. Never uninstalls SwiftBar;
+// re-run-safe.
 
-// Build a fake HOME with a SwiftBar plugin dir; optionally symlink or drop a
-// real file named llmdash.5s.js into it. Returns { home, sbDir, checkout }.
+// Build a fake HOME + SwiftBar plugin dir, and drop a llmdash.5s.js of the given
+// kind into it: 'wrapper' (a marker-carrying real file, what setup writes),
+// 'symlink' (the legacy model), 'realfile' (a user's non-marker file), or 'none'.
 function fakeSwiftBarHome(kind) {
   const home = fs.mkdtempSync(path.join(tmp, 'home-rb-'));
   const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
   fs.mkdirSync(sbDir, { recursive: true });
   const checkout = fakeCheckout();
   const src = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
-  const link = path.join(sbDir, 'llmdash.5s.js');
-  if (kind === 'symlink') fs.symlinkSync(src, link);
-  else if (kind === 'realfile') fs.writeFileSync(link, 'the user put this here\n');
-  return { home, sbDir, checkout, src, link };
+  const dest = path.join(sbDir, 'llmdash.5s.js');
+  if (kind === 'wrapper') {
+    fs.writeFileSync(dest, `#!/bin/sh\n# ${WRAPPER_MARKER} (generated)\nexec "/abs/node" "${src}" "$@"\n`);
+    fs.chmodSync(dest, 0o755);
+  } else if (kind === 'symlink') {
+    fs.symlinkSync(src, dest);
+  } else if (kind === 'realfile') {
+    fs.writeFileSync(dest, 'the user put this here\n');
+  }
+  return { home, sbDir, checkout, src, dest };
 }
 
-test('--remove-badge: unlinks the symlink; the repo plugin source is left intact', () => {
-  const { home, sbDir, checkout, src, link } = fakeSwiftBarHome('symlink');
-  assert.ok(fs.lstatSync(link).isSymbolicLink());
+test('--remove-badge: removes our marker wrapper; the repo plugin source is left intact', () => {
+  const { home, sbDir, checkout, src, dest } = fakeSwiftBarHome('wrapper');
   const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.existsSync(link), false, 'the symlink was removed');
-  assert.ok(fs.existsSync(src), 'the repo plugin source is untouched (rm did not follow the link)');
-  assert.match(r.stdout, /unlinked the plugin symlink from SwiftBar/);
-  // Discloses the SwiftBar symmetry: it did NOT uninstall the host.
+  assert.equal(fs.existsSync(dest), false, 'the wrapper was removed');
+  assert.ok(fs.existsSync(src), 'the repo plugin source is untouched');
+  assert.match(r.stdout, /removed the menu-bar wrapper/);
   assert.match(r.stdout, /did NOT uninstall SwiftBar/);
   assert.match(r.stdout, /brew uninstall --cask swiftbar/);
 });
 
+test('--remove-badge: still handles a legacy symlink (unlinks it, source stays)', () => {
+  const { home, sbDir, checkout, src, dest } = fakeSwiftBarHome('symlink');
+  assert.ok(fs.lstatSync(dest).isSymbolicLink());
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.existsSync(dest), false, 'the legacy symlink was removed');
+  assert.ok(fs.existsSync(src), 'the repo plugin source is untouched (rm did not follow the link)');
+  assert.match(r.stdout, /legacy plugin symlink/);
+});
+
 test('--remove-badge: no-op (exit 0) when nothing is linked', () => {
-  const { home, sbDir, checkout } = fakeSwiftBarHome('none'); // dir exists, nothing linked
+  const { home, sbDir, checkout } = fakeSwiftBarHome('none'); // dir exists, nothing there
   const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /nothing to remove/);
 });
 
-test('--remove-badge: NEVER deletes a non-symlink file named llmdash.5s.js', () => {
-  const { home, sbDir, checkout, link } = fakeSwiftBarHome('realfile');
-  assert.ok(fs.lstatSync(link).isFile() && !fs.lstatSync(link).isSymbolicLink());
+test('--remove-badge: NEVER deletes a real file WITHOUT our marker', () => {
+  const { home, sbDir, checkout, dest } = fakeSwiftBarHome('realfile');
+  assert.ok(fs.lstatSync(dest).isFile() && !fs.lstatSync(dest).isSymbolicLink());
   const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(r.status, 0);
-  // The real file is left exactly as it was.
-  assert.ok(fs.existsSync(link), 'the real file was NOT deleted');
-  assert.equal(fs.readFileSync(link, 'utf8'), 'the user put this here\n');
-  assert.match(r.stdout, /is NOT a symlink — leaving it untouched/);
+  // The user's file is left exactly as it was.
+  assert.ok(fs.existsSync(dest), 'the non-marker real file was NOT deleted');
+  assert.equal(fs.readFileSync(dest, 'utf8'), 'the user put this here\n');
+  assert.match(r.stdout, /not a llmdash wrapper \(no marker\) — leaving it/);
 });
 
 test('--remove-badge: no SwiftBar dir → prints where to look, exits 0, deletes nothing', () => {
-  // A HOME with NO SwiftBar plugin dir at all.
   const home = fs.mkdtempSync(path.join(tmp, 'home-nosb-'));
   const checkout = fakeCheckout();
-  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home });
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home }); // NO_SWIFTBAR default
   assert.equal(r.status, 0);
   assert.match(r.stdout, /no SwiftBar plugin directory detected/);
   assert.match(r.stdout, /brew uninstall --cask swiftbar/);
-  // The repo source is untouched.
   assert.ok(fs.existsSync(path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js')));
 });
 
-test('setup then remove is symmetric: setup links it, remove unlinks it, source survives both', () => {
-  const bin = path.join(tmp, 'node-sym');
+test('setup then remove is symmetric: setup writes the wrapper, remove deletes it, source & tracked shebang survive', () => {
+  const bin = path.join(tmp, 'node-roundtrip');
   fakeBin(bin, 'node');
   const home = fs.mkdtempSync(path.join(tmp, 'home-roundtrip-'));
   const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
   fs.mkdirSync(sbDir, { recursive: true });
   const checkout = fakeCheckout();
   const src = path.join(checkout, 'scripts', 'menubar', 'llmdash.5s.js');
-  const link = path.join(sbDir, 'llmdash.5s.js');
+  const dest = path.join(sbDir, 'llmdash.5s.js');
+  const trackedBefore = fs.readFileSync(src, 'utf8');
 
   const setup = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(setup.status, 0, setup.stderr);
-  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'setup created a symlink');
+  assert.ok(fs.lstatSync(dest).isFile() && !fs.lstatSync(dest).isSymbolicLink(), 'setup wrote a real wrapper');
+  assert.match(fs.readFileSync(dest, 'utf8'), new RegExp(WRAPPER_MARKER));
 
   const remove = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
   assert.equal(remove.status, 0, remove.stderr);
-  assert.equal(fs.existsSync(link), false, 'remove unlinked it');
+  assert.equal(fs.existsSync(dest), false, 'remove deleted the wrapper');
   assert.ok(fs.existsSync(src), 'the plugin source survived the round trip');
+  // The tracked source is byte-identical across the whole round trip.
+  assert.equal(fs.readFileSync(src, 'utf8'), trackedBefore, 'tracked plugin unchanged across setup+remove');
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

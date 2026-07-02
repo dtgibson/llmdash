@@ -119,30 +119,37 @@ brew install --cask swiftbar
 Open SwiftBar once and pick a plugin folder when it asks (e.g.
 `~/Library/Application Support/SwiftBar/Plugins`).
 
-**Install the plugin** — one command bakes the absolute `node` path into the
-plugin (the menu-bar host spawns it under a minimal PATH where a bare `node`,
+**Install the plugin** — one command. It writes a small **wrapper** into
+SwiftBar's plugin folder that runs the tracked plugin with an absolute `node`
+path (the menu-bar host spawns it under a minimal PATH where a bare `node`,
 especially under nvm, can't resolve — the same reason `codex`/`claude` need
-absolute paths) and, if it finds SwiftBar's plugin folder, symlinks the plugin in:
+absolute paths):
 ```
 ~/llmdash/scripts/install-macos.sh --setup-badge
 ```
-Prefer to do it by hand? Copy or symlink the plugin into your SwiftBar plugin
-folder and mark it executable (edit its first line to your absolute `node` path,
-from `which node`):
+The wrapper points at `scripts/menubar/llmdash.5s.js` in your checkout, so the
+**tracked source is never modified** — re-running the installer (and its
+`git pull --ff-only`) stays clean, and the badge auto-updates when you pull.
+
+Prefer to do it by hand? Drop a small wrapper into your SwiftBar plugin folder
+named `llmdash.5s.js` and mark it executable (use your absolute `node` path, from
+`which node`):
 ```
-ln -s ~/llmdash/scripts/menubar/llmdash.5s.js "<your-SwiftBar-plugin-dir>/llmdash.5s.js"
-chmod +x ~/llmdash/scripts/menubar/llmdash.5s.js
+printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$(which node)" ~/llmdash/scripts/menubar/llmdash.5s.js \
+  > "<your-SwiftBar-plugin-dir>/llmdash.5s.js"
+chmod +x "<your-SwiftBar-plugin-dir>/llmdash.5s.js"
 ```
 The `.5s.` in the filename is SwiftBar's refresh-interval convention (re-run every
 5 seconds); change the number, not the pattern, to slow it down.
 
-**Remove it** — one symmetric command. It unlinks only the plugin symlink from
-SwiftBar's plugin folder (it never deletes the repo file, and never touches a
-real file you placed there yourself):
+**Remove it** — one symmetric command. It deletes only llmdash's own wrapper (a
+file it recognizes by a marker line) or a legacy symlink from an older install —
+it never deletes the repo file, and never touches a real file you placed there
+yourself:
 ```
 ~/llmdash/scripts/install-macos.sh --remove-badge
 ```
-That removes the *plugin*, not SwiftBar. If you want the host gone too, that stays
+That removes the *badge*, not SwiftBar. If you want the host gone too, that stays
 your explicit choice — llmdash never uninstalls it for you:
 ```
 brew uninstall --cask swiftbar

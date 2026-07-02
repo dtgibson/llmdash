@@ -23,7 +23,7 @@ dash (never a number); **offline** shows `▪ llmdash ⚠` (never a number). A m
    ```
    npm test
    ```
-   Expect **175 tests, 173 pass, 0 fail, 2 skipped** (the 2 skips are the
+   Expect **181 tests, 179 pass, 0 fail, 2 skipped** (the 2 skips are the
    node-resolution tests that skip when a system `node` exists — the established
    installer-test convention).
 2. Preview the plugin's output without SwiftBar, against your live dashboard:
@@ -59,17 +59,27 @@ dash (never a number); **offline** shows `▪ llmdash ⚠` (never a number). A m
   reason codes map via own-key `hasOwnProperty` lookup so a `__proto__`/`constructor`
   reason can't bypass the generic fallback. Proven with a `| rm -rf /` injection
   fixture.
-- **Interpreter under minimal PATH:** the installed artifact needs an **absolute
-  node path** baked into its shebang — `#!/usr/bin/env node` produces a dead
-  badge under the host's minimal spawn PATH (measured; node is under nvm here).
-  `scripts/install-macos.sh --setup-badge` resolves + bakes it and **fails loudly**
-  if node is unresolved. The checked-in file keeps a portable dev shebang.
-- **Symmetric uninstall:** `scripts/install-macos.sh --remove-badge` mirrors
-  `--setup-badge`. It removes **only the symlink** setup created — verified to be
-  a symlink before `rm`, so it can never delete a real user file and never
-  follows the link to delete its target (the repo source is untouched). It never
-  uninstalls SwiftBar (it prints `brew uninstall --cask swiftbar` for the user to
-  run by choice), and is re-run-safe (a friendly "nothing to remove", exit 0).
+- **Interpreter under minimal PATH — generated wrapper, tracked source never
+  touched:** the badge needs an **absolute node path** because `#!/usr/bin/env
+  node` produces a dead badge under the host's minimal spawn PATH (measured; node
+  is under nvm here). `--setup-badge` writes a small POSIX-sh **wrapper** into
+  SwiftBar's plugin dir that `exec`s `<abs-node> <tracked-plugin>`, resolving node
+  via `resolve_node` (loud-fail if unresolved). The **tracked
+  `scripts/menubar/llmdash.5s.js` is never modified** — so the installed `~/llmdash`
+  checkout stays clean and the main-flow `git pull --ff-only` never aborts on a
+  re-run (this fixes a deploy defect where the old bake-the-shebang model dirtied
+  the checkout). The plugin's realpath run-guard matches because the wrapper runs
+  the real tracked path. **Self-heal:** if an older installer left a baked
+  absolute-node shebang in the tracked file, `--setup-badge` restores the
+  committed `#!/usr/bin/env node` (de-dirtying the checkout) — only when line 1 is
+  exactly a `#!<abspath>/node` baked form.
+- **Symmetric uninstall (marker-based):** `--remove-badge` mirrors `--setup-badge`.
+  It deletes the SwiftBar-dir `llmdash.5s.js` **only** when it is a legacy symlink
+  or a real file carrying the generated-wrapper **marker** (`llmdash-menu-bar-badge`);
+  a real file **without** the marker is a user's own file and is never deleted.
+  It never uninstalls SwiftBar (prints `brew uninstall --cask swiftbar` for the
+  user's choice) and is re-run-safe (a friendly "nothing to remove", exit 0).
+  `--setup-badge` likewise refuses to clobber a non-marker user file.
 - **Configurable host (Stage-4 addition):** `LLMDASH_BADGE_HOST` (default
   `127.0.0.1`) lets the badge read a dashboard on another tailnet machine —
   still the same `/api/state`, not a second data path. It drives both the fetch
