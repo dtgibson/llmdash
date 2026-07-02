@@ -1,26 +1,26 @@
 ## What We Accomplished
-Fresh installs no longer fail silently. The macOS installer now bakes an
-absolute codex path into the service (or warns loudly with the exact remedy),
-the server prints a data-source health readout at startup and logs codex spawn
-failures once per cause, and every empty gauge in the UI names its cause and
-remedy — the two factually false Codex notes are gone. Verified by 48 passing
-tests, a real-browser render check, and a clean security review (three
-informational notes, none blocking).
+Shipped the Claude reading-freshness feature. The dashboard now states how old
+its Claude limit reading is and flags it honestly — a warn "aging" pill past 5
+minutes, a crit "stale" pill plus a remedy note past 10 (one knob,
+`LLMDASH_CLAUDE_MAX_AGE_MS`, stale always 2×) — with gauges never blanked and
+the no-reading state naming how to capture a first reading. The original
+auto-refresh idea was empirically refuted by a spike (a prompt-free Claude Code
+session never receives `rate_limits`), so honesty shipped instead; the revival
+avenue (`/status`) is recorded. Verified by 73 passing tests, real-browser
+render checks, and a security review that closed both of its findings in-stage.
 
 ## What Has Been Saved
-- Code + docs: scripts/install-macos.sh, macos/com.llmdash.dashboard.plist.example,
-  src/health.js (new), src/codex-limits.js, src/server.js, public/app.js,
-  README.md, six new test files under tests/ (commit 9b5c33c).
-- Pipeline record: pipeline/fresh-install-no-usage-data/bug-brief.md,
-  pr-description.md, qa-report.md, security-report.md (commit 9b5c33c).
-- Project memory: DECISIONS.md entry, two CLAUDE.md conventions,
-  PRODUCT_CONTEXT.md honesty bullet (commit 1a0c03f).
-- All pushed to origin/main.
+- Feature + pipeline record: commit c9bdb59 (22 files, code + tests +
+  pipeline/statusline-auto-refresh/).
+- Project memory: commit 8407ef5 (DECISIONS.md entry, CLAUDE.md conventions,
+  PRODUCT_CONTEXT.md, design-system patterns, ROADMAP.md).
+- All pushed to origin/main. The installed dashboard (~/llmdash) was updated
+  and health-checked live — the stale cue is visible right now on real data.
 
 ## Where We Are
-Fix complete and shipped (source only, by choice). The installed copy at
-~/llmdash was deliberately left untouched — re-running the installer there
-will bake the working codex path and bring its gauges live. Pipeline idle.
+Feature complete and live. Pipeline idle. Two user-started side sessions
+(headroom [hidden] CSS fix, security-headers integration test) were still in
+flight at closeout — whichever lands after this needs a rebase against main.
 
 ## Resume Prompt
 
