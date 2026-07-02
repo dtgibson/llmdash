@@ -156,8 +156,11 @@ background-service setup differs from Linux. On a Mac:
    `"command": "node /Users/you/llmdash/scripts/statusline.js"`.
 4. To run it in the background (the launchd equivalent of the systemd service),
    use the template at `macos/com.llmdash.dashboard.plist.example` — fill in your
-   `node`, project, and `codex` paths, copy it to `~/Library/LaunchAgents/`, and
-   `launchctl load -w` it. Full steps are in that file's comments.
+   `node`, project, `codex`, and `claude` paths (the last is what auto-refresh
+   runs; absolute, same launchd reason as `codex`), copy it to
+   `~/Library/LaunchAgents/`, and `launchctl load -w` it. Full steps are in that
+   file's comments. The one-line installer above does all of this for you,
+   including resolving the absolute `claude` path.
 
 Codex limits work the same way as on Linux (via the `codex app-server`).
 
@@ -191,5 +194,6 @@ npm test
 ```
 
 ## Status & roadmap
-Personal project. Next up: Codex (ChatGPT Plus) support, then usage-over-time
-charts. See `ROADMAP.md`.
+Personal project. Claude Code and Codex are both tracked, with usage-over-time
+trends and auto-refreshing Claude readings all shipped. Next up: a menu-bar /
+tray badge for at-a-glance remaining %, then low-limit alerts. See `ROADMAP.md`.
