@@ -1,25 +1,11 @@
 {
-  "activeFeature": "multi-host",
-  "sessionType": "feature",
-  "currentStage": 8,
-  "lastCompletedStage": 7,
-  "lastCheckpointStatus": "in-progress",
+  "activeFeature": null,
+  "sessionType": null,
+  "currentStage": null,
+  "lastCompletedStage": 9,
+  "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
-  "confirmedArtifacts": [
-    "pipeline/multi-host/strategic-brief.md",
-    "pipeline/multi-host/prd.md",
-    "pipeline/multi-host/schema.md",
-    "pipeline/multi-host/design-spec.md",
-    "pipeline/multi-host/design.html",
-    "pipeline/multi-host/decisions.md",
-    "src/hosts.js",
-    "src/host-cache.js",
-    "src/host-view.js",
-    "pipeline/multi-host/pr-description.md",
-    "pipeline/multi-host/how-to-see-it.md",
-    "pipeline/multi-host/qa-report.md",
-    "pipeline/multi-host/security-report.md"
-  ],
+  "confirmedArtifacts": [],
   "createdAt": "2026-07-02T22:00:32Z",
-  "updatedAt": "2026-07-03T00:00:00Z"
+  "updatedAt": "2026-07-03T00:15:00Z"
 }
