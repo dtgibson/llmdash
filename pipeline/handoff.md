@@ -1,32 +1,34 @@
 ## What We Accomplished
-Built and fully verified multi-host-badge — the menu-bar badge becomes a
-configurable multi-host monitor: a primary Mac watches several remote Tailscale
-machines from the menu bar, with hosts added/removed live from the dropdown
-(a native dialog writes a local hosts.conf the badge owns — no service restart,
-no write endpoint on the tailnet). The glyph names the tightest machine
-(`▪ Desktop·C 12%`), an unreachable machine is named plainly, and a
-monitoring-station machine with no local Claude/Codex de-emphasizes its own empty
-reading. All nine planning/build/verify stages through security are done and
-green (333 tests; QA 28/28; security passed, no blocking findings).
+Shipped multi-host-badge. Your menu-bar badge is now a configurable multi-host
+monitor: point it at several of your tailnet machines and it shows the tightest
+one at a glance (`▪ Desktop·C 12%`), with a section per machine in the dropdown,
+an unreachable machine named plainly, and a monitoring-station machine's empty
+local reading kept out of the way. You add and remove machines live from the
+dropdown (a native dialog writes a local hosts.conf the badge owns — no plist edit,
+no restart, and nothing new exposed on your tailnet). Unset / no file = today's
+single-host badge, and even then it now offers "Add host…" so you can add your
+first machine from the menu bar.
+
+## What Has Been Saved
+- Feature: commit 25a76d9 (code + tests + pipeline/multi-host-badge/), plus a
+  deploy-caught fix (8bf0535 — Add host… in single-host mode).
+- Project memory: commit 8ed5304 (DECISIONS, PRODUCT_CONTEXT, CLAUDE, ROADMAP, and
+  a reusable Host-group design pattern).
+- All pushed to origin/main; installed copy at ~/llmdash updated and the service
+  restarted; health-checked live (endpoints healthy, read-only preserved, the
+  installed badge offers Add host…).
 
 ## Where We Are
-**Paused at the deploy step — you chose to hold, so nothing shipped.** Nothing is
-committed or pushed; your installed dashboard and badge are untouched. The whole
-feature sits ready in the working tree.
+Feature complete and live. Pipeline idle.
 
-## What Has Been Saved (uncommitted, in the working tree)
-- New: src/host-config.js, scripts/menubar/host-config-action.mjs, the new tests,
-  and pipeline/multi-host-badge/ (all stage artifacts).
-- Changed: config.js, src/poller.js, src/server.js, src/health.js,
-  src/host-cache.js, scripts/menubar/llmdash.5s.js, scripts/install-macos.sh,
-  README.md.
+To use it: click **Add host…** in the badge dropdown and type a machine's tailnet
+name or IP (`host[:port][=label]`), or edit `<data dir>/hosts.conf`. Each machine
+you watch also needs to be running llmdash. Unset / no file = single-host badge.
+
+One follow-on remains on the roadmap (On the Horizon): a tmux/terminal statusline.
+"Limit alerts" is Up Next, and can now build on the fresh reading, the badge, and
+cross-host awareness.
 
 ## Resume Prompt
 
-Run `/weft` — it picks up the paused session at the deploy step and re-offers the
-ship decision (Confirm / Cancel). On confirm it commits, pushes, updates the
-installed copy, and finishes with the memory update. Nothing was lost by holding.
-
-Once it does ship, turning it on is the easy part: click **Add host…** in the
-badge dropdown and type a machine's tailnet name/IP (or edit
-`<data dir>/hosts.conf`). Unset / no file = today's single-host badge.
+Run `/weft` to start the next thing.

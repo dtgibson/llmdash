@@ -22,3 +22,25 @@
 - **Design-system extension is minimal/additive** — a host header row + a host-level
   pill, mirroring the dashboard multi-host `.host-head`/`.host-pill`; no new tokens
   or color semantics. Single-host badge is unchanged.
+
+## Stage 8 (Deployer) — 2026-07-03
+- **Held then shipped.** The user cancelled the first deploy gate (feature paused,
+  built + verified, nothing shipped); resumed via /weft and confirmed. Commit
+  25a76d9 (feature) on origin/main; installed copy at ~/llmdash fast-forwarded and
+  the launchd service restarted. Health-checked live: /api/state 200 (unchanged),
+  /api/hosts serves the single local host (self:true), POST /api/hosts → 405
+  (serve-only preserved). Dormant until LLMDASH_HOSTS / hosts.conf is configured.
+- **Deploy-caught gap fixed forward (commit 8bf0535).** Running the installed badge
+  at the post-deploy check exposed that single-host mode delegated to the shipped
+  emit path with NO host-config actions — so a fresh single-host / monitoring-station
+  machine had no way to add its FIRST host from the menu bar, defeating the feature's
+  headline. Fix: a shared `hostConfigActionLines()` helper called from both paths;
+  single-host now shows `＋ Add host…` (+ honest "Watching: 0 other machines") with
+  the glyph + tool rows still byte-for-byte the shipped single-host badge. QA-13's
+  guard was updated from whole-output-byte-for-byte to "glyph+rows unchanged AND the
+  Add affordance present." 334 tests (332 pass, 2 pre-existing skips). Verified live
+  on the installed badge (`＋ Add host…` present).
+- Lesson: FR-13 ("single-host byte-for-byte") over-applied by hiding the one new
+  affordance that must be reachable from the single-host state; verifying the real
+  installed artifact (not just tests) caught it. Reinforces the standing convention:
+  verify a feature the way its host actually runs it.

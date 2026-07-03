@@ -1,25 +1,11 @@
 {
-  "activeFeature": "multi-host-badge",
-  "sessionType": "feature",
-  "currentStage": 8,
-  "lastCompletedStage": 7,
-  "lastCheckpointStatus": "in-progress",
+  "activeFeature": null,
+  "sessionType": null,
+  "currentStage": null,
+  "lastCompletedStage": 9,
+  "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
-  "confirmedArtifacts": [
-    "pipeline/multi-host-badge/strategic-brief.md",
-    "pipeline/multi-host-badge/prd.md",
-    "pipeline/multi-host-badge/spike-report.md",
-    "pipeline/multi-host-badge/schema.md",
-    "pipeline/multi-host-badge/design-spec.md",
-    "pipeline/multi-host-badge/design.html",
-    "pipeline/multi-host-badge/decisions.md",
-    "src/host-config.js",
-    "scripts/menubar/host-config-action.mjs",
-    "pipeline/multi-host-badge/pr-description.md",
-    "pipeline/multi-host-badge/how-to-see-it.md",
-    "pipeline/multi-host-badge/qa-report.md",
-    "pipeline/multi-host-badge/security-report.md"
-  ],
+  "confirmedArtifacts": [],
   "createdAt": "2026-07-02T23:59:49Z",
-  "updatedAt": "2026-07-03T03:02:00Z"
+  "updatedAt": "2026-07-03T03:30:00Z"
 }
