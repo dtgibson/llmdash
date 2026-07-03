@@ -225,20 +225,24 @@ isn't picked up automatically.
 
 **Reading the glyph (single machine).** It reads `▪ <tool> <number><marker>`:
 - `▪` — the stable llmdash mark (always there, so it's recognizable in the bar).
-- **`C` / `X`** — which tool is tightest: **C = Claude Code, X = code&#x200B;X (Codex)**.
+- **`◆` / `▲`** — which tool is tightest: **◆ = Claude Code, ▲ = Codex**. (These
+  two neutral marks are the **default tool cue** — they replaced the old `C` / `X`
+  letters. Two distinct silhouettes read better at menu-bar size; you can turn on
+  real product **logos** instead — see [Display options](#display-options) — but the
+  neutral marks are always the guaranteed floor.)
 - The number is the lowest remaining % across both tools' windows, colored
   **green / amber / red** by how much is left.
 
 **Reading the glyph (several machines).** When you watch more than one machine the
 glyph names **which machine** binds, in front of the tool cue:
-`▪ <machine>·<C|X> <number>` — e.g. `▪ Desktop·C 12%` means Desktop's Claude
+`▪ <machine>·<◆|▲> <number>` — e.g. `▪ Desktop·◆ 12%` means Desktop's Claude
 5-hour window is the tightest across every machine you watch. The machine label is
 shown up to 10 characters, then truncated with `…` (the dropdown header always
 carries the full name). One glance says **which machine, which tool, how much**.
 
 The badge mirrors the dashboard's honesty — it never shows a confident number
 that's secretly old, and it never fabricates one:
-- **fresh** — a plain, confident number (`▪ C 46%`, or `▪ Desktop·C 12%`).
+- **fresh** — a plain, confident number (`▪ ◆ 46%`, or `▪ Desktop·◆ 12%`).
 - **aging** — the number kept, with a trailing `·` and a slight dim.
 - **stale** — the number tinted amber with a trailing `⚠` (still names the machine).
 - **no reading yet** — `▪ —` (a dash, never a number); the dropdown says why per host.
@@ -291,6 +295,62 @@ line to `hosts.conf`: `!local=exclude` (always de-emphasize), `!local=include`
 The **live in-menu-bar view requires SwiftBar** (the one prerequisite). Without it,
 the plugin still runs from a terminal (`node scripts/menubar/llmdash.5s.js`) and
 prints the same SwiftBar-format output, which is how you can preview the states.
+
+### Display options
+
+The badge's glyph is configurable from a **🖥 Display** submenu (in both single-host
+and multi-host dropdowns). Five independent axes shape what the glyph shows — pick a
+**preset** as a starting point, then fine-tune any axis underneath:
+
+- **Group** — **Host** (the default; each unit is a machine) or **Tool** (each unit
+  is a **per-tool aggregate** across the machines you watch). Grouped by tool,
+  *all-Claude* = the tightest Claude window anywhere in the (selected) fleet and
+  *all-Codex* likewise — `▪ ◆12 ▲63`. A tool with no reading on any selected machine
+  reads `—` (never a fabricated zero); every contributing machine offline reads `⊘`.
+- **Hosts** — a multi-select of which machines feed the **glyph**. This is a **view
+  filter, not a monitoring change**: your llmdash still polls every host, the
+  **dropdown still lists every host in full**, and a *selected* offline machine still
+  appears in the glyph with its `⊘` marker (marked, never dropped). Grouped by tool,
+  the Hosts selection **scopes** which machines feed each aggregate. "All hosts"
+  (the default) is the sentinel that watches every machine in the glyph.
+- **Layout** — **Single** (the most-constrained unit), **Side-by-side** (up to 3
+  units on one line, tightest-first, then `+M more`), or **Alternating** (one unit
+  per ~5s tick, rotating deterministically off the clock).
+- **Density** — **Wide** (today's text glyph) or **Compact** (a tight icon: a colored
+  number with its state marker — `46` fresh, `46·` aging, `⚠12` stale, `—` no reading,
+  `⊘` offline). Side-by-side compact cues each machine with a short grown-until-unique
+  prefix (`St12 La88·`).
+- **Tool marks** — **Neutral** (the default `◆` / `▲` glyphs) or **Logos** (opt-in
+  product marks, SwiftBar only). See the fair-use note below.
+
+A **🛈 Legend — what the marks mean** submenu (also in both modes) spells out every
+symbol the badge can show — the five freshness states, the three colors and their
+thresholds, what the number is, both tool marks, the side-by-side cue and `+M`, and
+the `✓` active marker — one scannable line each.
+
+**With nothing configured, the badge is byte-for-byte today's glyph** — every host,
+single, wide, grouped by host — save the one ratified change: the default tool cue is
+now `◆` Claude / `▲` Codex instead of the old `C` / `X` letters. (That is the single
+intentional difference from the previous default; every other character is unchanged.)
+
+**Where the prefs live.** The five axes persist as `!display-*` directives in the same
+`hosts.conf` — `!display-hosts=`, `!display-layout=`, `!display-density=`,
+`!display-group=`, `!display-tool-mark=` — so you can also set them by hand. Default
+values are omitted (an unconfigured file has no `!display-*` lines). Every Display
+choice is a **local file write** (atomic temp+rename), **never an HTTP request** — the
+dashboard stays serve-only (405 for non-GET/HEAD), exactly like the host-list edits.
+The glyph and the submenu's `✓` marks update on the **next render** — no restart.
+
+**Tool logos (opt-in, off by default) — the fair-use posture.** Turning on
+**Tool marks → Logos** layers a small monochrome template image in the tool-cue slot,
+**SwiftBar only**. The neutral `◆` / `▲` glyph is **always the floor**: on xbar, or if
+the image can't render, the badge still names the tool — a logo is never the sole
+carrier of a reading. The repo ships only **neutral placeholder marks** (a diamond and
+a triangle) under `scripts/menubar/assets/` with their own LICENSE note; they are
+*not* the real product logos. The intended posture is **nominative fair use** — small,
+monochrome, opt-in, no endorsement implied, with the neutral glyph as the guaranteed
+alternative. Supplying an actual cleanly-licensed brand mark (same filenames) is left
+to you.
 
 ### Service controls & uninstall (from the badge)
 

@@ -33,27 +33,94 @@ import { sanitizeHostPort, parseHosts } from './hosts.js';
 const DIRECTIVE_LOCAL = '!local'; // the monitoring-station include/exclude/auto knob
 const LOCAL_MODES = new Set(['include', 'exclude', 'auto']);
 
-// Split raw file text into { entryLines, localMode, directiveErrors }. A line is:
+// ── The five !display-* directives (badge-display-options) ────────────────────
+// The badge's per-glyph display prefs live here alongside !local= (CFG call: one
+// file, one parser, no sibling prefs file — the host-LIST axis comma-joins
+// cleanly into the grammar hosts.conf already speaks). Each axis is enumerable
+// against a fixed Set (unknown value → the axis default + a bad-display-* error,
+// surfaced in health, never a crash); the host-LIST axis is a raw string resolved
+// against the LIVE hostViews at the badge (not here — host-config.js stays pure,
+// no /api/hosts dependency). The tool-mark and group axes were folded in round 2.
+const DIRECTIVE_DISPLAY_HOSTS = '!display-hosts';
+const DIRECTIVE_DISPLAY_LAYOUT = '!display-layout';
+const DIRECTIVE_DISPLAY_DENSITY = '!display-density';
+const DIRECTIVE_DISPLAY_GROUP = '!display-group';
+const DIRECTIVE_DISPLAY_TOOL_MARK = '!display-tool-mark';
+const LAYOUTS = new Set(['single', 'side-by-side', 'alternating']);
+const DENSITIES = new Set(['wide', 'compact']);
+const GROUPS = new Set(['host', 'tool']);
+const TOOL_MARKS = new Set(['neutral', 'logo']);
+
+// The axis defaults — ALL absent ⇒ byte-for-byte today's badge (save the ratified
+// C/X→◆/▲ neutral tool cue). Exposed so the writer knows which values to OMIT
+// (a default-valued axis writes NOTHING → an unconfigured file stays clean).
+export const DISPLAY_DEFAULTS = Object.freeze({
+  hosts: 'all', layout: 'single', density: 'wide', group: 'host', toolMark: 'neutral',
+});
+
+// Parse the host-LIST directive value into 'all' | [sanitized host:port keys].
+// 'all' (case-insensitive), empty, or absent ⇒ 'all' (every host — never an empty
+// glyph). Otherwise a comma-joined list of keys, each stripped to the badge's
+// sanitized host:port vocabulary ([A-Za-z0-9._:\-\[\]], mirroring src/hosts
+// sanitizeHostPort) so a stored key is never a free-form string. Host keys are
+// CASE-PRESERVED — they are case-sensitive identities that must match the badge's
+// addr (also case-preserving); lowercasing here would silently break the glyph
+// filter for any key with an uppercase letter (e.g. a `Studio.local` Bonjour name).
+// Unknown keys are dropped at the BADGE (resolved against live hostViews), not here.
+function parseDisplayHosts(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw || raw.toLowerCase() === 'all') return 'all';
+  const keys = raw
+    .split(',')
+    .map((k) => k.replace(/[^A-Za-z0-9._:\-\[\]]/g, '').trim())
+    .filter(Boolean);
+  return keys.length ? keys : 'all';
+}
+
+// Split raw file text into { entryLines, localMode, display, directiveErrors }.
+// A line is:
 //   - blank / whitespace-only        → ignored
 //   - starts with '#'                → comment, ignored
-//   - '!local=include|exclude|auto'  → the directive (last one wins); bad value ignored → 'auto'
+//   - '!local=include|exclude|auto'  → the directive (last one wins); bad value → error, default
+//   - '!display-*=…'                 → a display axis (last one wins); bad value → error, default
+//   - any other '!…'                 → unknown-directive error (never a silent host entry)
 //   - anything else                  → a host entry line (fed to parseHosts)
 function splitFileText(text) {
   const entryLines = [];
   let localMode = 'auto';
+  const display = { ...DISPLAY_DEFAULTS };
   const directiveErrors = [];
   for (const rawLine of String(text == null ? '' : text).split('\n')) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
     if (line.startsWith('!')) {
-      // A directive line. Only !local= is defined; an unknown directive is an
-      // honest error (surfaced), never a silent host entry.
+      // A directive line. Only !local= and !display-* are defined; an unknown
+      // directive is an honest error (surfaced), never a silent host entry.
       const eq = line.indexOf('=');
       const name = (eq === -1 ? line : line.slice(0, eq)).trim();
-      const value = (eq === -1 ? '' : line.slice(eq + 1)).trim().toLowerCase();
+      // Enum axes (!local, layout/density/group/tool-mark) are lowercase vocabularies,
+      // so they match against the lowercased `value`. !display-hosts carries
+      // case-sensitive host:port identities and parses the case-PRESERVED rawValue —
+      // the badge's addr preserves case, so lowercasing here would break the filter.
+      const rawValue = (eq === -1 ? '' : line.slice(eq + 1)).trim();
+      const value = rawValue.toLowerCase();
       if (name === DIRECTIVE_LOCAL) {
         if (LOCAL_MODES.has(value)) localMode = value;
         else directiveErrors.push({ entry: line, reason: 'bad-local-directive' });
+      } else if (name === DIRECTIVE_DISPLAY_HOSTS) {
+        display.hosts = parseDisplayHosts(rawValue); // 'all' | [case-preserved keys]; never an error (dropped keys resolve at the badge)
+      } else if (name === DIRECTIVE_DISPLAY_LAYOUT) {
+        if (LAYOUTS.has(value)) display.layout = value;
+        else directiveErrors.push({ entry: line, reason: 'bad-display-layout' });
+      } else if (name === DIRECTIVE_DISPLAY_DENSITY) {
+        if (DENSITIES.has(value)) display.density = value;
+        else directiveErrors.push({ entry: line, reason: 'bad-display-density' });
+      } else if (name === DIRECTIVE_DISPLAY_GROUP) {
+        if (GROUPS.has(value)) display.group = value;
+        else directiveErrors.push({ entry: line, reason: 'bad-display-group' });
+      } else if (name === DIRECTIVE_DISPLAY_TOOL_MARK) {
+        if (TOOL_MARKS.has(value)) display.toolMark = value;
+        else directiveErrors.push({ entry: line, reason: 'bad-display-tool-mark' });
       } else {
         directiveErrors.push({ entry: line, reason: 'unknown-directive' });
       }
@@ -61,7 +128,7 @@ function splitFileText(text) {
     }
     entryLines.push(line);
   }
-  return { entryLines, localMode, directiveErrors };
+  return { entryLines, localMode, display, directiveErrors };
 }
 
 // entryLines[] → the comma-joined LLMDASH_HOSTS-grammar string parseHosts consumes.
@@ -77,6 +144,9 @@ const FILE_HEADER = [
   '# llmdash watched hosts — one per line, format: host[:port][=label]',
   '# Lines starting with # are comments. Edited live by the badge (Add/Remove) or by hand.',
   '# Optional directive: !local=include|exclude|auto  (monitoring-station local-host emphasis; default auto)',
+  '# Optional badge display prefs (set live from the badge\'s Display submenu):',
+  '#   !display-hosts=all|host:port,host:port   !display-layout=single|side-by-side|alternating',
+  '#   !display-density=wide|compact   !display-group=host|tool   !display-tool-mark=neutral|logo',
 ];
 function seedBodyFromEnv(hostsRaw) {
   const entries = String(hostsRaw == null ? '' : hostsRaw)
@@ -157,11 +227,12 @@ export function readHostsConfig({
     }
     // Readable — the file wins (even when empty: emptiness is honest, Remove sticks).
     loggedConfigErrors.delete('unreadable'); // recovered → re-arm the once-latch
-    const { entryLines, localMode, directiveErrors } = splitFileText(text);
+    const { entryLines, localMode, display, directiveErrors } = splitFileText(text);
     return {
       source: 'file',
       raw: entryLinesToRaw(entryLines),
       localMode,
+      display,
       error: null,
       fileErrors: directiveErrors,
     };
@@ -175,10 +246,24 @@ export function readHostsConfig({
     // next tick — never a crash. Reuse the same split so the raw is consistent.
     const body = seedBodyFromEnv(hostsRaw);
     try { atomicWrite(hostsFile, body, fs); } catch { /* best-effort; retried next tick */ }
-    const { entryLines, localMode } = splitFileText(body);
-    return { source: 'env-seed', raw: entryLinesToRaw(entryLines), localMode, error: null, fileErrors: [] };
+    const { entryLines, localMode, display } = splitFileText(body);
+    return { source: 'env-seed', raw: entryLinesToRaw(entryLines), localMode, display, error: null, fileErrors: [] };
   }
-  return { source: 'none', raw: '', localMode: 'auto', error: null, fileErrors: [] };
+  return { source: 'none', raw: '', localMode: 'auto', display: { ...DISPLAY_DEFAULTS }, error: null, fileErrors: [] };
+}
+
+// ── readDisplayConfig — the parsed { hosts, layout, density, group, toolMark } ─
+// The named export the badge imports (one import, one place). Returns the display
+// axes with the defaults already applied (an absent file / unreadable file → the
+// all/single/wide/host/neutral default). The badge's displayFromConfig() wraps
+// this in a try/catch so a thrown read degrades to today's badge, never a crash.
+export function readDisplayConfig({
+  hostsFile = config.hostsFile,
+  hostsRaw = config.hostsRaw,
+  fs = realFs,
+} = {}) {
+  const r = readHostsConfig({ hostsFile, hostsRaw, fs });
+  return r.display ? r.display : { ...DISPLAY_DEFAULTS };
 }
 
 // ── seedHostsConfigIfAbsent — explicit first-run seed (used at server startup) ─
@@ -219,15 +304,47 @@ export function listHosts({
     .map((h) => ({ host: h.host, port: h.port, label: h.label, key: h.key }));
 }
 
+// ── Serialize the non-default !display-* directives (round-trip helper) ────────
+// Default-valued axes are OMITTED (an unconfigured file stays clean and the
+// byte-for-byte-today guard holds at the file level). The host-LIST axis writes
+// 'all' as nothing (default) or its comma-joined keys. Order is fixed for a
+// deterministic file. `display` is a { hosts, layout, density, group, toolMark }
+// object (any subset; missing axes fall to the defaults → omitted).
+function displayDirectiveLines(display) {
+  if (!display) return [];
+  const lines = [];
+  const hosts = display.hosts;
+  if (hosts && hosts !== 'all') {
+    const val = Array.isArray(hosts) ? hosts.join(',') : String(hosts);
+    if (val && val !== 'all') lines.push(`${DIRECTIVE_DISPLAY_HOSTS}=${val}`);
+  }
+  if (display.layout && LAYOUTS.has(display.layout) && display.layout !== DISPLAY_DEFAULTS.layout) {
+    lines.push(`${DIRECTIVE_DISPLAY_LAYOUT}=${display.layout}`);
+  }
+  if (display.density && DENSITIES.has(display.density) && display.density !== DISPLAY_DEFAULTS.density) {
+    lines.push(`${DIRECTIVE_DISPLAY_DENSITY}=${display.density}`);
+  }
+  if (display.group && GROUPS.has(display.group) && display.group !== DISPLAY_DEFAULTS.group) {
+    lines.push(`${DIRECTIVE_DISPLAY_GROUP}=${display.group}`);
+  }
+  if (display.toolMark && TOOL_MARKS.has(display.toolMark) && display.toolMark !== DISPLAY_DEFAULTS.toolMark) {
+    lines.push(`${DIRECTIVE_DISPLAY_TOOL_MARK}=${display.toolMark}`);
+  }
+  return lines;
+}
+
 // ── writeHostsConfig — rewrite the file from a list of entry strings (atomic) ──
 // entries[] are raw host[:port][=label] strings (already validated by the caller);
 // newline-stripped per entry (the line is the record delimiter). Preserves the
-// !local directive when provided. This is the low-level writer add/removeHost use.
-export function writeHostsConfig(hostsFile, entries, { fs = realFs, localMode = null } = {}) {
+// !local directive AND the five !display-* directives when provided, so a host
+// Add/Remove never disturbs the display axes (Risk 5, round-trip ALL directives).
+// This is the low-level writer add/removeHost + writeDisplayConfig use.
+export function writeHostsConfig(hostsFile, entries, { fs = realFs, localMode = null, display = null } = {}) {
   const lines = [...FILE_HEADER];
   if (localMode && LOCAL_MODES.has(localMode) && localMode !== 'auto') {
     lines.push(`${DIRECTIVE_LOCAL}=${localMode}`);
   }
+  for (const d of displayDirectiveLines(display)) lines.push(d);
   for (const e of entries) {
     const clean = String(e == null ? '' : e).replace(/[\r\n]/g, '').trim();
     if (clean) lines.push(clean);
@@ -236,17 +353,38 @@ export function writeHostsConfig(hostsFile, entries, { fs = realFs, localMode = 
   atomicWrite(hostsFile, lines.join('\n'), fs);
 }
 
-// Read the current file into { entries, localMode }, where entries[] are the raw
-// host-entry lines (verbatim, for round-tripping labels). Absent/unreadable file →
-// seed from env (so an Add before the first read still lands in a coherent file).
+// Read the current file into { entries, localMode, display }, where entries[] are
+// the raw host-entry lines (verbatim, for round-tripping labels) and display is
+// the parsed five-axis object. Absent/unreadable file → seed from env (so an Add
+// before the first read still lands in a coherent file).
 function readEntries({ hostsFile, hostsRaw, fs }) {
   let text = null;
   try {
     if (fs.existsSync(hostsFile)) text = fs.readFileSync(hostsFile, 'utf8');
   } catch { text = null; }
   if (text == null) text = seedBodyFromEnv(hostsRaw);
-  const { entryLines, localMode } = splitFileText(text);
-  return { entries: entryLines, localMode };
+  const { entryLines, localMode, display } = splitFileText(text);
+  return { entries: entryLines, localMode, display };
+}
+
+// ── writeDisplayConfig — write the display axes, preserving everything else ────
+// Reads the current entries + !local + display, merges the passed axis change(s)
+// over the current display, and rewrites atomically. A display edit NEVER disturbs
+// the host list or !local; default-valued axes are omitted. `next` is a partial
+// { hosts?, layout?, density?, group?, toolMark? } — only the passed axes change.
+// The badge's display-action.mjs is the only caller (the enumerable-value write).
+export function writeDisplayConfig(hostsFile, next, {
+  fs = realFs,
+  hostsRaw = config.hostsRaw,
+} = {}) {
+  const { entries, localMode, display } = readEntries({ hostsFile, hostsRaw, fs });
+  const merged = { ...DISPLAY_DEFAULTS, ...(display || {}), ...(next || {}) };
+  try {
+    writeHostsConfig(hostsFile, entries, { fs, localMode, display: merged });
+  } catch (e) {
+    return { ok: false, reason: 'write-failed', detail: e && e.message ? e.message : 'write failed' };
+  }
+  return { ok: true, display: merged };
 }
 
 // ── addHost — sanitize → validate → dedupe → atomic append (FR-15) ────────────
@@ -283,7 +421,7 @@ export function addHost(hostsFile, entry, {
     return { ok: false, reason: 'duplicate', detail: 'local host is always included' };
   }
 
-  const { entries, localMode } = readEntries({ hostsFile, hostsRaw, fs });
+  const { entries, localMode, display } = readEntries({ hostsFile, hostsRaw, fs });
 
   // Dedupe by sanitized host:port (identity), reusing the existing set's parse.
   const existing = tailnet === undefined
@@ -305,7 +443,7 @@ export function addHost(hostsFile, entry, {
   if (gaveLabel) canonical += `=${String(parsedEntry.label).replace(/[\r\n]/g, ' ').trim()}`;
 
   try {
-    writeHostsConfig(hostsFile, [...entries, canonical], { fs, localMode });
+    writeHostsConfig(hostsFile, [...entries, canonical], { fs, localMode, display });
   } catch (e) {
     return { ok: false, reason: 'write-failed', detail: e && e.message ? e.message : 'write failed' };
   }
@@ -327,7 +465,7 @@ export function removeHost(hostsFile, key, {
   if (!wantKey) return { ok: false, reason: 'not-found' };
   if (wantKey.startsWith('local:')) return { ok: false, reason: 'is-local' };
 
-  const { entries, localMode } = readEntries({ hostsFile, hostsRaw, fs });
+  const { entries, localMode, display } = readEntries({ hostsFile, hostsRaw, fs });
 
   // Match each stored entry to its parsed key; drop the one whose key == wantKey.
   // Parse entries one at a time so a per-line key maps back to its exact source
@@ -345,7 +483,7 @@ export function removeHost(hostsFile, key, {
   if (removedLabel == null) return { ok: false, reason: 'not-found' };
 
   try {
-    writeHostsConfig(hostsFile, kept, { fs, localMode });
+    writeHostsConfig(hostsFile, kept, { fs, localMode, display });
   } catch (e) {
     return { ok: false, reason: 'write-failed', detail: e && e.message ? e.message : 'write failed' };
   }
@@ -367,6 +505,7 @@ export function configFileHealth({
     error: cfgRead.error,         // { reason:'unreadable' } | null
     fileErrors: cfgRead.fileErrors,
     localMode: cfgRead.localMode,
+    display: cfgRead.display,      // { hosts, layout, density, group, toolMark } (badge-display-options)
     envIgnored: cfgRead.source === 'file'
       && String(hostsRaw == null ? '' : hostsRaw).trim() !== '',
   };

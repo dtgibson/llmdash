@@ -35,7 +35,7 @@ test('LLMDASH_PORT drives BOTH the fetch target and the Open-dashboard href', as
   await srv.close();
   assert.equal(r.status, 0);
   assert.equal(hitPath, '/api/hosts');                       // the badge now reads /api/hosts (FR-06)
-  assert.match(r.stdout.split('\n')[0], /^▪ C \d+% \|/);     // single-host = byte-for-byte the shipped glyph
+  assert.match(r.stdout.split('\n')[0], /^▪ ◆ \d+% \|/);     // single-host = byte-for-byte the shipped glyph
   assert.match(r.stdout, new RegExp(`Open dashboard \\| href=http://127\\.0\\.0\\.1:${srv.port}/`)); // href matches
 });
 

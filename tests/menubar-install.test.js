@@ -47,6 +47,27 @@ function fakeCheckout() {
   // sibling delivered by the same model — copy it so the delivery-model tests see it.
   fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'service-control-action.mjs'),
     path.join(menubar, 'service-control-action.mjs'));
+  // The badge display-write helper (badge-display-options) is a tracked sibling.
+  fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'display-action.mjs'),
+    path.join(menubar, 'display-action.mjs'));
+  // The tracked tool-mark ASSETS travel with the checkout (opt-in logo path reads
+  // them from its own plugin dir via import.meta.url). Copy them so the installed
+  // badge resolves them the way it does in a real checkout.
+  const assets = path.join(menubar, 'assets');
+  fs.mkdirSync(assets, { recursive: true });
+  for (const a of ['claude-mark.png', 'codex-mark.png']) {
+    fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'assets', a), path.join(assets, a));
+  }
+  // The badge now reads its display prefs via src/host-config.js (badge-display-
+  // options) — it runs IN-PLACE from the live checkout (unlike the self-contained
+  // teardown helper), so its real dependency tree (config.js + src/host-config.js
+  // + src/hosts.js + src/net.js) must be present, exactly as in a real checkout.
+  fs.copyFileSync(path.join(repoRoot, 'config.js'), path.join(dir, 'config.js'));
+  const src = path.join(dir, 'src');
+  fs.mkdirSync(src, { recursive: true });
+  for (const f of ['host-config.js', 'hosts.js', 'net.js']) {
+    fs.copyFileSync(path.join(repoRoot, 'src', f), path.join(src, f));
+  }
   return dir;
 }
 const DEV_SHEBANG = '#!/usr/bin/env node';
@@ -188,7 +209,9 @@ test('--setup-badge: the generated wrapper actually launches the plugin end-to-e
   });
   await new Promise((r) => server.close(r));
   assert.equal(out.status, 0, out.stderr);
-  assert.match(out.stdout.split('\n')[0], /^▪ C \d+% \|/); // a real badge line, not offline
+  // The ratified default cue is ◆ (Claude), replacing the old C letter (badge-
+  // display-options). A real badge line, not offline.
+  assert.match(out.stdout.split('\n')[0], /^▪ ◆ \d+% \|/);
   assert.match(out.stdout, /Open dashboard \| href=http:\/\/127\.0\.0\.1:/);
 });
 

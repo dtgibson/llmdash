@@ -40,17 +40,22 @@ test('both uninstall tiers are present, tier 2 carries its own … and its own a
   assert.match(joined, /^--⊘ Uninstall llmdash completely… \|.*param2=uninstall/m);
 });
 
-test('the action cluster orders service → host-config → uninstall (design order)', () => {
+test('the action cluster orders service → host-config → Display → Legend → uninstall (design order)', () => {
   const lines = actionClusterLines({ serviceState: 'running', remotes: [] });
   const iService = lines.findIndex((l) => /Remove the local service/.test(l));
   const iAdd = lines.findIndex((l) => /Add host…/.test(l));
+  const iDisplay = lines.findIndex((l) => /🖥 Display/.test(l));
+  const iLegend = lines.findIndex((l) => /🛈 Legend/.test(l));
   const iUninstall = lines.findIndex((l) => /Uninstall llmdash…/.test(l));
-  assert.ok(iService >= 0 && iAdd >= 0 && iUninstall >= 0);
+  assert.ok(iService >= 0 && iAdd >= 0 && iDisplay >= 0 && iLegend >= 0 && iUninstall >= 0);
   assert.ok(iService < iAdd, 'service toggle leads');
-  assert.ok(iAdd < iUninstall, 'uninstall submenu is last');
-  // The cluster opens ONE group separator, not several stacked ones.
+  assert.ok(iAdd < iDisplay, 'host-config before Display');
+  assert.ok(iDisplay < iLegend, 'Display before Legend');
+  assert.ok(iLegend < iUninstall, 'uninstall submenu is last');
+  // The service+host-config block opens the cluster with one separator; the Display
+  // and Legend blocks (badge-display-options) each open their own group (sibling
+  // blocks per the design), so there are three group separators, not one.
   assert.equal(lines[0], '---');
-  assert.equal(lines.filter((l) => l === '---').length, 1, 'a single group separator');
 });
 
 test('every service/uninstall action shells to $ABS_NODE against the tracked helper, no HTTP (by inspection)', () => {
@@ -79,7 +84,7 @@ test('the items appear in SINGLE-host mode (state injected), glyph+rows unchange
   const ni = emit(badge, { host: '127.0.0.1', port: '8787', serviceState: 'not-installed' });
   assert.match(ni, /＋ Install the local service/);
   // The shipped single-host glyph + per-tool rows are unchanged.
-  assert.match(running.split('\n')[0], /^▪ C \d+% \|/);
+  assert.match(running.split('\n')[0], /^▪ ◆ \d+% \|/);
   assert.match(running, /5-hour:  \d+% · resets/);
 });
 
@@ -103,7 +108,7 @@ test('the items appear in MULTI-host mode too (both tiers), glyph unchanged (QA-
   assert.match(out, /Remove the menu-bar badge only/);
   assert.match(out, /Uninstall llmdash completely…/);
   // The multi-host glyph still carries the host cue (unchanged): `▪ <host>·C <pct>%`.
-  assert.match(out.split('\n')[0], /^▪ .+·C \d+% \|/);
+  assert.match(out.split('\n')[0], /^▪ .+·◆ \d+% \|/);
 });
 
 test('readServiceState is injectable + never faked: fs-presence + launchctl print (QA-04)', () => {

@@ -28,6 +28,8 @@ test('the multi-host modules import only Node builtins (node: or relative)', () 
     // the badge plugin + its Add/Remove helper (multi-host-badge)
     path.join(root, 'scripts', 'menubar', 'llmdash.5s.js'),
     path.join(root, 'scripts', 'menubar', 'host-config-action.mjs'),
+    // the Display-write helper (badge-display-options) — node builtins + host-config.js
+    path.join(root, 'scripts', 'menubar', 'display-action.mjs'),
     // the service/uninstall helper (menubar-service-controls) — self-contained,
     // node: builtins only (so its detached temp copy needs nothing from the checkout).
     path.join(root, 'scripts', 'menubar', 'service-control-action.mjs'),
@@ -45,6 +47,26 @@ test('the multi-host modules import only Node builtins (node: or relative)', () 
 test('the fan-out uses node:http (not an npm http client)', () => {
   const src = fs.readFileSync(path.join(root, 'src', 'hosts.js'), 'utf8');
   assert.match(src, /import http from 'node:http'/);
+});
+
+// badge-display-options: the tracked tool-mark PNG assets are SOURCE, not a
+// dependency (package.json runtime deps stay 0); the logo read is node:fs; no
+// build step is introduced by shipping them.
+test('the tracked tool-mark PNGs are source (not a dependency), read via node:fs, no build step', () => {
+  const assets = path.join(root, 'scripts', 'menubar', 'assets');
+  for (const a of ['claude-mark.png', 'codex-mark.png']) {
+    const fp = path.join(assets, a);
+    assert.ok(fs.existsSync(fp), `${a} is tracked source`);
+    const b = fs.readFileSync(fp);
+    assert.ok(b.slice(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), `${a} is a PNG`);
+  }
+  // package.json still has zero runtime deps (the PNGs are not a package).
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.deepEqual(pkg.dependencies || {}, {});
+  // The badge reads the asset with node:fs (readFileSync), never a fetch/npm loader.
+  const plugin = fs.readFileSync(path.join(root, 'scripts', 'menubar', 'llmdash.5s.js'), 'utf8');
+  assert.match(plugin, /readFileSync|_readFileSync/);
+  assert.match(plugin, /new URL\(`\.\/assets\//); // resolved via import.meta.url
 });
 
 // menubar-service-controls: the detached teardown copies the helper to a temp dir

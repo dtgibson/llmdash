@@ -26,10 +26,27 @@
 import http from 'node:http';
 // Builtins for the live launchd-state read (menubar-service-controls). All
 // node: builtins — the zero-dep / no-build constitution is preserved.
-import { existsSync as _existsSync } from 'node:fs';
+import { existsSync as _existsSync, readFileSync as _readFileSync } from 'node:fs';
 import { execFileSync as _execFileSync } from 'node:child_process';
 import { userInfo as _userInfo } from 'node:os';
 const _userUid = () => String(_userInfo().uid);
+
+// The badge's display prefs (badge-display-options) live in hosts.conf alongside
+// the watched-host list; the badge reads them on the render tick (off the request
+// path). readDisplayConfig returns the five axes with defaults applied.
+import { readDisplayConfig } from '../../src/host-config.js';
+
+// ── TOOL MARKS (badge-display-options, round 2) — the ratified default cue ─────
+// The neutral tool marks REPLACE the old C/X letters as the default tool cue,
+// everywhere a tool is named (the wide per-host cue AND the per-tool aggregate).
+// Distinct silhouettes (diamond vs triangle), solid, monochrome-legible at bar
+// size. Text/emoji floor → xbar-safe. This is the ONE ratified break in the
+// byte-for-byte-when-unconfigured guard (user-approved; see README + health).
+export const TOOL_MARK = { claude: '◆', codex: '▲' };
+// Map a tool source to its neutral mark. Codex → ▲, everything else (Claude) → ◆.
+export function toolMark(source) {
+  return source === 'codex' ? TOOL_MARK.codex : TOOL_MARK.claude;
+}
 
 // ── CONFIG (the only config surface) ────────────────────────────────────────
 // HOST defaults to loopback (badge and dashboard on the same Mac) but is
@@ -129,7 +146,9 @@ export function computeBadge(state) {
   // Per-tool: its ageBand (null for Codex / no freshness), its rows, its diag.
   const toolViews = tools.map((t) => {
     const band = ageBand(t.freshness);
-    const cue = t.source === 'codex' ? 'X' : 'C'; // C=Claude, X=codeX
+    // The ratified neutral tool cue (badge-display-options): ◆ Claude / ▲ Codex,
+    // replacing the old C/X letters everywhere the tool is named.
+    const cue = toolMark(t.source);
     const rows = WINDOWS.map(([key, label]) => {
       const win = t.limits ? t.limits[key] : null;
       if (win == null) {
@@ -234,7 +253,11 @@ export function hostDiagLine(label, addr, d) {
 const HOST_CUE_MAX = 10; // truncate a long host label past 10 chars with '…'
 
 function truncateHostCue(label) {
-  const s = String(label == null ? '' : label);
+  // Defensive re-sanitize (Auditor INFO-3): every current caller passes an
+  // already-ingested (sanitize()'d) label, but scrubbing here too keeps a future
+  // un-ingested caller from silently reopening the SwiftBar-grammar injection class
+  // (strip `|`/CR/LF before a value reaches a line) — symmetry with growPrefixCues.
+  const s = sanitize(String(label == null ? '' : label));
   return s.length > HOST_CUE_MAX ? s.slice(0, HOST_CUE_MAX) + '…' : s;
 }
 
@@ -338,7 +361,7 @@ export function computeMultiBadge(combined, { localMode = 'auto' } = {}) {
     mode: 'multi',
     state: binding.state,               // the binding host's glyph band (fresh/aging/stale)
     pct: binding.pct,
-    cue: binding.cue,                   // binding tool cue (C/X)
+    cue: binding.cue,                   // binding tool cue (◆ Claude / ▲ Codex)
     hostCue: truncateHostCue(binding.view.label), // binding host's short label (≤10 + …)
     binding: {
       hostLabel: binding.view.label,
@@ -376,7 +399,7 @@ export function baseUrl(host, port) {
 // Dropdown for a normal (non-offline) badge: title echo → per-tool groups →
 // diagnostics → actions. host/port drive the Open-dashboard href so the link
 // matches what the badge reads.
-function dropdownLines(badge, host, port, serviceState = 'not-installed') {
+function dropdownLines(badge, host, port, serviceState = 'not-installed', display = null) {
   const lines = [];
 
   // Title echo line — repeats the glyph with the binding tool·window (and band
@@ -421,7 +444,7 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed') {
   // Uninstall submenu are reachable on a fresh single-host machine, and the FIRST
   // host is still addable here. Live service state is read in this render process,
   // off the request path. The glyph + per-tool rows above stay today's badge.
-  for (const l of actionClusterLines({ serviceState, remotes: [] })) lines.push(l);
+  for (const l of actionClusterLines({ serviceState, remotes: [], display })) lines.push(l);
 
   lines.push('---');
   lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
@@ -440,7 +463,7 @@ function offlineLines(host, port) {
   ];
 }
 
-export function emit(badge, { host = HOST, port = PORT, offline = false, serviceState = 'not-installed' } = {}) {
+export function emit(badge, { host = HOST, port = PORT, offline = false, serviceState = 'not-installed', display = null } = {}) {
   if (offline) {
     // OFFLINE — never a number, no tool cue. Wordmark + slash marker, dimmed.
     const title = `${MARK} llmdash ${WARN_TRIANGLE} | color=${COLOR_OFFLINE}`;
@@ -471,7 +494,7 @@ export function emit(badge, { host = HOST, port = PORT, offline = false, service
       break;
     }
   }
-  return [title, ...dropdownLines(badge, host, port, serviceState)].join('\n');
+  return [title, ...dropdownLines(badge, host, port, serviceState, display)].join('\n');
 }
 
 // ── Multi-host dropdown + glyph (FR-07–FR-13, FR-19/20) ──────────────────────
@@ -657,13 +680,19 @@ export function serviceControlActionLines({ state = 'not-installed' } = {}) {
 // Shared by BOTH single-host and multi-host dropdowns so the affordances are
 // structurally present in both. `serviceState` is injected by the caller from the
 // live read; `remotes` drive the host-config lines.
-export function actionClusterLines({ serviceState = 'not-installed', remotes = [] } = {}) {
+export function actionClusterLines({ serviceState = 'not-installed', remotes = [], display = null } = {}) {
   const { serviceLine, uninstallLines } = serviceControlActionLines({ state: serviceState });
   const lines = ['---', serviceLine];
   // hostConfigActionLines opens with its own '---'; we've already started the
   // group, so append its body without the leading separator (keep one group).
   const hostLines = hostConfigActionLines({ remotes });
   for (const l of hostLines) { if (l === '---') continue; lines.push(l); }
+  // The Display submenu (badge-display-options) — presets + the five axes,
+  // ✓-active-marked live. Rides BOTH single-host and multi-host dropdowns (shared
+  // path). Its own '---' opens a new group.
+  for (const l of displayActionLines({ display: display || {}, remotes })) lines.push(l);
+  // The Legend submenu (badge-display-options) — static, on demand, both modes.
+  for (const l of legendLines()) lines.push(l);
   for (const l of uninstallLines) lines.push(l);
   return lines;
 }
@@ -672,7 +701,7 @@ export function actionClusterLines({ serviceState = 'not-installed', remotes = [
 // one section per host (binding first), then the actions, then the shipped
 // Open-dashboard / Refresh. host/port drive the Open-dashboard href (THIS machine's
 // loopback, never a peer's).
-function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-installed') {
+function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-installed', display = null) {
   const lines = [];
   const reachableCount = multi.hostViews.length;
   const unreachable = multi.hostViews.filter((v) => !v.reachable || (!v.badge && !v.self)).length;
@@ -695,7 +724,7 @@ function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-inst
   }
 
   // The service toggle + host-config + Uninstall action cluster (both modes).
-  for (const l of actionClusterLines({ serviceState, remotes })) lines.push(l);
+  for (const l of actionClusterLines({ serviceState, remotes, display })) lines.push(l);
 
   lines.push('---');
   lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
@@ -707,7 +736,7 @@ function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-inst
 // carries the host cue: `▪ <host>·<C|X> <pct>` in fresh/aging/stale; no-reading is
 // `▪ —` (no host cue). Single-host mode is handled by the caller delegating to the
 // shipped emit() — this is only ever called with mode:'multi'.
-export function emitMulti(multi, { host = HOST, port = PORT, remotes = [], serviceState = 'not-installed' } = {}) {
+export function emitMulti(multi, { host = HOST, port = PORT, remotes = [], serviceState = 'not-installed', display = null } = {}) {
   let title;
   const hc = multi.hostCue; // already truncated + sanitized
   switch (multi.state) {
@@ -727,7 +756,496 @@ export function emitMulti(multi, { host = HOST, port = PORT, remotes = [], servi
       break;
     }
   }
-  return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState)].join('\n');
+  return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState, display)].join('\n');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BADGE DISPLAY OPTIONS (badge-display-options) — group × hosts × layout ×
+// density × tool-mark, applied as a PURE presentation layer over the existing
+// computeMultiBadge hostViews. computeMultiBadge, the fetch, /api/hosts, and the
+// binding/ordering logic are ALL unchanged. The dropdown never filters/regroups;
+// only the GLYPH uses the display view. Default axes route to the SHIPPED
+// emit()/emitMulti() path byte-for-byte (save the ratified ◆/▲ default cue).
+// ════════════════════════════════════════════════════════════════════════════
+
+// The one cap shared by side-by-side + alternating (host mode only; tool mode has
+// exactly two units → no cap). Binding-first, so +M hides the LEAST-constrained.
+export const SIDE_BY_SIDE_CAP = 3;
+// The stateless rotation cadence (alternating): one host/aggregate per render tick.
+// A pure function of the wall clock — no cursor persisted (the plugin re-spawns
+// each tick, so a stored counter is unnecessary and a corruption risk).
+export const ROTATE_MS = 5000;
+
+// ── displayFromConfig — read the five display axes on the render tick (NEW) ────
+// Off the HTTP request path (badge process). A thrown read → today's defaults
+// (byte-for-byte the shipped badge) — honest degradation, never a crash.
+export function displayFromConfig(read = readDisplayConfig) {
+  try {
+    const d = read();
+    return {
+      hosts: d && d.hosts ? d.hosts : 'all',
+      layout: d && d.layout ? d.layout : 'single',
+      density: d && d.density ? d.density : 'wide',
+      group: d && d.group ? d.group : 'host',
+      toolMark: d && d.toolMark ? d.toolMark : 'neutral',
+    };
+  } catch {
+    return { hosts: 'all', layout: 'single', density: 'wide', group: 'host', toolMark: 'neutral' };
+  }
+}
+
+// Is the display config the all-default (today's badge)? Used for the byte-for-
+// byte routing split: default ⇒ the shipped emit()/emitMulti() path unchanged.
+export function isDefaultDisplay(display) {
+  const d = display || {};
+  return (d.hosts === 'all' || d.hosts == null)
+    && (d.layout === 'single' || d.layout == null)
+    && (d.density === 'wide' || d.density == null)
+    && (d.group === 'host' || d.group == null);
+  // (toolMark is orthogonal — it doesn't change the routing; the ◆/▲ cue is the
+  // default and the wide path already emits it. logo layering happens in the
+  // emit path regardless of the other axes.)
+}
+
+// ── The grow-prefix host cue (SPIKE-01) — per-cell identity for multi layouts ──
+// Grow each SHOWN label's prefix (1 → max 4 chars) until all shown cues are
+// distinct; on a persistent collision, append a positional suffix. sanitize()d,
+// bounded. Returns a Map label→cue over the shown labels (recomputed per render).
+const GROW_PREFIX_MAX = 4;
+// Returns an ARRAY of cues PARALLEL to the input labels (indexed by position, not
+// keyed by label — two hosts can share a label, so a label→cue Map would collapse
+// them; the caller indexes by the same position it passed).
+export function growPrefixCues(labels) {
+  const clean = labels.map((l) => sanitize(String(l == null ? '' : l)).trim());
+  const cues = new Array(clean.length).fill('');
+  // Try prefix lengths 1..MAX; stop when every cue is unique.
+  for (let len = 1; len <= GROW_PREFIX_MAX; len++) {
+    for (let i = 0; i < clean.length; i++) cues[i] = clean[i].slice(0, len) || clean[i];
+    if (new Set(cues).size === clean.length) return cues;
+  }
+  // Persistent collision at MAX: append a positional suffix to the duplicates so
+  // each cue is still distinct (Mac, Mac2, Mac3 — the design-spec form).
+  const seen = new Map();
+  for (let i = 0; i < cues.length; i++) {
+    const base = cues[i];
+    const n = (seen.get(base) || 0) + 1;
+    seen.set(base, n);
+    if (n > 1) cues[i] = `${base}${n}`;
+  }
+  return cues;
+}
+
+// ── The per-tool aggregate (group=tool) — a presentation regroup over hostViews ─
+// For each tool, the tightest-window MIN remaining across the SELECTED hosts'
+// windows that have a reading, carrying that window's freshness state. No reading
+// anywhere → no-reading (—, no digit); every contributing host offline → offline
+// (⊘, no digit). NO new /api field — reads only the existing view.badge.toolViews
+// (NFR-03). `shown` is the host-selected subset of hostViews. Returns two cells
+// (claude, codex) ordered binding-first (tighter remaining first).
+const AGG_TOOLS = [
+  { source: 'claude-code', match: (s) => s !== 'codex' }, // Claude (default mark ◆)
+  { source: 'codex', match: (s) => s === 'codex' },       // Codex (default mark ▲)
+];
+export function toolAggregates(shownViews) {
+  const cells = AGG_TOOLS.map(({ source, match }) => {
+    let best = null;          // { pct, band } — the tightest window with a reading
+    let anyTracks = false;    // did any shown host even have this tool's block?
+    let anyReachable = false; // is any host that tracks this tool reachable (has a badge)?
+    for (const v of shownViews) {
+      if (!v.badge || !Array.isArray(v.badge.toolViews)) continue;
+      for (const tv of v.badge.toolViews) {
+        if (!match(tv.source)) continue;
+        anyTracks = true;
+        anyReachable = true;
+        for (const row of tv.rows) {
+          if (row.remaining == null) continue;
+          const band = tv.band || 'fresh'; // Codex has no freshness band → treat as fresh
+          if (best == null || row.remaining < best.pct) best = { pct: row.remaining, band };
+        }
+      }
+    }
+    const mark = toolMark(source);
+    if (best) {
+      const state = best.band === 'stale' ? 'stale' : best.band === 'aging' ? 'aging' : 'fresh';
+      return { source, mark, state, pct: best.pct };
+    }
+    // No reading for this tool across the selected hosts. Offline only when a host
+    // TRACKS the tool but none are reachable; otherwise honest no-reading (—).
+    // In this presentation-regroup, a host with a badge is reachable, so if no
+    // host with this tool block is present at all → no-reading. All-offline is
+    // detected when the shown set has hosts but none carry a badge (below).
+    void anyTracks; void anyReachable;
+    return { source, mark, state: 'no-reading', pct: null };
+  });
+  // All-offline detection: if EVERY shown host is unreachable/no-badge, both tool
+  // aggregates read offline (⊘) rather than no-reading (—). A shown set with at
+  // least one badge yields no-reading for an absent tool (honest — data exists,
+  // just not for that tool).
+  const anyBadge = shownViews.some((v) => v.badge);
+  if (!anyBadge && shownViews.length) {
+    for (const c of cells) { c.state = 'offline'; c.pct = null; }
+  }
+  // Binding-first: the tighter-remaining aggregate first. A no-reading/offline
+  // cell sorts AFTER a cell with a reading (it has no pct to bind on).
+  cells.sort((a, b) => {
+    const ap = a.pct == null ? Infinity : a.pct;
+    const bp = b.pct == null ? Infinity : b.pct;
+    return ap - bp;
+  });
+  return cells;
+}
+
+// ── The compact cell — one host/aggregate's { state, pct } → a render descriptor ─
+// Reuses the shipped five-state markers, miniaturized. offline/no-reading carry
+// NO digit (structural — no code path emits one). `cue` is an optional prefix
+// (the grow-prefix host cue, or the tool mark in aggregate mode). `color` is the
+// cell's own color (a side-by-side LINE takes the binding cell's color).
+export function compactCell({ state, pct, cue = '', mark = '' }) {
+  const prefix = `${cue}${mark}`;
+  switch (state) {
+    case 'no-reading':
+      return { text: `${prefix}${DASH}`, color: COLOR_MUTED, state, mark };
+    case 'offline':
+      return { text: `${prefix}⊘`, color: COLOR_OFFLINE, state, mark };
+    case 'stale':
+      // Leading ⚠ in compact (design-spec: the flag registers first in tight space).
+      return { text: `${prefix}${WARN_TRIANGLE}${pct}`, color: COLOR_STALE, state, mark };
+    case 'aging':
+      return { text: `${prefix}${pct}${AGE_DOT}`, color: COLOR_AGING, state, mark };
+    case 'fresh':
+    default:
+      return { text: `${prefix}${pct}`, color: BAR_COLOR[statusClass(pct)], state, mark };
+  }
+}
+
+// A host view → its compact-cell inputs { state, pct }. A view with a badge maps
+// its badge state/pct; an offline/pending/no-badge view is offline/no-reading
+// (never a fabricated number — a SELECTED offline host STAYS, marked ⊘, FR-13).
+function viewToCellState(v) {
+  if (v.badge && v.badge.state && v.badge.state !== 'no-reading') {
+    return { state: v.badge.state, pct: v.badge.pct };
+  }
+  if (v.badge && v.badge.state === 'no-reading') return { state: 'no-reading', pct: null };
+  // No badge → offline (unreachable) or pending → treat as offline in the compact
+  // glyph (it carries no number). A pending host reads offline until it fills in.
+  return { state: v.reachable === false ? 'offline' : 'no-reading', pct: null };
+}
+
+// ── applyDisplay — the pure axis-applier (group → hosts → layout → density) ────
+// PURE and injectable (clock injected for rotation tests). Returns a glyph
+// descriptor the emitter turns into the title line; hostViews is echoed UNCHANGED
+// (the dropdown still renders every host). display echoed for submenu marking.
+//   applyDisplay(multi, display, { epochMs }) → { layout, density, group, toolMark,
+//       cells:[{text,color,state}], color, more, hostViews, display }
+export function applyDisplay(multi, display, { epochMs = Date.now() } = {}) {
+  const d = {
+    hosts: display && display.hosts ? display.hosts : 'all',
+    layout: display && display.layout ? display.layout : 'single',
+    density: display && display.density ? display.density : 'wide',
+    group: display && display.group ? display.group : 'host',
+    toolMark: display && display.toolMark ? display.toolMark : 'neutral',
+  };
+  const allViews = Array.isArray(multi.hostViews) ? multi.hostViews : [];
+
+  // ── group=host: VIEW FILTER over hostViews (glyph only). ─────────────────────
+  // 'all' → identity (byte-for-byte guard). A key list → keep only selected addrs,
+  // binding-first (the set stays in multi.hostViews' binding-first order); an empty
+  // result falls back to 'all' (never an empty glyph). A selected offline host is
+  // filtered IN by its key and rendered with its marker (FR-13). Views without a
+  // real host (the deemph local placeholder) are still valid cells.
+  let shown = allViews;
+  if (d.group === 'host' && d.hosts !== 'all' && Array.isArray(d.hosts)) {
+    const selected = new Set(d.hosts);
+    const filtered = allViews.filter((v) => selected.has(v.addr));
+    shown = filtered.length ? filtered : allViews; // empty selection → all
+  }
+
+  // ── Build the UNITS (cells' state) per group. ────────────────────────────────
+  let units; // [{ state, pct, cue, mark }] — pre-density, one per shown unit
+  if (d.group === 'tool') {
+    // Per-tool aggregate over the SELECTED hosts (the Hosts axis still scopes even
+    // in tool mode). Two units, binding-first, no cap. The tool MARK is the unit's
+    // identity (always shown, leads the cell); NO host cue in tool mode.
+    let aggShown = allViews;
+    if (d.hosts !== 'all' && Array.isArray(d.hosts)) {
+      const selected = new Set(d.hosts);
+      const filtered = allViews.filter((v) => selected.has(v.addr));
+      aggShown = filtered.length ? filtered : allViews;
+    }
+    units = toolAggregates(aggShown).map((c) => ({ state: c.state, pct: c.pct, cue: '', mark: c.mark }));
+  } else {
+    // Per-host: each unit a host, cued by the grow-prefix host cue (multi layouts).
+    // Cues are position-indexed (two hosts can share a label — index, don't key).
+    const cueArr = growPrefixCues(shown.map((v) => v.label));
+    units = shown.map((v, i) => {
+      const cs = viewToCellState(v);
+      return { state: cs.state, pct: cs.pct, cue: '', mark: '', _view: v, _cue: cueArr[i] || '' };
+    });
+  }
+
+  // ── layout over the units → the shown cell set + overflow. ───────────────────
+  const cap = d.group === 'tool' ? units.length : SIDE_BY_SIDE_CAP; // no cap in tool mode
+  let picked;      // the units to render this tick
+  let more = 0;    // +M overflow (side-by-side host mode only)
+  let effectiveLayout = d.layout;
+  if (units.length <= 1) {
+    // Degenerate reduction (FR-19): one effective unit → single (compact still
+    // applies). Zero units shouldn't happen (empty selection fell back to all).
+    picked = units.slice(0, 1);
+    effectiveLayout = 'single';
+  } else if (d.layout === 'single') {
+    picked = units.slice(0, 1); // the binding unit (units stay binding-first)
+  } else if (d.layout === 'alternating') {
+    // Stateless rotation over the capped set: floor(epochMs/ROTATE_MS) % count.
+    const set = units.slice(0, cap);
+    const idx = Math.floor(epochMs / ROTATE_MS) % set.length;
+    picked = [set[idx]];
+  } else { // side-by-side
+    picked = units.slice(0, cap);
+    more = Math.max(0, units.length - cap);
+  }
+
+  // ── density → the cell text; multi layouts carry the per-unit cue/mark. ──────
+  // The host cue shows whenever the EFFECTIVE layout identifies a specific machine
+  // among several: side-by-side (each cell cued) AND alternating (the one shown
+  // machine named — `▪ La88·`). single compact drops it (`▪ 12`). Degenerate
+  // reduction to 'single' (one effective host) also drops it — there is no
+  // ambiguity to resolve.
+  const showHostCue = d.group === 'host'
+    && (effectiveLayout === 'side-by-side' || effectiveLayout === 'alternating');
+  const cells = picked.map((u) => {
+    if (d.density === 'compact') {
+      // Compact: host cue tight against the number in multi layouts; tool mark
+      // leads in aggregate mode; single compact drops the host cue entirely.
+      const cue = showHostCue ? (u._cue || '') : '';
+      return compactCell({ state: u.state, pct: u.pct, cue, mark: u.mark });
+    }
+    // Wide density in a multi layout: reuse the shipped truncateHostCue form for a
+    // host cue; tool mark leads in aggregate mode. (Single wide default routes to
+    // the shipped emit path — this handles wide + non-default group/hosts.)
+    if (showHostCue && u._view) {
+      const hc = truncateHostCue(u._view.label);
+      return wideCell({ state: u.state, pct: u.pct, cue: hc, mark: u._view.badge ? u._view.badge.cue : '' });
+    }
+    return wideCell({ state: u.state, pct: u.pct, cue: '', mark: u.mark || (u._view && u._view.badge ? u._view.badge.cue : '') });
+  });
+
+  // The line's single color = the BINDING (first) cell's (one color per SwiftBar
+  // line; per-cell state rides the marker). Alternating shows one cell → its color.
+  const color = cells.length ? cells[0].color : COLOR_MUTED;
+
+  return {
+    layout: effectiveLayout, density: d.density, group: d.group, toolMark: d.toolMark,
+    cells, color, more,
+    hostViews: allViews, // UNCHANGED — the dropdown still renders every host
+    display: d,
+  };
+}
+
+// A wide-density cell (wide + non-default group/hosts). Mirrors the shipped wide
+// grammar per state: fresh `<cue><mark> <pct>%`, aging trailing ·, stale trailing
+// ⚠, no-reading/offline no number. Used only by applyDisplay's wide multi/tool
+// paths (single+all+wide default still routes to the shipped emit()).
+function wideCell({ state, pct, cue = '', mark = '' }) {
+  const lead = cue ? `${cue}${AGE_DOT}${mark}` : mark; // host cue · tool mark, or just the mark
+  const sp = lead ? `${lead} ` : '';
+  switch (state) {
+    case 'no-reading':
+      return { text: `${DASH}`, color: COLOR_MUTED, state, mark };
+    case 'offline':
+      return { text: `${lead ? lead + ' ' : ''}⊘`, color: COLOR_OFFLINE, state, mark };
+    case 'stale':
+      return { text: `${sp}${pct}% ${WARN_TRIANGLE}`, color: COLOR_STALE, state, mark };
+    case 'aging':
+      return { text: `${sp}${pct}%${AGE_DOT}`, color: COLOR_AGING, state, mark };
+    case 'fresh':
+    default:
+      return { text: `${sp}${pct}%`, color: BAR_COLOR[statusClass(pct)], state, mark };
+  }
+}
+
+// ── The logo template-image (opt-in, SwiftBar-only, neutral floor always) ──────
+// When toolMark=logo AND the host is SwiftBar, layer a base64 template image over
+// the neutral ◆/▲ floor. Read + encode ONLY when opted in (no cost on the default
+// path), cached per process (the plugin re-spawns each tick). Resolve the asset
+// from THIS file's own location via import.meta.url (ESM de-symlinks it → works
+// under the wrapper/symlink, the shipped run-guard lesson). If the asset is
+// missing/unreadable → return null (the ◆/▲ floor already covers it, honest).
+const LOGO_ASSET = { 'claude-code': 'claude-mark.png', claude: 'claude-mark.png', codex: 'codex-mark.png' };
+const _logoCache = new Map(); // source → base64 | null (per-process)
+export function logoBase64(source, { read = _readFileSync } = {}) {
+  const name = LOGO_ASSET[source] || LOGO_ASSET.claude;
+  if (_logoCache.has(name)) return _logoCache.get(name);
+  let b64 = null;
+  try {
+    const url = new URL(`./assets/${name}`, import.meta.url);
+    b64 = read(url).toString('base64');
+  } catch { b64 = null; }
+  _logoCache.set(name, b64);
+  return b64;
+}
+export function _resetLogoCache() { _logoCache.clear(); }
+
+// Is the menu-bar host SwiftBar? SwiftBar sets SWIFTBAR / SWIFTBAR_VERSION in the
+// plugin env; xbar does not. Template images are SwiftBar-only polish.
+export function isSwiftBar(env = process.env) {
+  return !!(env.SWIFTBAR || env.SWIFTBAR_VERSION || env.SWIFTBAR_PLUGINS_PATH);
+}
+
+// ── emitDisplay — render the applyDisplay glyph descriptor to a title line ─────
+// Composes the cells into ONE menu-bar line: `▪ <cell> <cell> … [+M] | color=…`.
+// A single cell → `▪ <cell>`. offline/no-reading cells carry no number (structural
+// — compactCell/wideCell never emit one for those states). The dropdown is the
+// FULL multi.hostViews (multiDropdownLines) — unchanged. logo layering is additive
+// over the neutral floor (SwiftBar-only, opt-in); the ◆/▲ text is always present.
+export function emitDisplay(view, multi, { host = HOST, port = PORT, remotes = [], serviceState = 'not-installed', env = process.env } = {}) {
+  const parts = view.cells.map((c) => c.text);
+  if (view.more > 0) parts.push(`+${view.more}`);
+  const glyphText = parts.join(' ');
+  let title = `${MARK} ${glyphText} | color=${view.color}`;
+  // Opt-in logo template image (SwiftBar-only, additive over the ◆/▲ floor). Only
+  // read the asset when opted in; only for a single-cell glyph carrying one tool
+  // mark (the image occupies the tool-cue slot). The neutral glyph text stays as
+  // the floor (xbar / a failed image still names the tool). Read the asset ONLY
+  // here — no read on the default/neutral path.
+  if (view.toolMark === 'logo' && isSwiftBar(env) && view.group === 'tool' && view.cells.length === 1) {
+    const markToSource = { [TOOL_MARK.claude]: 'claude-code', [TOOL_MARK.codex]: 'codex' };
+    const source = markToSource[view.cells[0].mark];
+    const b64 = source ? logoBase64(source) : null;
+    if (b64) title += ` templateImage=${b64}`;
+  }
+  return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState, view.display)].join('\n');
+}
+
+// ── The Display submenu (badge-display-options) — shared action-lines path ─────
+// Six presets (four host + two tool) + the five axes (group/hosts/layout/density/
+// tool-mark), ✓-active-marked LIVE from the current display. Rides actionClusterLines
+// → BOTH single-host and multi-host dropdowns. Each choice shells to display-action.mjs
+// under $ABS_NODE (NO osascript dialog, NO HTTP — enumerable values written directly).
+const DISPLAY_ACTION = `${PLUGIN_DIR}/display-action.mjs`;
+
+// Presets → the four layout axes { group, hosts, layout, density } (tool-mark is
+// orthogonal — it persists across preset changes, FR-06/round-2 orthogonality).
+export const DISPLAY_PRESETS = [
+  { id: 'most-constrained-wide', label: 'Most-constrained · wide (today)', axes: { group: 'host', hosts: 'all', layout: 'single', density: 'wide' } },
+  { id: 'single-compact', label: 'Single compact icon', axes: { group: 'host', hosts: 'all', layout: 'single', density: 'compact' } },
+  { id: 'all-compact-sbs', label: 'Compact icons side-by-side', axes: { group: 'host', hosts: 'all', layout: 'side-by-side', density: 'compact' } },
+  { id: 'rotate-compact', label: 'Rotate hosts · compact', axes: { group: 'host', hosts: 'all', layout: 'alternating', density: 'compact' } },
+  { id: 'tool-sbs', label: 'Claude vs Codex · side-by-side', axes: { group: 'tool', hosts: 'all', layout: 'side-by-side', density: 'compact' } },
+  { id: 'tool-rotate', label: 'Rotate Claude / Codex · compact', axes: { group: 'tool', hosts: 'all', layout: 'alternating', density: 'compact' } },
+];
+
+// A preset is active ONLY when all four of its layout axes match the current
+// display (a drifted axis → no preset marked, but each axis marks its own value).
+function presetActive(preset, display) {
+  const a = preset.axes;
+  const hostsMatch = a.hosts === 'all'
+    ? (display.hosts === 'all' || display.hosts == null)
+    : false; // every shipped preset uses hosts:'all'; a custom host selection drifts
+  return hostsMatch
+    && a.group === (display.group || 'host')
+    && a.layout === (display.layout || 'single')
+    && a.density === (display.density || 'wide');
+}
+
+// The ✓-or-aligned-slot active marker (macOS checkmark-menu convention). Active
+// rows are also bolded (belt-and-braces — the mark reads even if ✓ renders faint).
+function activeMark(isActive) { return isActive ? '✓ ' : '   '; }
+function activeFont(isActive) { return isActive ? ' font=bold' : ''; }
+
+export function displayActionLines({ display = {}, remotes = [] } = {}) {
+  const d = {
+    hosts: display.hosts || 'all', layout: display.layout || 'single',
+    density: display.density || 'wide', group: display.group || 'host',
+    toolMark: display.toolMark || 'neutral',
+  };
+  const act = (verb, value) => `shell="${ABS_NODE}" param1="${DISPLAY_ACTION}" param2=${verb} param3="${value}" terminal=false refresh=true`;
+  const lines = ['---', '🖥 Display'];
+  // Presets (the friendly front).
+  lines.push('--Presets | size=11 color=#888888');
+  for (const p of DISPLAY_PRESETS) {
+    const on = presetActive(p, d);
+    lines.push(`--${activeMark(on)}${sanitize(p.label)} | ${act('preset', p.id)}${activeFont(on)}`);
+  }
+  lines.push('-----');
+  // Group by (radio).
+  lines.push('--Group by | size=11 color=#888888');
+  for (const [val, lbl] of [['host', 'Host (machine)'], ['tool', 'Tool (◆ Claude / ▲ Codex)']]) {
+    const on = d.group === val;
+    lines.push(`--${activeMark(on)}${lbl} | ${act('group', val)}${activeFont(on)}`);
+  }
+  lines.push('-----');
+  // Hosts (multi-select toggle). "All hosts" sentinel clears to all.
+  lines.push('--Hosts | size=11 color=#888888');
+  const allOn = d.hosts === 'all';
+  lines.push(`--${activeMark(allOn)}All hosts | ${act('hosts', 'all')}${activeFont(allOn)}`);
+  const selected = Array.isArray(d.hosts) ? new Set(d.hosts) : new Set();
+  for (const r of remotes) {
+    const key = sanitizeHostPort(r.key);
+    const on = selected.has(key);
+    lines.push(`--${activeMark(on)}${sanitize(r.label)} (${r.addr}) | ${act('hosts', key)}${activeFont(on)}`);
+  }
+  lines.push('-----');
+  // Layout (radio).
+  lines.push('--Layout | size=11 color=#888888');
+  for (const [val, lbl] of [['single', 'Single (most-constrained)'], ['side-by-side', 'Side-by-side'], ['alternating', 'Alternating']]) {
+    const on = d.layout === val;
+    lines.push(`--${activeMark(on)}${lbl} | ${act('layout', val)}${activeFont(on)}`);
+  }
+  lines.push('-----');
+  // Density (radio).
+  lines.push('--Density | size=11 color=#888888');
+  for (const [val, lbl] of [['wide', 'Wide (text)'], ['compact', 'Compact (icon)']]) {
+    const on = d.density === val;
+    lines.push(`--${activeMark(on)}${lbl} | ${act('density', val)}${activeFont(on)}`);
+  }
+  lines.push('-----');
+  // Tool marks (radio) — neutral floor · logos opt-in.
+  lines.push('--Tool marks | size=11 color=#888888');
+  for (const [val, lbl] of [['neutral', 'Neutral (◆ / ▲)'], ['logo', 'Logos']]) {
+    const on = d.toolMark === val;
+    lines.push(`--${activeMark(on)}${lbl} | ${act('tool-mark', val)}${activeFont(on)}`);
+  }
+  return lines;
+}
+
+// ── The Legend submenu (badge-display-options) — static, both modes, on demand ─
+// A 🛈 Legend row in the shared action-lines path (single + multi). A SwiftBar
+// submenu (native click-to-reveal — ZERO plugin state). FULLY STATIC: literal
+// sample+gloss rows, no config read, no dynamic value → no escaping surface. The
+// copy is the design-spec Legend table, verbatim. Complete by design (every
+// symbol the badge can emit). Sample cells colored via a literal color= where it
+// aids reading.
+export function legendLines() {
+  return [
+    '---',
+    '🛈 Legend — what the marks mean',
+    '--Freshness | size=11 color=#888888',
+    `--46 — Live: a fresh reading. | color=${BAR_COLOR.good} font=Menlo`,
+    `--46· — Aging: reading is getting old. | color=${COLOR_AGING} font=Menlo`,
+    `--⚠12 — Stale: too old to trust; may have moved. | color=${COLOR_STALE} font=Menlo`,
+    `--— — No reading: no data yet (never a fake number). | color=${COLOR_MUTED} font=Menlo`,
+    `--⊘ — Offline: host unreachable (never a number). | color=${COLOR_OFFLINE} font=Menlo`,
+    '-----',
+    '--Color | size=11 color=#888888',
+    `--good — 50%+ remaining — plenty of room. | color=${BAR_COLOR.good}`,
+    `--warn — 20–49% — getting tight. | color=${BAR_COLOR.warn}`,
+    `--crit — under 20% — nearly out. | color=${BAR_COLOR.crit}`,
+    '-----',
+    '--Number | size=11 color=#888888',
+    '--12 — % remaining in the tightest tracked window (5-hour or weekly). Single view shows the binding host/tool.',
+    '-----',
+    '--Tool | size=11 color=#888888',
+    '--◆ — Claude — which tool this reading is.',
+    '--▲ — Codex. (Logos, if on, mean the same.)',
+    '-----',
+    '--Side-by-side | size=11 color=#888888',
+    '--St12 — Host cue: short machine name (grown until unique).',
+    '--+2 — +M more: hosts beyond the cap of 3 (least-tight hidden).',
+    '-----',
+    '--This menu | size=11 color=#888888',
+    '--✓ — Active: your current choice on each axis.',
+  ];
 }
 
 // ── fetchState — one loopback GET, bounded by FETCH_TIMEOUT_MS ───────────────
@@ -828,17 +1346,33 @@ export async function main() {
     // read failure falls back to 'not-installed' (the safe Install-offering label).
     let serviceState = 'not-installed';
     try { serviceState = readServiceState(); } catch { serviceState = 'not-installed'; }
+    // The badge display prefs (badge-display-options), read on the render tick off
+    // the request path; a thrown read → today's defaults (never a crash).
+    const display = displayFromConfig();
     const localMode = localModeFromCombined(combined);
     const multi = computeMultiBadge(combined, { localMode });
-    if (multi.mode === 'single') {
-      // Single-host / unconfigured → byte-for-byte the shipped badge. Unwrap the
-      // one host's state and run the EXISTING computeBadge/emit path unchanged.
-      const only = (combined.hosts || []).find((h) => h && h.self) || (combined.hosts || [])[0];
-      const state = only && only.state ? only.state : null;
-      process.stdout.write(emit(computeBadge(state || { tools: [] }), { host: HOST, port: PORT, serviceState }) + '\n');
+    const remotes = remotesFromCombined(combined);
+    // The byte-for-byte routing split (FR-02): the all-default display routes to the
+    // SHIPPED emit()/emitMulti() path (unchanged save the ratified ◆/▲ cue). A
+    // non-default axis engages the new applyDisplay/emitDisplay glyph — over the
+    // FULL multi (the dropdown still renders every host).
+    if (isDefaultDisplay(display)) {
+      if (multi.mode === 'single') {
+        // Single-host / unconfigured → byte-for-byte the shipped badge. Unwrap the
+        // one host's state and run the EXISTING computeBadge/emit path unchanged.
+        const only = (combined.hosts || []).find((h) => h && h.self) || (combined.hosts || [])[0];
+        const state = only && only.state ? only.state : null;
+        process.stdout.write(emit(computeBadge(state || { tools: [] }), { host: HOST, port: PORT, serviceState, display }) + '\n');
+      } else {
+        process.stdout.write(emitMulti(multi, { host: HOST, port: PORT, remotes, serviceState, display }) + '\n');
+      }
     } else {
-      const remotes = remotesFromCombined(combined);
-      process.stdout.write(emitMulti(multi, { host: HOST, port: PORT, remotes, serviceState }) + '\n');
+      // Non-default display: build the glyph view over the full multi. computeMultiBadge
+      // returns mode:'single' when only one host is effectively watched — in that case
+      // the applyDisplay view has one host too (still a valid compact/wide cell). We
+      // always have hostViews (even single), so applyDisplay works over both.
+      const view = applyDisplay(multi, display, { epochMs: Date.now() });
+      process.stdout.write(emitDisplay(view, multi, { host: HOST, port: PORT, remotes, serviceState }) + '\n');
     }
   } catch {
     // Last-resort guard: a thrown compute/emit still lands on offline rather than

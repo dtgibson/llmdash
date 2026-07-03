@@ -1,0 +1,1897 @@
+<meta charset="utf-8" />
+<style>
+  /* ============================================================
+     llmdash — badge-display-options design mockup (DRAFT, pre-iteration)
+     A macOS menu-bar surface, NOT a web page. EXTENDS the shipped
+     multi-host badge (pipeline/multi-host-badge/design.html) and the
+     service-controls dropdown (pipeline/menubar-service-controls/
+     design.html): SAME design-system tokens, SAME SwiftBar dropdown
+     chrome, SAME ＋/－/☰/⊘ action grammar, SAME glyph markup.
+
+     The feature adds three DISPLAY axes (hosts / layout / density) set
+     from a new "Display" submenu, plus the COMPACT glyph grammar proven
+     in the spike. Nothing invents a new color semantic — good/warn/crit
+     and the aging/stale/no-reading/offline vocabulary are reused verbatim,
+     miniaturized further onto a denser glyph. Self-contained: all CSS
+     inline, no external deps.
+     ============================================================ */
+
+  :root {
+    /* ---- llmdash design-system tokens (verbatim from styles.css) ---- */
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e6e6e6;
+    --text: #15171a;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --good: #16a34a;
+    --warn: #d97706;
+    --crit: #dc2626;
+    --accent: #2563eb;
+    --accent-bg: #eef2ff;
+    --warn-bg: #fef3e7;
+    --good-bg: #e7f6ec;
+    --crit-bg: #fdeaea;
+    --track: #eceef0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    /* ---- stage surfaces (the page these mockups sit on) ---- */
+    --stage-bg: #eef1f4;
+    --stage-panel: #ffffff;
+
+    /* ---- macOS menu bar + SwiftBar dropdown chrome (the OS's colors,
+       reused verbatim from the shipped badge mockups) ---- */
+    --menubar-bg: #2b2d31;
+    --menubar-text: #f4f5f7;
+    --menubar-text-dim: #9b9ea6;
+    --dropdown-bg: #f6f6f7;
+    --dropdown-panel: #ffffff;
+    --dropdown-text: #1d1d1f;
+    --dropdown-sep: #e2e2e5;
+    --dropdown-muted: #86868b;
+    --dropdown-highlight: #2563eb;
+
+    /* ---- the glyph state colors, lifted for the dark bar (shipped) ---- */
+    --g-good: #5bd88a;
+    --g-warn: #f0a94b;
+    --g-crit: #ff6b6b;
+    --g-aging: #a0a0a0;
+    --g-stale: #f0a94b;
+    --g-muted: #9b9ea6;
+    --g-offline: #8b8b8b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013;
+      --panel: #161a1f;
+      --border: #262b32;
+      --text: #e7eaee;
+      --muted: #9aa3ad;
+      --faint: #6b7480;
+      --accent: #6b9bff;
+      --accent-bg: #18203a;
+      --warn-bg: #2a1f12;
+      --good-bg: #122a1b;
+      --crit-bg: #2c1517;
+      --track: #232830;
+
+      --stage-bg: #0a0b0d;
+      --stage-panel: #14171b;
+
+      --menubar-bg: #1c1d20;
+      --menubar-text: #f4f5f7;
+      --menubar-text-dim: #7c7f87;
+      --dropdown-bg: #2a2b2e;
+      --dropdown-panel: #313236;
+      --dropdown-text: #ececee;
+      --dropdown-sep: #3a3b3f;
+      --dropdown-muted: #9295a0;
+      --dropdown-highlight: #4a7dff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--stage-bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 72px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  /* ---------------- page masthead ---------------- */
+  .masthead { margin-bottom: 8px; }
+  .masthead .kicker {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .masthead h1 {
+    font-family: var(--sans);
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0 0 12px;
+    max-width: 24ch;
+  }
+  .masthead .lede {
+    font-size: 1.02rem;
+    color: var(--muted);
+    max-width: 70ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .masthead .lede b { color: var(--text); font-weight: 600; }
+  .masthead .lede .m, .masthead .lede code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .draft-flag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-radius: 999px;
+    padding: 3px 10px;
+    margin-top: 14px;
+  }
+
+  .rule { height: 1px; background: var(--border); border: 0; margin: 34px 0 30px; }
+
+  /* ---------------- section headers ---------------- */
+  .section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0 0 4px;
+    font-family: var(--mono);
+  }
+  .section-lede {
+    font-size: 0.9rem;
+    color: var(--faint);
+    margin: 0 0 22px;
+    max-width: 78ch;
+    line-height: 1.5;
+  }
+  .section-lede b { color: var(--muted); font-weight: 600; }
+  .section-lede code, .section-lede .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .section { margin-bottom: 56px; }
+
+  /* =========================================================
+     THE MENU-BAR STRIP — a realistic macOS top bar.
+     ========================================================= */
+  .menubar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    border-radius: 10px 10px 0 0;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 12px;
+    gap: 16px;
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    color: var(--menubar-text);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+    user-select: none;
+  }
+  .menubar .sys {
+    color: var(--menubar-text);
+    opacity: 0.86;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .menubar .sys.time { font-variant-numeric: tabular-nums; opacity: 0.95; }
+
+  /* The badge glyph — monospace, tabular, sits in the bar. Reused markup. */
+  .glyph {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    padding: 3px 7px;
+    border-radius: 6px;
+    cursor: default;
+    position: relative;
+  }
+  .glyph.selected { background: rgba(255,255,255,0.16); }
+  .glyph .mark { opacity: 0.92; }
+  /* wide-mode host cue (shipped) */
+  .glyph .host { color: var(--menubar-text); opacity: 0.92; font-weight: 500; margin-left: -1px; }
+  .glyph .hostsep { color: var(--menubar-text-dim); margin: 0 1px 0 2px; opacity: 0.85; }
+  .glyph .cue { color: var(--menubar-text-dim); font-weight: 600; margin-right: 1px; }
+  .glyph .num.good { color: var(--g-good); }
+  .glyph .num.warn { color: var(--g-warn); }
+  .glyph .num.crit { color: var(--g-crit); }
+  .glyph.aging  { opacity: 0.82; }
+  .glyph.aging .agedot { opacity: 0.9; margin-left: 1px; }
+  .glyph.stale .marker { color: var(--g-stale); }
+  .glyph.stale .num { color: #e6c07b; }
+  .glyph.nodata { color: var(--menubar-text); opacity: 0.9; }
+  .glyph.nodata .dash { color: var(--menubar-text-dim); }
+  .glyph.offline { color: var(--menubar-text-dim); opacity: 0.78; }
+  .glyph.offline .marker { color: var(--menubar-text-dim); }
+  .glyph .marker { font-size: 0.78rem; }
+  .glyph .agedot { opacity: 0.7; }
+
+  /* ---- COMPACT glyph cells (the new grammar) ---- */
+  /* a compact cell = optional host cue + state-marker + number/marker, no host
+     name, no tool letter. The cue rides tight against its number. */
+  .cell { display: inline-flex; align-items: baseline; white-space: nowrap; }
+  .cell .cue2 {                       /* grow-prefix host cue for multi layouts */
+    color: var(--menubar-text-dim);
+    opacity: 0.9;
+    font-weight: 600;
+    margin-right: 0px;
+    letter-spacing: 0;
+  }
+  .cell .n { font-variant-numeric: tabular-nums; }
+  .cell .n.good { color: var(--g-good); }
+  .cell .n.warn { color: var(--g-warn); }
+  .cell .n.crit { color: var(--g-crit); }
+  .cell.aging { opacity: 0.9; }
+  .cell.aging .n { color: var(--g-aging); }
+  .cell.aging .agedot { color: var(--g-aging); }
+  .cell.stale .warn-mark { color: var(--g-stale); margin-right: 0px; }
+  .cell.stale .n { color: var(--g-stale); }
+  .cell.no-reading .dash { color: var(--g-muted); }
+  .cell.offline .slash { color: var(--g-offline); }
+  .glyph.compact { gap: 4px; }
+  .glyph.compact .sbs-cells { display: inline-flex; align-items: baseline; gap: 9px; }
+  .glyph.compact .more {
+    color: var(--menubar-text-dim);
+    opacity: 0.85;
+    font-weight: 500;
+    margin-left: 1px;
+  }
+
+  /* ---- TOOL MARKS (the new tool cue) ---------------------------------------
+     NEUTRAL (default): two distinct non-trademark glyphs — ◆ Claude, ▲ Codex —
+     that replace the C/X letters as the default tool cue, in per-host AND
+     per-tool (aggregate) modes. xbar-safe: text glyph + color, monochrome-
+     legible, and clearly different SILHOUETTES (diamond vs triangle), not the
+     same shape re-filled. Rendered dim (a locator, like the old letter cue). */
+  .tmark {
+    color: var(--menubar-text-dim);
+    opacity: 0.9;
+    font-size: 0.72rem;
+    margin-right: 1px;
+    line-height: 1;
+    display: inline-block;
+    vertical-align: baseline;
+  }
+  .tmark.claude {}   /* ◆ */
+  .tmark.codex {}    /* ▲ */
+  /* in a per-TOOL aggregate the mark leads the cell and is a touch larger — it
+     IS the identity of the cell (which tool), not a secondary locator. */
+  .cell .tmark { margin-right: 2px; }
+  /* LOGOS (opt-in): small embedded template-images. Here shown as labeled
+     stand-in shapes — the Engineer supplies the real assets. SwiftBar renders
+     them via image=/templateImage= (SwiftBar-only polish); the neutral glyph is
+     the xbar-safe floor whenever a logo isn't rendered. */
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px; height: 13px;
+    margin-right: 3px;
+    vertical-align: -2px;
+    border-radius: 3px;
+    font-size: 0; /* hide any text; the shape IS the stand-in */
+    flex: none;
+  }
+  .logo.claude {           /* stand-in: a rounded-square "spark" mark */
+    background: #d97757;    /* Claude's brand-ish clay tone, stand-in only */
+    position: relative;
+  }
+  .logo.claude::after {
+    content: ""; position: absolute; inset: 3px;
+    background: #fff; opacity: 0.92;
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  }
+  .logo.codex {            /* stand-in: a dark rounded square with a ring */
+    background: #10a37f;    /* OpenAI-ish teal, stand-in only */
+    position: relative;
+  }
+  .logo.codex::after {
+    content: ""; position: absolute; inset: 3px;
+    border: 1.6px solid #fff; border-radius: 50%; opacity: 0.92;
+  }
+  /* a small label under a logo stand-in in the gallery, so it's honestly named */
+  .logo-standin-lab {
+    font-family: var(--mono); font-size: 0.58rem; color: var(--menubar-text-dim);
+    letter-spacing: 0.02em;
+  }
+
+  /* =========================================================
+     THE STATE / MODE GALLERY cards
+     ========================================================= */
+  .states {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+    gap: 14px;
+  }
+  .states.wide-cards { grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }
+  .state-card {
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .state-card.hero { border-color: var(--accent); }
+  .state-strip {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+  }
+  .state-body { padding: 13px 15px 15px; }
+  .state-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    font-family: var(--mono);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .state-name .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .sw-good { background: var(--good); }
+  .sw-warn { background: var(--warn); }
+  .sw-crit { background: var(--crit); }
+  .sw-muted { background: var(--faint); }
+  .sw-accent { background: var(--accent); }
+  .sw-offline { background: var(--g-offline); }
+  .state-trigger { font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+  .state-trigger code, .state-trigger .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .state-rule {
+    font-size: 0.72rem;
+    color: var(--faint);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    font-style: italic;
+  }
+  .mode-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-left: auto;
+  }
+  .mt-default { color: var(--accent); background: var(--accent-bg); }
+  .mt-new { color: var(--good); background: var(--good-bg); }
+
+  /* rotation frames strip */
+  .frames {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .frame {
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    flex: 1 1 180px;
+    min-width: 170px;
+    display: flex;
+    flex-direction: column;
+  }
+  .frame .state-strip { position: relative; }
+  .frame-tick {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--menubar-text-dim);
+    letter-spacing: 0.04em;
+  }
+  .frame-body { padding: 11px 14px 13px; font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+  .frame-body b { color: var(--text); font-weight: 600; }
+  .rotate-arrow {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--faint); font-size: 1.1rem; flex: 0 0 20px; align-self: center;
+  }
+  @media (max-width: 720px) { .rotate-arrow { display: none; } }
+
+  /* =========================================================
+     THE DROPDOWN — SwiftBar-style menu (reused chrome)
+     ========================================================= */
+  .dropdown-demo {
+    display: grid;
+    grid-template-columns: minmax(0, 440px) 1fr;
+    gap: 30px;
+    align-items: start;
+  }
+  @media (max-width: 820px) { .dropdown-demo { grid-template-columns: 1fr; } }
+  .demo-col { min-width: 0; }
+
+  .anchor-bar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 30px;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 10px;
+    gap: 14px;
+    position: relative;
+    z-index: 2;
+  }
+  .anchor-bar .sys { color: var(--menubar-text); opacity: 0.82; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+
+  .dropdown {
+    background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12);
+    padding: 6px;
+    margin-top: -2px;
+    width: 100%;
+    max-width: 440px;
+    font-family: var(--sans);
+    color: var(--dropdown-text);
+    position: relative;
+    z-index: 1;
+  }
+  .dd-title {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 7px 10px 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--dropdown-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .dd-title .num.crit { color: var(--crit); }
+  .dd-title .num.warn { color: var(--warn); }
+  .dd-title .num.good { color: var(--good); }
+  .dd-title .rem-word { color: var(--dropdown-muted); font-weight: 500; font-family: var(--sans); font-size: 0.76rem; }
+  .dd-title .binding {
+    margin-left: auto;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--dropdown-muted);
+    white-space: nowrap;
+  }
+  .dd-watching { font-family: var(--sans); font-size: 0.72rem; color: var(--dropdown-muted); padding: 0 10px 6px; }
+  .dd-sep { height: 1px; background: var(--dropdown-sep); margin: 5px 4px; border: 0; }
+
+  /* host header (from shipped multi-host chrome) */
+  .dd-host-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 3px; flex-wrap: wrap; }
+  .dd-host-name { font-family: var(--mono); font-size: 0.82rem; font-weight: 700; color: var(--dropdown-text); letter-spacing: 0.01em; }
+  .dd-host-bind {
+    font-family: var(--sans); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; color: var(--accent); background: var(--accent-bg); padding: 2px 8px; border-radius: 999px;
+  }
+  .dd-host-you {
+    font-family: var(--sans); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; color: var(--dropdown-muted);
+    background: color-mix(in srgb, var(--dropdown-muted) 16%, transparent);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .dd-host-shown {
+    font-family: var(--sans); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; color: var(--good);
+    background: var(--good-bg);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .dd-host-state {
+    margin-left: auto; font-size: 0.72rem; color: var(--dropdown-muted); font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .dd-host-state .pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--good); vertical-align: middle; }
+  .dd-host-state.is-offline .pulse { background: var(--crit); }
+  .dd-host-pill {
+    font-family: var(--mono); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .pill-aging { color: var(--warn); background: var(--warn-bg); }
+  .pill-stale { color: var(--crit); background: var(--crit-bg); }
+  .pill-offline { color: var(--crit); background: var(--crit-bg); }
+  .pill-idle { color: var(--dropdown-muted); background: color-mix(in srgb, var(--dropdown-muted) 15%, transparent); }
+
+  .dd-tool-head { display: flex; align-items: center; gap: 8px; padding: 5px 10px 2px 18px; }
+  .dd-tool-name { font-family: var(--mono); font-size: 0.74rem; font-weight: 600; color: var(--dropdown-muted); }
+  .dd-row {
+    display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 10px;
+    padding: 4px 10px 4px 18px; border-radius: 6px; font-size: 0.82rem;
+  }
+  .dd-row:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-row:hover .dd-win, .dd-row:hover .dd-reset, .dd-row:hover .dd-rem { color: #fff; }
+  .dd-win { color: var(--dropdown-muted); font-size: 0.78rem; }
+  .dd-metrics { display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dd-rem { font-weight: 600; }
+  .dd-rem.good { color: var(--good); }
+  .dd-rem.warn { color: var(--warn); }
+  .dd-rem.crit { color: var(--crit); }
+  .dd-rem.na { color: var(--dropdown-muted); font-weight: 500; }
+  .dd-reset { color: var(--dropdown-muted); font-size: 0.76rem; }
+
+  .dd-hostnote {
+    margin: 3px 8px 4px 18px; padding: 7px 11px; border-radius: 8px;
+    font-size: 0.74rem; line-height: 1.45;
+    background: var(--crit-bg); border-left: 3px solid var(--crit); color: var(--dropdown-text);
+  }
+  .dd-hostnote.muted {
+    background: color-mix(in srgb, var(--dropdown-muted) 12%, transparent);
+    border-left-color: var(--dropdown-muted); color: var(--dropdown-muted);
+  }
+  .dd-hostnote b { font-weight: 600; }
+  .dd-hostnote code {
+    font-family: var(--mono); font-size: 0.9em;
+    background: color-mix(in srgb, var(--dropdown-text) 8%, transparent); padding: 1px 4px; border-radius: 4px;
+  }
+
+  /* actions — the ＋/－/☰/⊘/🖥 grammar */
+  .dd-action {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px;
+    font-size: 0.82rem; cursor: default; color: var(--dropdown-text); position: relative;
+  }
+  .dd-action:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-action:hover .kbd, .dd-action:hover .ic, .dd-action:hover .caret, .dd-action:hover .suffix { color: #fff; opacity: 0.9; }
+  .dd-action .ic { color: var(--dropdown-muted); width: 15px; text-align: center; flex: none; font-family: var(--mono); }
+  .dd-action .kbd { margin-left: auto; color: var(--dropdown-muted); font-family: var(--mono); font-size: 0.72rem; }
+  .dd-action .caret { margin-left: auto; color: var(--dropdown-muted); font-size: 0.8rem; }
+  .dd-action .suffix { margin-left: 6px; color: var(--dropdown-muted); font-family: var(--mono); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
+  .dd-action.listing { color: var(--dropdown-muted); font-size: 0.78rem; cursor: default; }
+  .dd-action.listing:hover { background: transparent; color: var(--dropdown-muted); }
+  .dd-action.open { background: var(--dropdown-highlight); color: #fff; }
+  .dd-action.open .ic, .dd-action.open .caret { color: #fff; }
+  .dd-action.dim { opacity: 0.5; }
+
+  /* =========================================================
+     THE DISPLAY SUBMENU — the new config surface.
+     A SwiftBar nested submenu (leading `--`), rendered here as a
+     popped panel. Presets header + per-axis groups; the active
+     value on each axis and the active preset marked with ✓.
+     ========================================================= */
+  .dd-submenu {
+    margin: 2px 8px 2px 26px; background: var(--dropdown-panel);
+    border: 1px solid var(--dropdown-sep); border-radius: 8px; padding: 5px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.20);
+  }
+  .dd-submenu.display-menu { max-width: 340px; }
+  .sub-group-label {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--dropdown-muted); padding: 6px 8px 4px; font-family: var(--mono); font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .sub-group-label .hint { text-transform: none; letter-spacing: 0; font-weight: 500; font-family: var(--sans); font-size: 0.62rem; color: var(--faint); margin-left: auto; }
+  .sub-sep { height: 1px; background: var(--dropdown-sep); margin: 5px 4px; border: 0; }
+  .dd-subitem {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
+    font-size: 0.8rem; color: var(--dropdown-text); line-height: 1.3;
+  }
+  .dd-subitem:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-subitem:hover .addr, .dd-subitem:hover .sub-sub, .dd-subitem:hover .check { color: rgba(255,255,255,0.85); }
+  /* the active-marker slot — ✓ when active, an empty fixed slot when not, so the
+     labels stay aligned (mirrors macOS checkmark menu items). */
+  .dd-subitem .check {
+    width: 14px; flex: none; text-align: center;
+    font-family: var(--mono); font-size: 0.8rem; color: var(--accent);
+  }
+  .dd-subitem .check.off { color: transparent; }
+  .dd-subitem.is-active { font-weight: 600; }
+  .dd-subitem .addr { margin-left: auto; font-family: var(--mono); font-size: 0.7rem; color: var(--dropdown-muted); }
+  .dd-subitem .sub-sub { font-size: 0.68rem; color: var(--dropdown-muted); margin-left: 6px; }
+  .dd-subitem .glyph-mini {
+    margin-left: auto; font-family: var(--mono); font-size: 0.72rem;
+    background: var(--menubar-bg); color: var(--menubar-text);
+    padding: 2px 7px; border-radius: 5px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .dd-subitem:hover .glyph-mini { opacity: 0.95; }
+  .dd-subitem .glyph-mini .gd { color: var(--menubar-text-dim); }
+  .dd-subitem .glyph-mini .gc { color: var(--g-crit); }
+  .dd-subitem .glyph-mini .gw { color: var(--g-warn); }
+
+  /* =========================================================
+     THE LEGEND SUBMENU — progressive disclosure of the key.
+     A SwiftBar nested submenu (native click-to-reveal, no plugin
+     state). Each row: a menu-bar-styled sample chip + a short gloss.
+     ========================================================= */
+  .dd-submenu.legend-menu { max-width: 360px; }
+  .legend-row {
+    display: grid; grid-template-columns: 60px 1fr; gap: 10px; align-items: baseline;
+    padding: 5px 8px; border-radius: 6px; font-size: 0.79rem; color: var(--dropdown-text); line-height: 1.35;
+  }
+  .legend-row:hover { background: var(--dropdown-highlight); color: #fff; }
+  .legend-row:hover .lg-gloss, .legend-row:hover .lg-sub { color: rgba(255,255,255,0.85); }
+  .legend-row .lg-sample {
+    font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabular-nums;
+    background: var(--menubar-bg); color: var(--menubar-text);
+    padding: 3px 7px; border-radius: 5px; text-align: center; white-space: nowrap; justify-self: start;
+  }
+  .legend-row .lg-sample.plain { background: transparent; padding-left: 0; }
+  .legend-row .lg-sample .good { color: var(--g-good); }
+  .legend-row .lg-sample .warn { color: var(--g-warn); }
+  .legend-row .lg-sample .crit { color: var(--g-crit); }
+  .legend-row .lg-sample .stale { color: var(--g-stale); }
+  .legend-row .lg-sample .muted { color: var(--g-muted); }
+  .legend-row .lg-sample .off { color: var(--g-offline); }
+  .legend-row .lg-sample .dim { color: var(--menubar-text-dim); }
+  .legend-row .lg-sample.sw-good { background: var(--good); color: #fff; }
+  .legend-row .lg-sample.sw-warn { background: var(--warn); color: #fff; }
+  .legend-row .lg-sample.sw-crit { background: var(--crit); color: #fff; }
+  .legend-row .lg-gloss { color: var(--dropdown-text); }
+  .legend-row .lg-gloss b { font-weight: 600; }
+  .legend-row .lg-sub { color: var(--dropdown-muted); }
+  .legend-subhead {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600;
+    color: var(--dropdown-muted); font-family: var(--mono); padding: 7px 8px 3px;
+  }
+
+  /* callout / notes column */
+  .demo-notes {
+    margin-top: 14px; background: var(--stage-panel); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 15px;
+    font-size: 0.79rem; color: var(--muted); line-height: 1.55;
+  }
+  .demo-notes b { color: var(--text); font-weight: 600; }
+  .demo-notes code, .demo-notes .m {
+    font-family: var(--mono); font-size: 0.86em; background: var(--track);
+    padding: 1px 4px; border-radius: 4px; color: var(--text);
+  }
+  .demo-notes.warn { border-left-color: var(--warn); }
+  .demo-notes.crit { border-left-color: var(--crit); }
+  .demo-notes.good { border-left-color: var(--good); }
+  .demo-notes ul { margin: 8px 0 0; padding-left: 18px; }
+  .demo-notes li { margin-bottom: 5px; }
+  .demo-caption { font-size: 0.82rem; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+  .demo-caption b { color: var(--text); font-weight: 600; }
+  .demo-caption code, .demo-caption .m {
+    font-family: var(--mono); font-size: 0.86em; background: var(--track);
+    padding: 1px 4px; border-radius: 4px; color: var(--text);
+  }
+
+  /* the two-up dropdown gallery (both modes side by side) */
+  .modes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start; }
+  @media (max-width: 940px) { .modes-grid { grid-template-columns: 1fr; } }
+  .mode-cap {
+    font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; color: var(--dropdown-text); margin: 0 0 3px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .mode-cap .tag {
+    font-family: var(--sans); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  }
+  .tag-single { color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); }
+  .tag-multi { color: var(--accent); background: var(--accent-bg); }
+  .mode-sub { font-size: 0.78rem; color: var(--faint); margin: 0 0 12px; line-height: 1.45; max-width: 46ch; }
+  .mode-sub .m { font-family: var(--mono); font-size: 0.86em; background: var(--track); padding: 1px 4px; border-radius: 4px; color: var(--text); }
+
+  /* ---------------- copy / legend tables ---------------- */
+  .legend-table {
+    width: 100%; border-collapse: collapse; font-size: 0.83rem;
+    background: var(--stage-panel); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .table-scroll { overflow-x: auto; }
+  .legend-table th, .legend-table td {
+    text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top;
+  }
+  .legend-table thead th {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+    font-weight: 600; background: color-mix(in srgb, var(--stage-panel) 88%, var(--track)); white-space: nowrap;
+  }
+  .legend-table tbody tr:last-child td { border-bottom: 0; }
+  .legend-table .st { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+  .legend-table td.rule-cell { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .legend-table code, .legend-table .m {
+    font-family: var(--mono); background: var(--track); padding: 1px 4px; border-radius: 4px;
+    color: var(--text); font-size: 0.86em;
+  }
+  /* a menu-bar chip for the legend tables */
+  .legend-table .chip {
+    display: inline-flex; align-items: baseline; gap: 3px;
+    background: var(--menubar-bg); color: var(--menubar-text);
+    font-family: var(--mono); font-size: 0.8rem; font-variant-numeric: tabular-nums;
+    padding: 4px 9px; border-radius: 6px; white-space: nowrap;
+  }
+  .legend-table .chip .gd  { color: var(--menubar-text-dim); }
+  .legend-table .chip .cue { color: var(--menubar-text-dim); font-weight: 600; }
+  .legend-table .chip .good { color: var(--g-good); }
+  .legend-table .chip .warn { color: var(--g-warn); }
+  .legend-table .chip .crit { color: var(--g-crit); }
+  .legend-table .chip .stale { color: var(--g-stale); }
+  .legend-table .chip .muted { color: var(--g-muted); }
+  .legend-table .chip .off { color: var(--g-offline); }
+  .legend-table .chip .tm { color: var(--menubar-text-dim); }  /* tool mark ◆/▲ */
+  .copy-table td.str { font-family: var(--mono); font-size: 0.77rem; color: var(--text); line-height: 1.5; }
+  .copy-table td.when { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+
+  .flag-box {
+    background: var(--warn-bg);
+    border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border));
+    border-left: 3px solid var(--warn);
+    border-radius: 10px;
+    padding: 14px 17px;
+    font-size: 0.84rem;
+    color: var(--text);
+    line-height: 1.55;
+    margin-top: 18px;
+  }
+  .flag-box .flag-h {
+    font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+    font-weight: 600; color: var(--warn); margin-bottom: 8px;
+  }
+  .flag-box b { font-weight: 600; }
+  .flag-box code, .flag-box .m {
+    font-family: var(--mono); font-size: 0.86em;
+    background: color-mix(in srgb, var(--text) 8%, transparent); padding: 1px 4px; border-radius: 4px;
+  }
+  .flag-box ul { margin: 8px 0 0; padding-left: 18px; }
+  .flag-box li { margin-bottom: 6px; }
+
+  .footnote {
+    margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border);
+    font-size: 0.8rem; color: var(--faint); line-height: 1.6;
+  }
+  .footnote b { color: var(--muted); font-weight: 600; }
+  .footnote code {
+    font-family: var(--mono); background: var(--track); padding: 1px 5px; border-radius: 4px;
+    color: var(--text); font-size: 0.86em;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">llmdash · badge display options · design draft</div>
+    <h1>Shape the glance: your machines, your layout, your width.</h1>
+    <p class="lede">
+      The badge stops insisting on one thing. A new <b>Display</b> submenu lets you
+      choose <b>which machines</b> the glyph shows, whether to group by <b>machine or
+      by tool</b>, how they're <b>laid out</b> (one, side-by-side, or rotating), and how
+      <b>dense</b> they are (today's wide text, or a compact icon+number). A few
+      <b>named presets</b> set it all at once; the axes stay adjustable underneath. All
+      five honesty states survive the compact surface — a colored <b>marker</b> carries
+      each, and no-reading / offline never show a fake number. With nothing set, the
+      badge is <b>byte-for-byte today's</b> — <span class="m">▪ Studio·C 12%</span>.
+    </p>
+    <span class="draft-flag">Draft · first direction · react and iterate</span>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       1 — THE GLYPH IN EVERY DISPLAY MODE
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The glyph, in every display mode — one real fleet</p>
+    <p class="section-lede">
+      One scenario throughout: you watch <b>Studio</b> (Claude 5-hour at <b>12%</b>, tight — the binder),
+      <b>Laptop</b> (Codex at <b>88%</b>, aging), and <b>Desktop</b> (Codex at <b>63%</b>, fresh).
+      The same three machines, rendered four ways. Density and layout change the
+      <b>shape</b> of the glance; they never change the <b>numbers</b> or which machines are watched.
+    </p>
+
+    <div class="states wide-cards">
+
+      <!-- (a) WIDE single — today -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Studio</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-crit"></span>Wide · single<span class="mode-tag mt-default">today's default</span></div>
+          <div class="state-trigger">
+            <b>Unchanged.</b> The most-constrained machine, named, in wide text:
+            <code>▪ Studio·C 12%</code>. This is exactly the shipped badge — the whole
+            feature costs nothing until you choose to shape it.
+          </div>
+        </div>
+      </div>
+
+      <!-- (b) COMPACT single -->
+      <div class="state-card hero">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="cell fresh"><span class="n crit">12</span></span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-crit"></span>Compact · single<span class="mode-tag mt-new">new</span></div>
+          <div class="state-trigger">
+            The one-icon form: <code>▪ 12</code>. Drops the host name and the tool letter —
+            just the mark, then the number in its status color (crit). A quick color-coded
+            pulse when the bar is crowded; the dropdown still spells out which machine and tool.
+          </div>
+        </div>
+      </div>
+
+      <!-- (c) COMPACT side-by-side -->
+      <div class="state-card hero">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="cue2">St</span><span class="n crit">12</span></span>
+              <span class="cell aging"><span class="cue2">La</span><span class="n">88</span><span class="agedot">·</span></span>
+              <span class="cell fresh"><span class="cue2">De</span><span class="n good">63</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-accent"></span>Compact · side-by-side<span class="mode-tag mt-new">new</span></div>
+          <div class="state-trigger">
+            All three at once in <b>one</b> menu-bar item: <code>▪ St12 La88· De63</code>.
+            A grow-prefix cue (<code>St</code>/<code>La</code>/<code>De</code>) names each;
+            each cell carries its own state via a <b>marker</b> (Laptop's <code>·</code> = aging).
+            The line's color is the <b>binding</b> machine's (Studio, crit).
+          </div>
+        </div>
+      </div>
+
+      <!-- (d) COMPACT side-by-side, capped -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="cue2">St</span><span class="n crit">12</span></span>
+              <span class="cell aging"><span class="cue2">La</span><span class="n">88</span><span class="agedot">·</span></span>
+              <span class="cell fresh"><span class="cue2">De</span><span class="n good">63</span></span>
+            </span>
+            <span class="more">+2</span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>Side-by-side · capped<span class="mode-tag mt-new">overflow</span></div>
+          <div class="state-trigger">
+            Select more than <b>3</b> and the bar caps at three, then a
+            <code>+2</code> tail. Because the order is <b>binding-first</b>, the hidden ones
+            are the <b>least</b> constrained — the tightest machine is always shown. Never a
+            truncated set that looks complete.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ALTERNATING — three rotation frames -->
+    <div style="margin-top:30px;">
+      <p class="section-label" style="margin-bottom:6px;">Compact · alternating — the menu bar shows one at a time, rotating every ~5s</p>
+      <p class="section-lede" style="margin-bottom:18px;">
+        The badge re-renders every 5 seconds; in <b>alternating</b> it rotates which single
+        machine it shows each tick — one clean cell, its own color, its own state. The cue
+        names which machine you're seeing right now, so it's never a guess. Deterministic
+        (driven by the clock), so two ticks apart always advance to the next machine.
+      </p>
+      <div class="frames">
+        <div class="frame">
+          <div class="state-strip">
+            <span class="frame-tick">tick · +0s</span>
+            <span class="glyph compact fresh"><span class="mark">▪</span><span class="cell fresh"><span class="cue2">St</span><span class="n crit">12</span></span></span>
+          </div>
+          <div class="frame-body"><b>Studio</b> — Claude 5-hour, crit at 12%. Fresh: plain number in its status color.</div>
+        </div>
+        <div class="rotate-arrow">→</div>
+        <div class="frame">
+          <div class="state-strip">
+            <span class="frame-tick">tick · +5s</span>
+            <span class="glyph compact aging"><span class="mark">▪</span><span class="cell aging"><span class="cue2">La</span><span class="n">88</span><span class="agedot">·</span></span></span>
+          </div>
+          <div class="frame-body"><b>Laptop</b> — Codex at 88%, reading is aging. Trailing <code>·</code>, dimmed grey.</div>
+        </div>
+        <div class="rotate-arrow">→</div>
+        <div class="frame">
+          <div class="state-strip">
+            <span class="frame-tick">tick · +10s</span>
+            <span class="glyph compact fresh"><span class="mark">▪</span><span class="cell fresh"><span class="cue2">De</span><span class="n good">63</span></span></span>
+          </div>
+          <div class="frame-body"><b>Desktop</b> — Codex at 63%, fresh. Then it wraps back to Studio at +15s.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-notes" style="margin-top:22px;">
+      <b>Why a marker, not per-cell color, in side-by-side.</b> A SwiftBar menu-bar line
+      carries <b>one</b> color for the whole run — you can't tint each cell independently. So
+      per-cell state rides the <b>marker</b> (which reads in monochrome anyway), and the line's
+      single color tracks the <b>binding</b> machine — honest, since "how tight am I anywhere?"
+      is what the color answers. Alternating sidesteps this entirely: one machine per tick means
+      one cell, its own true color.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       2 — THE FIVE HONESTY STATES, COMPACT
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The five honesty states — legible even compact</p>
+    <p class="section-lede">
+      This is the hard constraint. When the glyph shrinks, honesty can't. Each state keeps a
+      distinct <b>marker</b> that reads in a monochrome bar, reinforced by color — the same
+      vocabulary as the wide badge, miniaturized. Crucially, <b>no-reading and offline carry
+      no number</b> — the badge never invents a zero for a machine it can't read.
+    </p>
+
+    <div class="states">
+      <!-- fresh -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact fresh"><span class="mark">▪</span><span class="cell fresh"><span class="n warn">46</span></span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-good"></span>fresh</div>
+          <div class="state-trigger">Just the number, in its own status color: <code>▪ 46</code>. No marker — the <b>absence</b> of one is what says "fresh." (46% is in the warn band, so it reads amber.)</div>
+        </div>
+      </div>
+      <!-- aging -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact aging"><span class="mark">▪</span><span class="cell aging"><span class="n">46</span><span class="agedot">·</span></span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>aging</div>
+          <div class="state-trigger">Trailing <code>·</code> after the number, whole cell dimmed grey: <code>▪ 46·</code>. The reading is older than fresh, so its status color steps back — the dot is the flag.</div>
+        </div>
+      </div>
+      <!-- stale -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact stale"><span class="mark">▪</span><span class="cell stale"><span class="warn-mark">⚠</span><span class="n">12</span></span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-warn"></span>stale</div>
+          <div class="state-trigger">A <b>leading</b> <code>⚠</code> then the number, amber: <code>▪ ⚠12</code>. The warning hits the eye first, before you read the value. Older than <code>staleAfterMs</code> — the number may have moved.</div>
+        </div>
+      </div>
+      <!-- no-reading -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact no-reading"><span class="mark">▪</span><span class="cell no-reading"><span class="dash">—</span></span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>no-reading</div>
+          <div class="state-trigger">A dash, muted, <b>never a number</b>: <code>▪ —</code>. No limit reading captured yet. The badge won't fake a zero — it says so plainly.</div>
+        </div>
+      </div>
+      <!-- offline -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact offline"><span class="mark">▪</span><span class="cell offline"><span class="slash">⊘</span></span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-offline"></span>offline</div>
+          <div class="state-trigger">A slashed circle, offline-grey, <b>never a number</b>: <code>▪ ⊘</code>. A <b>selected</b> machine that goes offline is shown with this marker in the glyph it was selected for — marked, never silently dropped.</div>
+        </div>
+      </div>
+      <!-- side-by-side with a mix -->
+      <div class="state-card" style="border-style:dashed;">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="cue2">St</span><span class="n crit">12</span></span>
+              <span class="cell stale"><span class="cue2">La</span><span class="warn-mark">⚠</span><span class="n">88</span></span>
+              <span class="cell offline"><span class="cue2">De</span><span class="slash">⊘</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-accent"></span>three states, one line</div>
+          <div class="state-trigger">Proof it holds side-by-side: <code>▪ St12 La⚠88 De⊘</code> — Studio crit-fresh, Laptop stale, Desktop offline. Three independent states, each on its own marker. One host's state never suppresses another's.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-notes crit" style="margin-top:20px;">
+      <b>The never-a-number guard is structural, not cosmetic.</b> The <b>offline</b> and
+      <b>no-reading</b> cells have no code path that emits a digit — you can prove it by
+      searching the emitted line for a number and finding none. This is the founding "be honest
+      in the UI" rule, carried all the way down to the smallest glyph.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       2b — THE TOOL MARK — neutral by default, logos opt-in
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The tool mark — two neutral glyphs by default, real logos opt-in</p>
+    <p class="section-lede">
+      The badge has always named the tool with a letter — <span class="m">C</span> for Claude,
+      <span class="m">X</span> for codeX. This upgrades that default cue to two distinct
+      <b>neutral glyphs</b> — a <b>filled diamond</b> for Claude, a <b>filled triangle</b> for
+      Codex — chosen because they're <b>different silhouettes</b> (not one shape re-filled),
+      solid (reads better than an outline at menu-bar size), and instantly told apart in a
+      monochrome bar. They're used everywhere the tool is named: which tool binds a
+      <b>machine</b>, and — new below — which tool an <b>aggregate</b> is. For those who want
+      them, real product <b>logos</b> are an opt-in on top; the neutral glyph is always the
+      xbar-safe floor underneath.
+    </p>
+
+    <div class="states wide-cards">
+      <!-- neutral, wide -->
+      <div class="state-card hero">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Studio</span><span class="hostsep">·</span><span class="tmark claude">◆</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-crit"></span>Neutral · Claude · wide<span class="mode-tag mt-new">new default</span></div>
+          <div class="state-trigger">
+            <code>▪ Studio·◆ 12%</code> — the diamond replaces the <code>C</code>. Same
+            placement, same dim-locator weight; the number still lands first.
+          </div>
+        </div>
+      </div>
+      <div class="state-card hero">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Laptop</span><span class="hostsep">·</span><span class="tmark codex">▲</span><span class="num good">88%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-good"></span>Neutral · Codex · wide<span class="mode-tag mt-new">new default</span></div>
+          <div class="state-trigger">
+            <code>▪ Laptop·▲ 88%</code> — the triangle replaces the <code>X</code>. Diamond
+            vs. triangle reads at a glance, even side by side.
+          </div>
+        </div>
+      </div>
+      <!-- neutral, compact -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="cue2">St</span><span class="tmark claude">◆</span><span class="n crit">12</span></span>
+              <span class="cell fresh"><span class="cue2">La</span><span class="tmark codex">▲</span><span class="n good">88</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-accent"></span>Neutral · compact</div>
+          <div class="state-trigger">
+            In a compact per-host cell the mark is optional (host cue already identifies the
+            machine); when shown it's tight: <code>St◆12 La▲88</code>. In per-tool mode
+            (next section) the mark is <b>always</b> shown — it's the cell's identity.
+          </div>
+        </div>
+      </div>
+      <!-- logos, opt-in -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Studio</span><span class="hostsep">·</span><span class="logo claude" title="Claude logo (stand-in)"></span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>Logos · opt-in<span class="mode-tag mt-default">off by default</span></div>
+          <div class="state-trigger">
+            Turn on <b>Tool marks: Logos</b> and the neutral glyph is replaced by the real
+            product mark as a small template-image (<span class="logo-standin-lab">stand-in shown</span>).
+            Off by default; the neutral glyph is the floor whenever a logo can't render (xbar,
+            template-image off).
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- the two marks, and the two logo stand-ins, named honestly -->
+    <div class="demo-notes" style="margin-top:22px;">
+      <b>The pair, named:</b>
+      <span style="display:inline-flex;align-items:center;gap:18px;margin-left:8px;vertical-align:middle;">
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:1.1rem;color:var(--text);">◆</span> Claude (filled diamond)</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:1.05rem;color:var(--text);">▲</span> Codex (filled triangle)</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span class="logo claude" style="width:16px;height:16px;"></span> <span class="logo-standin-lab">Claude logo (opt-in, stand-in)</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span class="logo codex" style="width:16px;height:16px;"></span> <span class="logo-standin-lab">Codex logo (opt-in, stand-in)</span></span>
+      </span>
+      <div style="margin-top:10px;">
+        <b>Why these shapes:</b> the diamond and triangle share the geometric family of the
+        <code>▪</code> mark but are unmistakably different outlines — the failure mode to avoid is
+        two marks that differ only by fill (<code>◇</code> vs <code>◆</code>), which blur at
+        menu-bar size. <b>C / X remains a perfectly good fallback</b> if you'd rather keep letters —
+        this is a "clearly better or don't bother" call, flagged for you.
+      </div>
+    </div>
+    <div class="demo-notes good" style="margin-top:14px;">
+      <b>Logos are honest and opt-in.</b> They render as small monochrome-friendly
+      <b>template images</b> (SwiftBar <code>image=</code> / <code>templateImage=</code>) —
+      SwiftBar-only polish. The <b>neutral glyph is always the floor:</b> on xbar, or if the image
+      can't load, the diamond/triangle still names the tool. The Engineer supplies the assets; the
+      stand-ins above show only the <b>treatment, size (~13px), and placement</b> (in the tool-cue
+      slot, replacing the neutral glyph).
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       2c — GROUP BY TOOL — per-tool aggregates across the fleet
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">Group by tool — "all Claude" vs "all Codex" across your machines</p>
+    <p class="section-lede">
+      A new <b>Group</b> choice flips what the glyph counts. Grouped by <b>Host</b> (today) each
+      unit is a machine. Grouped by <b>Tool</b> each unit is a <b>per-tool aggregate</b> across the
+      selected machines: <b>all Claude</b> = the tightest Claude window anywhere in the fleet;
+      <b>all Codex</b> = the tightest Codex. The same layout and density you already picked apply —
+      just to two tool-units instead of N machines. Same fleet as before: Studio (Claude 12%,
+      binding), Laptop (Codex 88%), Desktop (Codex 63%) → <b>all Claude = 12%</b> (from Studio),
+      <b>all Codex = 63%</b> (Desktop is tighter than Laptop's 88%… wait — 63 &lt; 88, so Desktop
+      binds Codex).
+    </p>
+
+    <div class="states wide-cards">
+      <!-- single, wide -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="tmark claude">◆</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-crit"></span>Tool · single · wide</div>
+          <div class="state-trigger">
+            <code>▪ ◆ 12%</code> — the most-constrained of {all-Claude, all-Codex}. Claude at 12%
+            is tighter than Codex at 63%, so Claude binds. No host cue — the unit is a tool, not a
+            machine.
+          </div>
+        </div>
+      </div>
+      <!-- side-by-side, wide -->
+      <div class="state-card hero">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="tmark claude">◆</span><span class="num crit">12%</span><span style="width:9px;"></span><span class="tmark codex">▲</span><span class="num good">63%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-accent"></span>Tool · side-by-side · wide<span class="mode-tag mt-new">new</span></div>
+          <div class="state-trigger">
+            <code>▪ ◆ 12% ▲ 63%</code> — both tool aggregates in one item. Claude (diamond) and
+            Codex (triangle), each its tightest across the fleet, each in its own status color.
+          </div>
+        </div>
+      </div>
+      <!-- side-by-side, compact -->
+      <div class="state-card hero">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="tmark claude">◆</span><span class="n crit">12</span></span>
+              <span class="cell fresh"><span class="tmark codex">▲</span><span class="n good">63</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-accent"></span>Tool · side-by-side · compact<span class="mode-tag mt-new">new</span></div>
+          <div class="state-trigger">
+            <code>▪ ◆12 ▲63</code> — the compact form the user named. Two tool cells, mark then
+            number. The line's one color tracks the binding aggregate (Claude, crit).
+          </div>
+        </div>
+      </div>
+      <!-- aggregate honesty: one tool no-reading -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph compact fresh">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="tmark claude">◆</span><span class="n crit">12</span></span>
+              <span class="cell no-reading"><span class="tmark codex">▲</span><span class="dash">—</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>Aggregate honesty</div>
+          <div class="state-trigger">
+            <code>▪ ◆12 ▲—</code> — if <b>no machine</b> has a Codex reading, the Codex aggregate is
+            an honest dash, never a fabricated zero. Each aggregate carries the state of its
+            <b>tightest contributing window</b>.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- alternating between the two tool aggregates -->
+    <div style="margin-top:30px;">
+      <p class="section-label" style="margin-bottom:6px;">Tool · alternating — the bar rotates between the two aggregates every ~5s</p>
+      <p class="section-lede" style="margin-bottom:18px;">
+        Grouped by tool, <b>alternating</b> rotates between exactly two units — <b>all Claude</b>
+        and <b>all Codex</b> — one per tick. Each frame is that aggregate's own compact (or wide)
+        glyph, its own color, its own honesty state.
+      </p>
+      <div class="frames">
+        <div class="frame">
+          <div class="state-strip">
+            <span class="frame-tick">tick · +0s</span>
+            <span class="glyph compact fresh"><span class="mark">▪</span><span class="cell fresh"><span class="tmark claude">◆</span><span class="n crit">12</span></span></span>
+          </div>
+          <div class="frame-body"><b>All Claude</b> — tightest Claude across the fleet: Studio, 12%, crit.</div>
+        </div>
+        <div class="rotate-arrow">→</div>
+        <div class="frame">
+          <div class="state-strip">
+            <span class="frame-tick">tick · +5s</span>
+            <span class="glyph compact fresh"><span class="mark">▪</span><span class="cell fresh"><span class="tmark codex">▲</span><span class="n good">63</span></span></span>
+          </div>
+          <div class="frame-body"><b>All Codex</b> — tightest Codex across the fleet: Desktop, 63%, fresh. Then wraps back to Claude at +10s.</div>
+        </div>
+        <div class="rotate-arrow" style="opacity:.4;">↻</div>
+        <div class="frame" style="opacity:.55;border-style:dashed;">
+          <div class="state-strip">
+            <span class="frame-tick">tick · +10s</span>
+            <span class="glyph compact fresh"><span class="mark">▪</span><span class="cell fresh"><span class="tmark claude">◆</span><span class="n crit">12</span></span></span>
+          </div>
+          <div class="frame-body">…back to <b>All Claude</b>. Two units → a two-beat cycle.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-notes" style="margin-top:22px;">
+      <b>The Hosts axis still scopes the aggregate.</b> Grouping by tool doesn't discard the host
+      selection — "all Claude" means the tightest Claude across <b>the machines you've selected</b>.
+      Pick two build boxes and group by tool, and you get "Claude vs Codex across those two." Polling
+      and the dropdown are unchanged — the dropdown still lists every machine with its full per-tool
+      picture; only the <b>glyph</b> re-groups.
+    </div>
+    <div class="demo-notes good" style="margin-top:14px;">
+      <b>Aggregate honesty, precisely.</b> An aggregate's number is the <b>minimum remaining</b> of
+      that tool's windows across the selected hosts (the tightest), and its <b>state</b> is that
+      tightest contributing window's state (fresh / aging / stale). A tool with <b>no reading on any
+      machine</b> → <code>—</code> (never a zero). If every contributing host is offline, the
+      aggregate reads offline <code>⊘</code>. One tool's state never flags the other's — same
+      per-unit independence as the per-host glyph.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       3 — THE DISPLAY SUBMENU (multi-host mode)
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The Display submenu — presets up front, axes underneath</p>
+    <p class="section-lede">
+      A new <b>🖥 Display</b> item joins the dropdown, riding the same shared action path as
+      the host and service controls — so it appears in <b>both</b> single-host and multi-host
+      modes. It opens onto a small set of named <b>presets</b> (the friendly front), then the
+      three <b>axes</b> — Hosts, Layout, Density — each an enumerable choice. The active choice
+      on each axis and the active preset are marked with <b>✓</b>, read live from the config,
+      so the menu never lies about your current setting.
+    </p>
+
+    <div class="dropdown-demo">
+      <div class="demo-col">
+        <div class="anchor-bar">
+          <span class="glyph compact fresh selected">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="cue2">St</span><span class="n crit">12</span></span>
+              <span class="cell aging"><span class="cue2">La</span><span class="n">88</span><span class="agedot">·</span></span>
+              <span class="cell fresh"><span class="cue2">De</span><span class="n good">63</span></span>
+            </span>
+          </span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <!-- title echo — still names the binding host + tool + window -->
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num crit">12%</span>
+            <span class="rem-word">remaining</span>
+            <span class="binding">Studio · Claude · 5-hour</span>
+          </div>
+          <div class="dd-watching">Watching 3 machines · showing all 3 in the glyph</div>
+          <hr class="dd-sep" />
+
+          <!-- condensed host rows (full treatment is the shipped multi-host spec) -->
+          <div class="dd-host-head">
+            <span class="dd-host-name">Studio</span>
+            <span class="dd-host-bind">binding</span>
+            <span class="dd-host-state"><span class="pulse"></span>updated 14s ago</span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Claude Code</span></div>
+          <div class="dd-row"><span class="dd-win">5-hour</span><span class="dd-metrics"><span class="dd-rem crit">12%</span><span class="dd-reset">resets 2h 40m</span></span></div>
+
+          <hr class="dd-sep" />
+          <div class="dd-host-head">
+            <span class="dd-host-name">Laptop</span>
+            <span class="dd-host-state"><span class="dd-host-pill pill-aging">aging</span></span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Codex</span></div>
+          <div class="dd-row"><span class="dd-win">5-hour</span><span class="dd-metrics"><span class="dd-rem good">88%</span><span class="dd-reset">resets 3h 20m</span></span></div>
+
+          <hr class="dd-sep" />
+          <!-- the service + host + DISPLAY action cluster -->
+          <div class="dd-action"><span class="ic">－</span>Remove the local service<span class="suffix">· running</span></div>
+          <div class="dd-action"><span class="ic">＋</span>Add host…</div>
+          <div class="dd-action"><span class="ic">－</span>Remove host…<span class="caret">▸</span></div>
+
+          <!-- ▼ the NEW Display item — OPEN, submenu popped -->
+          <div class="dd-action open"><span class="ic">🖥</span>Display<span class="caret">▸</span></div>
+          <div class="dd-submenu display-menu">
+            <!-- PRESETS (now six: four host + two tool) -->
+            <div class="sub-group-label">Presets <span class="hint">sets every axis at once</span></div>
+            <div class="dd-subitem">
+              <span class="check off">✓</span>Most-constrained · wide
+              <span class="glyph-mini">▪ <span class="gd">St·◆</span> <span class="gc">12%</span></span>
+            </div>
+            <div class="dd-subitem">
+              <span class="check off">✓</span>Single compact icon
+              <span class="glyph-mini">▪ <span class="gc">12</span></span>
+            </div>
+            <div class="dd-subitem is-active">
+              <span class="check">✓</span>Compact icons side-by-side
+              <span class="glyph-mini">▪ <span class="gc">St12</span> <span class="gd">La88·</span></span>
+            </div>
+            <div class="dd-subitem">
+              <span class="check off">✓</span>Rotate hosts · compact
+              <span class="glyph-mini">▪ <span class="gc">St12</span> <span class="gd">↻</span></span>
+            </div>
+            <div class="dd-subitem">
+              <span class="check off">✓</span>Claude vs Codex · side-by-side
+              <span class="glyph-mini">▪ <span class="tm">◆</span><span class="gc">12</span> <span class="tm">▲</span><span class="gd">63</span></span>
+            </div>
+            <div class="dd-subitem">
+              <span class="check off">✓</span>Rotate Claude / Codex · compact
+              <span class="glyph-mini">▪ <span class="tm">◆</span><span class="gc">12</span> <span class="gd">↻</span></span>
+            </div>
+
+            <hr class="sub-sep" />
+            <!-- GROUP axis (radio) — the NEW top-level unit choice -->
+            <div class="sub-group-label">Group by <span class="hint">what each unit is</span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Host (machine)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Tool (◆ Claude / ▲ Codex)</div>
+
+            <hr class="sub-sep" />
+            <!-- HOSTS axis (multi-select toggle) — scopes which machines feed the glyph/aggregate -->
+            <div class="sub-group-label">Hosts <span class="hint">which machines feed the glyph</span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>All hosts</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Studio<span class="addr">100.64.0.7:8788</span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Laptop<span class="addr">laptop:8787</span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Desktop<span class="addr">100.64.0.9:8790</span></div>
+
+            <hr class="sub-sep" />
+            <!-- LAYOUT axis (radio) -->
+            <div class="sub-group-label">Layout</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Single (most-constrained)</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Side-by-side</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Alternating</div>
+
+            <hr class="sub-sep" />
+            <!-- DENSITY axis (radio) -->
+            <div class="sub-group-label">Density</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Wide (text)</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Compact (icon)</div>
+
+            <hr class="sub-sep" />
+            <!-- TOOL MARKS toggle (radio) -->
+            <div class="sub-group-label">Tool marks <span class="hint">neutral floor · logos opt-in</span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Neutral (◆ / ▲)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Logos<span class="sub-sub">— Claude / Codex marks</span></div>
+          </div>
+
+          <div class="dd-action"><span class="ic">☰</span>Watching: 2 other machines</div>
+          <div class="dd-action"><span class="ic">🛈</span>Legend — what the marks mean<span class="caret">▸</span></div>
+          <div class="dd-action"><span class="ic">⊘</span>Uninstall llmdash…<span class="caret">▸</span></div>
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+      <div class="demo-col">
+        <div class="demo-notes">
+          <b>How to read the submenu, top to bottom:</b>
+          <ul>
+            <li><b>Presets</b> come first — one click sets every layout axis and shows a tiny live
+              preview of the glyph each produces. Six now: four grouped by host, two by tool. Here
+              <b>Compact icons side-by-side</b> is active (✓), because the axes below
+              <b>exactly match</b> its combination.</li>
+            <li><b>Hosts</b> is a multi-select — each machine <b>toggles</b> in or out of the
+              glyph. <b>All hosts</b> is the sentinel that clears the list. Here all three are
+              individually checked (equivalent to "all", but pinned explicitly).</li>
+            <li><b>Layout</b> and <b>Density</b> are single-choice — <b>Side-by-side</b> and
+              <b>Compact</b> are marked. Change one and only that axis moves; the preset simply
+              stops reading active if the trio no longer matches a named one.</li>
+            <li>Every choice writes the local config directly — <b>no typed dialog, no HTTP</b> —
+              and the badge refreshes so the glyph and these ✓ marks update on the next render.</li>
+          </ul>
+        </div>
+        <div class="demo-notes good" style="margin-top:14px;">
+          <b>Selection is a view filter, never a monitoring change.</b> Un-checking a machine
+          here only removes it from the <b>glyph</b>. The poller still watches every machine, and
+          the dropdown above still lists them all in full. A selected machine that goes offline is
+          still shown in the glyph — with its <code>⊘</code> marker — never dropped from the view
+          you chose.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       4 — THE DISPLAY SUBMENU, SINGLE-HOST MODE + DRIFT
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">Both modes, and what "drift" looks like</p>
+    <p class="section-lede">
+      The submenu is present on a <b>single-host</b> Mac too — the host axis just lists the one
+      machine plus "All hosts", and side-by-side / alternating reduce to single. On the right,
+      the same submenu after the axes have <b>drifted</b> from every named preset: no preset reads
+      active, but <b>each axis still marks its own value</b> — the menu stays truthful.
+    </p>
+
+    <div class="modes-grid">
+
+      <!-- SINGLE-HOST -->
+      <div class="demo-col">
+        <p class="mode-cap">Single-host machine <span class="tag tag-single">one machine watched</span></p>
+        <p class="mode-sub">Compact single is picked, so the glyph is a bare <span class="m">▪ 46</span> — no host cue needed, one machine.</p>
+        <div class="anchor-bar">
+          <span class="glyph compact fresh selected"><span class="mark">▪</span><span class="cell fresh"><span class="n warn">46</span></span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num warn">46%</span>
+            <span class="rem-word">remaining</span>
+            <span class="binding">Claude · 5-hour</span>
+          </div>
+          <hr class="dd-sep" />
+          <div class="dd-tool-head"><span class="dd-tool-name">Claude Code</span></div>
+          <div class="dd-row"><span class="dd-win">5-hour</span><span class="dd-metrics"><span class="dd-rem warn">46%</span><span class="dd-reset">resets 1h 55m</span></span></div>
+          <div class="dd-row"><span class="dd-win">Weekly</span><span class="dd-metrics"><span class="dd-rem good">72%</span><span class="dd-reset">resets 4d 3h</span></span></div>
+
+          <hr class="dd-sep" />
+          <div class="dd-action dim"><span class="ic">＋</span>Add host…</div>
+          <!-- Display open -->
+          <div class="dd-action open"><span class="ic">🖥</span>Display<span class="caret">▸</span></div>
+          <div class="dd-submenu display-menu">
+            <div class="sub-group-label">Presets <span class="hint">sets every axis at once</span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Most-constrained · wide<span class="glyph-mini">▪ <span class="gd">◆</span> <span class="gw">46%</span></span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Single compact icon<span class="glyph-mini">▪ <span class="gw">46</span></span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Claude vs Codex · side-by-side<span class="glyph-mini">▪ <span class="tm">◆</span><span class="gw">46</span> <span class="tm">▲</span><span class="gd">83</span></span></div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Group by</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Host (machine)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Tool (◆ Claude / ▲ Codex)</div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Hosts</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>All hosts</div>
+            <div class="dd-subitem"><span class="check off">✓</span>This machine<span class="addr">local:8787</span></div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Layout</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Single (most-constrained)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Side-by-side<span class="sub-sub">— reduces to single (1 host)</span></div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Density</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Wide (text)</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Compact (icon)</div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Tool marks</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Neutral (◆ / ▲)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Logos</div>
+          </div>
+          <hr class="dd-sep" />
+          <div class="dd-action dim"><span class="ic">◱</span>Open dashboard</div>
+        </div>
+      </div>
+
+      <!-- DRIFT -->
+      <div class="demo-col">
+        <p class="mode-cap">Axes drifted <span class="tag tag-multi">no preset active</span></p>
+        <p class="mode-sub">Started from a preset, then switched Density back to wide. The trio no longer matches any preset — so none is marked, but every axis still marks its own value.</p>
+        <div class="anchor-bar">
+          <span class="glyph fresh selected"><span class="mark">▪</span><span class="host">Studio</span><span class="hostsep">·</span><span class="tmark claude">◆</span><span class="num crit">12%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-action dim"><span class="ic">－</span>Remove the local service<span class="suffix">· running</span></div>
+          <div class="dd-action dim"><span class="ic">＋</span>Add host…</div>
+          <div class="dd-action open"><span class="ic">🖥</span>Display<span class="caret">▸</span></div>
+          <div class="dd-submenu display-menu">
+            <div class="sub-group-label">Presets <span class="hint">none active — axes drifted</span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Most-constrained · wide<span class="glyph-mini">▪ <span class="gd">St·◆</span> <span class="gc">12%</span></span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Single compact icon<span class="glyph-mini">▪ <span class="gc">12</span></span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Compact icons side-by-side<span class="glyph-mini">▪ <span class="gc">St12</span> <span class="gd">La88·</span></span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Rotate hosts · compact<span class="glyph-mini">▪ <span class="gc">St12</span> <span class="gd">↻</span></span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Claude vs Codex · side-by-side<span class="glyph-mini">▪ <span class="tm">◆</span><span class="gc">12</span> <span class="tm">▲</span><span class="gd">63</span></span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Rotate Claude / Codex · compact<span class="glyph-mini">▪ <span class="tm">◆</span><span class="gc">12</span> <span class="gd">↻</span></span></div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Group by</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Host (machine)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Tool (◆ / ▲)</div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Hosts</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Studio<span class="addr">100.64.0.7:8788</span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Laptop<span class="addr">laptop:8787</span></div>
+            <div class="dd-subitem"><span class="check off">✓</span>Desktop<span class="addr">100.64.0.9:8790</span></div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Layout</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Side-by-side</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Alternating</div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Density <span class="hint">← the one you changed</span></div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Wide (text)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Compact (icon)</div>
+            <hr class="sub-sep" />
+            <div class="sub-group-label">Tool marks</div>
+            <div class="dd-subitem is-active"><span class="check">✓</span>Neutral (◆ / ▲)</div>
+            <div class="dd-subitem"><span class="check off">✓</span>Logos</div>
+          </div>
+          <div class="dd-action dim"><span class="ic">☰</span>Watching: 2 other machines</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-notes" style="margin-top:22px;">
+      <b>A preset is a starting point, not a lock.</b> Selecting one writes all three axes at
+      once; adjusting a single axis afterward changes only that axis and leaves the other two.
+      When the trio stops matching any named preset, no preset reads active — but the axes are
+      always the truth, so the menu never claims a preset you've moved away from.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       4b — THE LEGEND — reveal the key on demand
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The Legend — a key on demand, never cluttering the default view</p>
+    <p class="section-lede">
+      The badge is now dense and symbolic, so a <b>Legend</b> row joins the dropdown that
+      <b>reveals the key on demand</b> — <span class="m">🛈 Legend — what the marks mean ▸</span>.
+      It's a <b>submenu</b> (SwiftBar's native click-to-reveal): the default dropdown stays clean,
+      and clicking Legend pops the full key. A submenu — not a toggle-expand — because SwiftBar
+      submenus need <b>no plugin state</b> (nothing to persist or round-trip), and it matches the
+      existing <span class="m">▸</span> vocabulary. It rides the shared action cluster, so it's in
+      both single-host and multi-host modes. Below: the row in context (left) and the key
+      revealed (right).
+    </p>
+
+    <div class="dropdown-demo">
+      <div class="demo-col">
+        <div class="anchor-bar">
+          <span class="glyph compact fresh selected">
+            <span class="mark">▪</span>
+            <span class="sbs-cells">
+              <span class="cell fresh"><span class="cue2">St</span><span class="n crit">12</span></span>
+              <span class="cell aging"><span class="cue2">La</span><span class="n">88</span><span class="agedot">·</span></span>
+              <span class="cell fresh"><span class="cue2">De</span><span class="n good">63</span></span>
+            </span>
+          </span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-action dim"><span class="ic">☰</span>Watching: 2 other machines</div>
+          <!-- Legend OPEN, submenu popped -->
+          <div class="dd-action open"><span class="ic">🛈</span>Legend — what the marks mean<span class="caret">▸</span></div>
+          <div class="dd-submenu legend-menu">
+            <div class="legend-subhead">Freshness states</div>
+            <div class="legend-row"><span class="lg-sample"><span class="warn">46</span></span><span class="lg-gloss"><b>Live</b> — a fresh reading.</span></div>
+            <div class="legend-row"><span class="lg-sample"><span class="dim">46·</span></span><span class="lg-gloss"><b>Aging</b> — reading is getting old.</span></div>
+            <div class="legend-row"><span class="lg-sample"><span class="stale">⚠12</span></span><span class="lg-gloss"><b>Stale</b> — too old to trust; may have moved.</span></div>
+            <div class="legend-row"><span class="lg-sample"><span class="muted">—</span></span><span class="lg-gloss"><b>No reading</b> — no data yet (never a fake number).</span></div>
+            <div class="legend-row"><span class="lg-sample"><span class="off">⊘</span></span><span class="lg-gloss"><b>Offline</b> — host unreachable (never a number).</span></div>
+
+            <div class="legend-subhead">Color — headroom in the tightest window</div>
+            <div class="legend-row"><span class="lg-sample sw-good">good</span><span class="lg-gloss">50%+ remaining — plenty of room.</span></div>
+            <div class="legend-row"><span class="lg-sample sw-warn">warn</span><span class="lg-gloss">20–49% — getting tight.</span></div>
+            <div class="legend-row"><span class="lg-sample sw-crit">crit</span><span class="lg-gloss">under 20% — nearly out.</span></div>
+
+            <div class="legend-subhead">The number</div>
+            <div class="legend-row"><span class="lg-sample"><span class="crit">12</span></span><span class="lg-gloss"><b>% remaining</b> in the tightest tracked window (5-hour or weekly). Single view shows the binding host/tool.</span></div>
+
+            <div class="legend-subhead">Tool marks</div>
+            <div class="legend-row"><span class="lg-sample"><span class="dim">◆</span></span><span class="lg-gloss"><b>Claude</b> — which tool this reading is.</span></div>
+            <div class="legend-row"><span class="lg-sample"><span class="dim">▲</span></span><span class="lg-gloss"><b>Codex</b>. <span class="lg-sub">(Logos, if on, mean the same.)</span></span></div>
+
+            <div class="legend-subhead">Side-by-side</div>
+            <div class="legend-row"><span class="lg-sample"><span class="dim">St</span>12</span><span class="lg-gloss"><b>Host cue</b> — short machine name (grown until unique).</span></div>
+            <div class="legend-row"><span class="lg-sample"><span class="dim">+2</span></span><span class="lg-gloss"><b>+M more</b> — hosts beyond the cap of 3 (least-tight hidden).</span></div>
+
+            <div class="legend-subhead">In this menu</div>
+            <div class="legend-row"><span class="lg-sample plain" style="color:var(--accent);">✓</span><span class="lg-gloss"><b>Active</b> — your current choice on each axis.</span></div>
+          </div>
+          <div class="dd-action dim"><span class="ic">⊘</span>Uninstall llmdash…<span class="caret">▸</span></div>
+          <hr class="dd-sep" />
+          <div class="dd-action dim"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action dim"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+      <div class="demo-col">
+        <div class="demo-notes">
+          <b>Complete by design.</b> The key names <b>every</b> symbol the badge can show — a legend
+          that omits one is worse than none. Six freshness/offline states, the three status colors
+          with their plain-word thresholds, what the number means, both tool marks, the side-by-side
+          cues and overflow, and the Display submenu's <code>✓</code>. One short line each — a
+          scannable key, not paragraphs.
+        </div>
+        <div class="demo-notes good" style="margin-top:14px;">
+          <b>Why a submenu, not an expand-in-place.</b> A toggle-expand would need the plugin to
+          remember it's open (a <code>legendOpen</code> marker written and read each render) — more
+          state, more to round-trip, and it re-renders the whole dropdown. A <b>submenu</b> is
+          SwiftBar's built-in reveal: zero state, instant, and it keeps the default dropdown clean.
+          It also works identically on xbar.
+        </div>
+        <div class="demo-notes" style="margin-top:14px;">
+          <b>Placement.</b> The Legend row sits in the shared action cluster, next to
+          <span class="m">☰ Watching</span> and above <span class="m">⊘ Uninstall</span> — the
+          "info / manage" band of the menu, below the live readings and the Display controls. Present
+          in both modes via the same shared path.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       5 — THE COMPACT GLYPH GRAMMAR — the binding spec table
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">Compact glyph grammar — the binding spec</p>
+    <p class="section-lede">
+      What the Engineer implements. Every marker + color reuses the shipped honesty vocabulary,
+      miniaturized. The <b>marker</b> is the load-bearing carrier (reads in monochrome); color
+      reinforces. The <b>▪</b> leads the whole glyph once. Colors are the design-system status
+      tokens lifted for the dark bar (<code>good #5bd88a</code>, <code>warn #f0a94b</code>,
+      <code>crit #ff6b6b</code>).
+    </p>
+    <div class="table-scroll">
+    <table class="legend-table">
+      <thead>
+        <tr><th>State</th><th>Compact cell</th><th>Marker</th><th>Color</th><th>The rule it enforces</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="st">fresh</td>
+          <td><span class="chip">▪ <span class="warn">46</span></span></td>
+          <td class="rule-cell">none (bare number)</td>
+          <td class="rule-cell">status hue by pct</td>
+          <td class="rule-cell">Number in its own status color; the absence of a marker distinguishes it from aging.</td>
+        </tr>
+        <tr>
+          <td class="st">aging</td>
+          <td><span class="chip" style="opacity:.85">▪ <span class="muted">46·</span></span></td>
+          <td class="rule-cell">trailing <code>·</code></td>
+          <td class="rule-cell"><code>#a0a0a0</code> dim</td>
+          <td class="rule-cell">Older than <code>freshForMs</code>. Dot after the number; cell dimmed. Keeps a number.</td>
+        </tr>
+        <tr>
+          <td class="st">stale</td>
+          <td><span class="chip"><span class="stale">▪ ⚠12</span></span></td>
+          <td class="rule-cell">leading <code>⚠</code></td>
+          <td class="rule-cell"><code>#f0a94b</code> amber</td>
+          <td class="rule-cell">Older than <code>staleAfterMs</code>. Warning leads, so it hits the eye before the value. Keeps a number.</td>
+        </tr>
+        <tr>
+          <td class="st">no-reading</td>
+          <td><span class="chip">▪ <span class="muted">—</span></span></td>
+          <td class="rule-cell"><code>—</code> dash</td>
+          <td class="rule-cell"><code>#9b9ea6</code> muted</td>
+          <td class="rule-cell"><b>Never a number.</b> No reading captured yet — no fabricated zero.</td>
+        </tr>
+        <tr>
+          <td class="st">offline</td>
+          <td><span class="chip">▪ <span class="off">⊘</span></span></td>
+          <td class="rule-cell"><code>⊘</code> slash</td>
+          <td class="rule-cell"><code>#8b8b8b</code> grey</td>
+          <td class="rule-cell"><b>Never a number.</b> A selected offline machine is shown with this marker, never dropped.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p class="section-lede" style="margin:26px 0 14px;">
+      <b>Composition per layout</b> — the same cells, arranged three ways.
+    </p>
+    <div class="table-scroll">
+    <table class="legend-table">
+      <thead>
+        <tr><th>Layout · density</th><th>Glyph</th><th>The rule it enforces</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="st">single · compact</td>
+          <td><span class="chip">▪ <span class="crit">12</span></span></td>
+          <td class="rule-cell">Binding machine only, one cell. No host cue, no tool letter. Line color = the cell's.</td>
+        </tr>
+        <tr>
+          <td class="st">side-by-side · compact</td>
+          <td><span class="chip">▪ <span class="cue">St</span><span class="crit">12</span> <span class="cue">La</span><span class="muted">88·</span> <span class="cue">De</span><span class="good">63</span></span></td>
+          <td class="rule-cell">Up to 3 cells, binding-first, each with a grow-prefix cue. One <code>color=</code> = the binding cell's; per-cell state on the marker.</td>
+        </tr>
+        <tr>
+          <td class="st">side-by-side · capped</td>
+          <td><span class="chip">▪ <span class="cue">St</span><span class="crit">12</span> <span class="cue">La</span><span class="muted">88·</span> <span class="cue">De</span><span class="good">63</span> <span class="muted">+2</span></span></td>
+          <td class="rule-cell">Cap N=3, then <code>+M more</code>. Binding-first hides the least-constrained; never a truncated-looks-complete set.</td>
+        </tr>
+        <tr>
+          <td class="st">alternating · compact</td>
+          <td><span class="chip">▪ <span class="cue">La</span><span class="muted">88·</span></span></td>
+          <td class="rule-cell">One machine per ~5s tick, its own cell + color. <code>floor(epochMs/5000) % count</code> — stateless, deterministic.</td>
+        </tr>
+        <tr>
+          <td class="st">single · wide</td>
+          <td><span class="chip">▪ <span class="cue">Studio·C</span> <span class="crit">12%</span></span></td>
+          <td class="rule-cell"><b>Today's badge, unchanged.</b> The default all/single/wide routes to the shipped emit path byte-for-byte.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       6 — THE COPY / SYMBOL TABLE
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">Every new user-facing string and glyph</p>
+    <p class="section-lede">
+      The behavior is pinned by the PRD and system design; the <b>wording and glyph choices below
+      are the draft to react to</b>. Reuse over reinvention: the markers are the shipped honesty
+      vocabulary miniaturized; the action icons match the badge's existing
+      <span class="m">＋ / － / ☰ / ⊘</span> grammar.
+    </p>
+    <div class="table-scroll">
+    <table class="legend-table copy-table">
+      <thead>
+        <tr><th style="width:34%;">String / glyph</th><th>When it appears</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="str">🖥 Display</td><td class="when">The new submenu parent, in both modes. Trailing caret <span class="m">▸</span> signals a submenu (like Remove host… / Uninstall…).</td></tr>
+        <tr><td class="str">Presets</td><td class="when">Submenu group header (dim). Sets all three axes at once.</td></tr>
+        <tr><td class="str">Most-constrained · wide</td><td class="when">Preset — today's default (<span class="m">all / single / wide</span>).</td></tr>
+        <tr><td class="str">Single compact icon</td><td class="when">Preset — <span class="m">all / single / compact</span>. One of the two forms the user named.</td></tr>
+        <tr><td class="str">Compact icons side-by-side</td><td class="when">Preset — <span class="m">all / side-by-side / compact</span>. The other named form.</td></tr>
+        <tr><td class="str">Rotate hosts · compact</td><td class="when">Preset — <span class="m">host / all / alternating / compact</span>.</td></tr>
+        <tr><td class="str">Claude vs Codex · side-by-side</td><td class="when">Preset — <span class="m">tool / all / side-by-side / compact</span>. The two tool aggregates in one item.</td></tr>
+        <tr><td class="str">Rotate Claude / Codex · compact</td><td class="when">Preset — <span class="m">tool / all / alternating / compact</span>. Rotates the two aggregates.</td></tr>
+        <tr><td class="str">Group by</td><td class="when">Axis group header (NEW top-level unit choice). Single-choice: Host / Tool.</td></tr>
+        <tr><td class="str">Host (machine)</td><td class="when">Group choice — each glyph unit is a machine (today's behavior).</td></tr>
+        <tr><td class="str">Tool (◆ Claude / ▲ Codex)</td><td class="when">Group choice — each unit is a per-tool aggregate across the selected machines.</td></tr>
+        <tr><td class="str">Hosts</td><td class="when">Axis group header. Multi-select toggle — which machines feed the glyph (and, when grouped by tool, the aggregate).</td></tr>
+        <tr><td class="str">All hosts</td><td class="when">Hosts sentinel — clears the selection to every machine (the default).</td></tr>
+        <tr><td class="str">Layout</td><td class="when">Axis group header. Single-choice: Single / Side-by-side / Alternating.</td></tr>
+        <tr><td class="str">Single (most-constrained)</td><td class="when">Layout choice — the tightest of the selected machines.</td></tr>
+        <tr><td class="str">Side-by-side</td><td class="when">Layout choice — selected machines in one item, capped at 3 + "+M more".</td></tr>
+        <tr><td class="str">Alternating</td><td class="when">Layout choice — one machine per ~5s tick, rotating.</td></tr>
+        <tr><td class="str">Density</td><td class="when">Axis group header. Single-choice: Wide (text) / Compact (icon).</td></tr>
+        <tr><td class="str">Wide (text)</td><td class="when">Density choice — today's <span class="m">▪ Studio·C 12%</span> text form.</td></tr>
+        <tr><td class="str">Compact (icon)</td><td class="when">Density choice — the icon+number cell form.</td></tr>
+        <tr><td class="str">Tool marks</td><td class="when">Axis group header. Single-choice: Neutral (◆ / ▲) / Logos.</td></tr>
+        <tr><td class="str">Neutral (◆ / ▲)</td><td class="when">Tool-marks choice — the neutral glyph pair (default, xbar-safe floor).</td></tr>
+        <tr><td class="str">Logos</td><td class="when">Tool-marks choice — real Claude / Codex logos as template-images (SwiftBar-only polish, off by default).</td></tr>
+        <tr><td class="str">◆   (tool mark)</td><td class="when">Claude, the default neutral tool cue — replaces the old <span class="m">C</span> letter. Per-host and per-tool.</td></tr>
+        <tr><td class="str">▲   (tool mark)</td><td class="when">Codex, the default neutral tool cue — replaces the old <span class="m">X</span> letter.</td></tr>
+        <tr><td class="str">▪ ◆12 ▲63   (tool aggregate)</td><td class="when">Grouped by tool, side-by-side compact — all-Claude (tightest Claude) and all-Codex (tightest Codex).</td></tr>
+        <tr><td class="str">▪ ◆12 ▲—   (aggregate no-reading)</td><td class="when">A tool with no reading on any machine → dash, never a fabricated zero.</td></tr>
+        <tr><td class="str">🛈 Legend — what the marks mean</td><td class="when">Reveals the key (a submenu). In the shared action cluster; both modes.</td></tr>
+        <tr><td class="str">✓</td><td class="when">Active-marker — on the active choice of each axis and the active preset, read live from the config. An empty aligned slot when inactive.</td></tr>
+        <tr><td class="str">Watching N machines · showing all N / showing K in the glyph</td><td class="when">Dropdown scope line — states honestly how many machines are watched vs. shown in the glyph.</td></tr>
+        <tr><td class="str">▪ 12   (marker: none)</td><td class="when">Compact fresh — number in its status color.</td></tr>
+        <tr><td class="str">▪ 46·   (marker: trailing ·)</td><td class="when">Compact aging — dimmed, dot after the number.</td></tr>
+        <tr><td class="str">▪ ⚠12   (marker: leading ⚠)</td><td class="when">Compact stale — amber, warning leads.</td></tr>
+        <tr><td class="str">▪ —   (marker: dash, no number)</td><td class="when">Compact no-reading — never a number.</td></tr>
+        <tr><td class="str">▪ ⊘   (marker: slash, no number)</td><td class="when">Compact offline — never a number; a selected offline machine, shown not dropped.</td></tr>
+        <tr><td class="str">St / La / De   (grow-prefix cue)</td><td class="when">Per-host cue in side-by-side / alternating — grown until unique over the shown set (≤4 chars, then a positional suffix).</td></tr>
+        <tr><td class="str">+2   (+M more)</td><td class="when">Side-by-side overflow — the count hidden beyond the cap of 3 (least-constrained hidden).</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <!-- the flags the user must weigh -->
+    <div class="flag-box">
+      <div class="flag-h">Flagged for you to ratify (the Designer's calls within the proven mechanics)</div>
+      <ul>
+        <li><b>The compact markers.</b> fresh <span class="m">46</span> · aging <span class="m">46·</span> ·
+          stale <span class="m">⚠12</span> · no-reading <span class="m">—</span> · offline <span class="m">⊘</span>.
+          Do all five read as distinct at a glance in your menu bar? The one choice I'd flag: stale's
+          <span class="m">⚠</span> <b>leads</b> here (compact) but <b>trails</b> in the wide badge — I put
+          it first so the warning hits before the number in the tighter space. Say if you'd rather it trail
+          for consistency.</li>
+        <li><b>The neutral tool marks — <span class="m">◆</span> Claude / <span class="m">▲</span> Codex.</b>
+          Different silhouettes (diamond vs. triangle), solid, monochrome-legible. Do they read at a
+          glance in your bar, and do you find them clearly better than the old <span class="m">C</span> /
+          <span class="m">X</span> letters? If not, C/X is a fine fallback — this is a "clearly better or
+          keep letters" call.</li>
+        <li><b>The tool-group presets and names.</b> Two new presets — <span class="m">Claude vs Codex ·
+          side-by-side</span> and <span class="m">Rotate Claude / Codex · compact</span> — plus the
+          Group axis (Host | Tool). Right names? Right two?</li>
+        <li><b>The per-tool aggregate reads honestly.</b> "All Claude" = tightest Claude across the
+          selected machines, carrying that window's state; a tool with no reading anywhere → <span class="m">—</span>,
+          never a zero. Does that match what you'd expect the aggregate to mean?</li>
+        <li><b>Logos are opt-in, off by default, neutral floor always present.</b> The mockup shows
+          labeled <b>stand-in</b> shapes — the Engineer supplies real assets. Please ratify the treatment
+          (small ~13px template-image in the tool-cue slot, opt-in) — and note for the Engineer/Architect:
+          the fair-use posture is opt-in + a neutral floor that never depends on the logo rendering.</li>
+        <li><b>The Legend is a submenu</b> (<span class="m">🛈 Legend — what the marks mean ▸</span>),
+          not a toggle-expand — SwiftBar's native reveal, zero plugin state. Is the key
+          <b>complete and scannable</b> as drawn (every symbol, one line each)?</li>
+        <li><b>The preset list and names.</b> Six presets now (four host + two tool). Right set,
+          clear names? (The axes stay adjustable underneath regardless.)</li>
+        <li><b>Side-by-side cap = 3, with <span class="m">+2</span>.</b> The Architect allowed 3–4. I chose
+          3 for a crowded bar. Prefer 4? And is <span class="m">+M more</span> the right overflow, versus
+          falling back to just the most-constrained?</li>
+        <li><b>The active marker is <span class="m">✓</span></b> with an empty aligned slot when inactive
+          (macOS checkmark convention). Good, or would you prefer a dot <span class="m">●</span>?</li>
+        <li><b>The Display icon is <span class="m">🖥</span>.</b> It matches the emoji-lightness of the
+          existing action rows; say if you'd rather a mono glyph to sit closer to <span class="m">＋/－/☰/⊘</span>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="footnote">
+    <b>Reuse over reinvention.</b> Every color and freshness marker above is the established design
+    system — status <code>good/warn/crit</code>, the <code>·</code> aging / <code>⚠</code> stale /
+    <code>—</code> no-reading vocabulary — now miniaturized one step further onto a compact glyph.
+    &nbsp;·&nbsp; <b>New glyphs:</b> the two neutral tool marks <code>◆</code> (Claude) / <code>▲</code>
+    (Codex) that upgrade the old <code>C</code>/<code>X</code> letters as the default tool cue; the
+    compact offline <code>⊘</code>; and the submenu's <code>✓</code> active marker. Real logos are an
+    <b>opt-in</b> template-image on top of the neutral floor. &nbsp;·&nbsp; <b>xbar-safe floor:</b>
+    every state and tool mark is text/emoji + <code>color=</code>; nothing depends on a SwiftBar-only
+    param (an <code>sfimage=</code>/logo is optional polish on top, never the sole carrier).
+    &nbsp;·&nbsp; <b>New axes, same honesty:</b> the Group (host/tool) axis re-groups the glyph units;
+    a per-tool aggregate carries its tightest window's state and never fabricates a number.
+    &nbsp;·&nbsp; <b>Byte-for-byte when unconfigured:</b> the default host / all / single / wide is
+    exactly today's badge — the new rendering engages only when you shape it.
+  </div>
+
+</div>

@@ -52,8 +52,8 @@ test('single host ⇒ mode "single"; the glyph + tool rows match the shipped bad
   const out = emit(computeBadge(c.hosts[0].state), { host: '127.0.0.1', port: '8787' });
   const lines = out.split('\n');
   // The GLYPH is byte-for-byte the shipped single-host glyph (no host cue).
-  assert.match(lines[0], /^▪ C 46% \| color=#[0-9a-f]{6}$/);
-  assert.doesNotMatch(lines[0], /·[CX]/);
+  assert.match(lines[0], /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
+  assert.doesNotMatch(lines[0], /·[◆▲]/);
   // The per-tool ROWS are the shipped rows, unchanged.
   assert.match(out, /^Claude Code \| size=13 color=#888888$/m);
   assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo$/m);
@@ -85,7 +85,7 @@ test('multi glyph = floor(min remainingPct) across host × tool × window with a
   const multi = computeMultiBadge(c);
   assert.equal(multi.mode, 'multi');
   assert.equal(multi.pct, 12);          // Desktop Claude 5-hour is the tightest
-  assert.equal(multi.cue, 'C');
+  assert.equal(multi.cue, '◆');
   assert.equal(multi.binding.hostLabel, 'Desktop');
   assert.equal(multi.binding.windowLabel, '5-hour');
   assert.equal(multi.hostCue, 'Desktop'); // ≤10 chars, no truncation
@@ -125,7 +125,7 @@ test('the binding host is named in the glyph and the title echo (QA-08)', () => 
   const multi = computeMultiBadge(c);
   const out = emitMulti(multi, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(c) });
   const title = out.split('\n')[0];
-  assert.match(title, /^▪ Desktop·C 12% \|/);      // host cue · tool cue · pct
+  assert.match(title, /^▪ Desktop·◆ 12% \|/);      // host cue · tool cue · pct
   // The dropdown title echo spells out host · tool · window.
   assert.match(out, /Desktop · Claude Code · 5-hour/);
 });
@@ -141,7 +141,7 @@ test('a long host label is truncated at 10 chars with … in the glyph; full lab
   assert.ok(multi.hostCue.endsWith('…'));
   const out = emitMulti(multi, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(c) });
   const title = out.split('\n')[0];
-  assert.match(title, /Studio VM …·X/);            // truncated in the glyph
+  assert.match(title, /Studio VM …·▲/);            // truncated in the glyph
   assert.match(out, /Studio VM in the garage/);    // full label in the dropdown header
 });
 
@@ -320,7 +320,7 @@ test('aging binding host keeps the host cue with a trailing · ; stale keeps it 
   const mA = computeMultiBadge(aging);
   assert.equal(mA.state, 'aging');
   const tA = emitMulti(mA, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(aging) }).split('\n')[0];
-  assert.match(tA, /^▪ Desktop·C 31%· \| color=#a0a0a0$/);
+  assert.match(tA, /^▪ Desktop·◆ 31%· \| color=#a0a0a0$/);
 
   const stale = combined([
     host('This machine', { self: true, tools: [tool('claude-code', 80, 90)] }),
@@ -329,5 +329,5 @@ test('aging binding host keeps the host cue with a trailing · ; stale keeps it 
   const mS = computeMultiBadge(stale);
   assert.equal(mS.state, 'stale');
   const tS = emitMulti(mS, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(stale) }).split('\n')[0];
-  assert.match(tS, /^▪ Desktop·C 12% ⚠ \| color=#f0a94b$/);
+  assert.match(tS, /^▪ Desktop·◆ 12% ⚠ \| color=#f0a94b$/);
 });

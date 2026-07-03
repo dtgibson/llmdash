@@ -68,6 +68,21 @@ test('the would-be write routes are not even GET-served (no write surface exists
   }
 });
 
+// badge-display-options adds NO HTTP write endpoint either: the display prefs are
+// written by the badge to the LOCAL hosts.conf (display-action.mjs), never over
+// HTTP. Any plausible display-write route stays 405 (mutating method) / 404 (GET).
+test('no HTTP display-mutation endpoint: display write paths are 405/404 (serve-only preserved)', async () => {
+  for (const p of ['/api/display', '/api/display/set', '/api/config/display']) {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const r = await hit(p, method);
+      assert.equal(r.status, 405, `${method} ${p} must be 405 (read-only)`);
+      assert.equal(r.headers['allow'], 'GET, HEAD');
+    }
+    const g = await hit(p, 'GET');
+    assert.equal(g.status, 404, `${p} must not exist as any handler`);
+  }
+});
+
 // Static source guard: the server source references no fs write of the host
 // config — the only host-config writer is the badge process (host-config.js
 // atomic write), never an HTTP handler (QA-22 / NFR-04).

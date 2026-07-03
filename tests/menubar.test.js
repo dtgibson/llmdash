@@ -115,7 +115,7 @@ test('computeBadge fresh: glyph = min remaining across all windows, correct cue 
   assert.equal(badge.state, 'fresh');
   // min(46, 61, 88, 72) = 46 → Claude 5-hour binds.
   assert.equal(badge.pct, 46);
-  assert.equal(badge.cue, 'C'); // Claude is the binding tool
+  assert.equal(badge.cue, '◆'); // Claude is the binding tool (ratified ◆/▲ cue)
   assert.equal(badge.binding.toolLabel, 'Claude Code');
   assert.equal(badge.binding.windowLabel, '5-hour');
 });
@@ -125,7 +125,7 @@ test('computeBadge aging: keeps the number, state=aging, binding tool cue', () =
   assert.equal(badge.state, 'aging');
   // min(78, 66, 88, 72) = 66 → Claude Weekly binds; Claude reading is 7m old → aging.
   assert.equal(badge.pct, 66);
-  assert.equal(badge.cue, 'C');
+  assert.equal(badge.cue, '◆');
   assert.equal(badge.binding.windowLabel, 'Weekly');
 });
 
@@ -134,7 +134,7 @@ test('computeBadge stale: number present, state=stale (FR-17 coexistence)', () =
   assert.equal(badge.state, 'stale');
   // min(78, 66, 99, 99) = 66 → Claude Weekly binds; reading 30m old → stale.
   assert.equal(badge.pct, 66);
-  assert.equal(badge.cue, 'C');
+  assert.equal(badge.cue, '◆');
   // The stale reading still yields a number AND a diagnostic — never blanked.
   const claude = badge.toolViews.find((t) => t.source === 'claude-code');
   assert.equal(claude.band, 'stale');
@@ -145,7 +145,7 @@ test('computeBadge maxed: 0% is a valid binding glyph; partial-null → "not ava
   const badge = computeBadge(loadFixture('state-maxed'));
   // Claude 5-hour is 0% remaining → binds at 0.
   assert.equal(badge.pct, 0);
-  assert.equal(badge.cue, 'C');
+  assert.equal(badge.cue, '◆');
   assert.equal(badge.binding.windowLabel, '5-hour');
   // The maxed row is flagged maxed; the null Codex weekly is a null row.
   const claude = badge.toolViews.find((t) => t.source === 'claude-code');
@@ -175,7 +175,7 @@ test('computeBadge: a Codex-owned binding window (no freshness) reads fresh unle
   st.tools[0].haveLimits = false;
   st.tools[0].freshness = { capturedAt: null, freshForMs: 300000, staleAfterMs: 600000 };
   const badge = computeBadge(st);
-  assert.equal(badge.cue, 'X'); // Codex binds
+  assert.equal(badge.cue, '▲'); // Codex binds (ratified ◆/▲ cue)
   assert.equal(badge.pct, 72);
   assert.equal(badge.state, 'fresh');
 });
@@ -189,7 +189,7 @@ function afterSep(out) { const i = out.indexOf('\n---\n'); return i < 0 ? '' : o
 test('emit fresh: title has the cue + %, colored by status; grammar valid', () => {
   const out = emit(computeBadge(loadFixture('state-fresh')));
   const title = titleLine(out);
-  assert.match(title, /^▪ C 46% \| color=#[0-9a-f]{6}$/);
+  assert.match(title, /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
   // warn color (46% → 20–49 → warn) lifted for the dark bar.
   assert.match(title, /color=#f0a94b$/);
   assert.match(out, /\n---\n/);
@@ -200,7 +200,7 @@ test('emit fresh: title has the cue + %, colored by status; grammar valid', () =
 test('emit aging: number KEEPS its value with a trailing · and dim color', () => {
   const out = emit(computeBadge(loadFixture('state-aging')));
   const title = titleLine(out);
-  assert.match(title, /^▪ C 66%· \| color=#a0a0a0$/);
+  assert.match(title, /^▪ ◆ 66%· \| color=#a0a0a0$/);
   // The tool header carries the (aging) tag.
   assert.match(out, /^Claude Code {2}\(aging\) \|/m);
 });
@@ -208,7 +208,7 @@ test('emit aging: number KEEPS its value with a trailing · and dim color', () =
 test('emit stale: number present, amber, trailing ⚠; diagnostics block present', () => {
   const out = emit(computeBadge(loadFixture('state-stale')));
   const title = titleLine(out);
-  assert.match(title, /^▪ C 66% ⚠ \| color=#f0a94b$/);
+  assert.match(title, /^▪ ◆ 66% ⚠ \| color=#f0a94b$/);
   assert.match(out, /^Claude Code {2}\(stale\) \|/m);
   assert.match(out, /^Stale reading — .* \| size=12 color=#f0a94b$/m);
 });
@@ -218,7 +218,7 @@ test('emit maxed: a maxed window reads "limit reached", never 0%; null → "not 
   assert.match(out, /^5-hour: {2}limit reached · resets .+ \| font=Menlo$/m);
   assert.match(out, /^Weekly: {2}not available \| font=Menlo$/m);
   // The glyph is a valid 0% binding.
-  assert.match(titleLine(out), /^▪ C 0% \| /);
+  assert.match(titleLine(out), /^▪ ◆ 0% \| /);
 });
 
 test('emit no-reading: ▪ — (a DASH, NOT a number); dropdown explains per tool', () => {

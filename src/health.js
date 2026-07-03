@@ -151,10 +151,36 @@ export function hostsConfigLine(health = configFileHealth()) {
   if (health.localMode && health.localMode !== 'auto') {
     line += ` Monitoring-station: !local=${health.localMode} in the config file (local host ${health.localMode === 'exclude' ? 'always de-emphasized' : 'always shown in the glyph/headline'}).`;
   }
+  // Badge display prefs (badge-display-options, FR-20): name the current display
+  // setting so a badge that isn't showing today's glyph is explained, not a
+  // mystery — including the group + tool-mark axes and the ratified default-cue
+  // change (the neutral marks ◆/▲ replaced the C/X letters as the default cue).
+  line += ` ${displayDisclosure(health.display)}`;
   for (const e of (health.fileErrors || [])) {
-    line += ` Ignored a bad directive "${e.entry}" (${e.reason}) — valid: !local=include|exclude|auto.`;
+    line += ` Ignored a bad directive "${e.entry}" (${e.reason}) — valid: !local=include|exclude|auto, !display-hosts=all|host:port,…, !display-layout=single|side-by-side|alternating, !display-density=wide|compact, !display-group=host|tool, !display-tool-mark=neutral|logo.`;
   }
   return line;
+}
+
+// Name the badge display setting for the disclosure line (badge-display-options).
+// Default (all/single/wide/host/neutral) reads as "default (today's glyph)"; any
+// non-default axis is named. Always notes the ratified default tool cue (◆ Claude
+// / ▲ Codex, upgraded from C/X) — a visible default change is never silent.
+export function displayDisclosure(display = null) {
+  const d = display || {};
+  const hosts = d.hosts || 'all';
+  const layout = d.layout || 'single';
+  const density = d.density || 'wide';
+  const group = d.group || 'host';
+  const toolMark = d.toolMark || 'neutral';
+  const isDefault = (hosts === 'all') && layout === 'single' && density === 'wide'
+    && group === 'host' && toolMark === 'neutral';
+  const cueNote = 'The default tool cue is the neutral mark ◆ Claude / ▲ Codex (it replaced the C/X letters).';
+  if (isDefault) {
+    return `Badge display: default (today's glyph — every host, single, wide, grouped by host). ${cueNote}`;
+  }
+  const hostsStr = hosts === 'all' ? 'all hosts' : `hosts ${Array.isArray(hosts) ? hosts.join(',') : hosts}`;
+  return `Badge display: group=${group}, ${hostsStr}, layout=${layout}, density=${density}, tool-mark=${toolMark} (set from the badge's Display submenu; edit the !display-* directives in the config file). ${cueNote}`;
 }
 
 // Service-state disclosure line (menubar-service-controls, FR-22 / OQ-05): names

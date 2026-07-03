@@ -1,11 +1,23 @@
 {
-  "activeFeature": null,
-  "sessionType": null,
-  "currentStage": null,
-  "lastCompletedStage": 9,
+  "activeFeature": "badge-display-options",
+  "sessionType": "feature",
+  "currentStage": 8,
+  "lastCompletedStage": 7,
   "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
-  "confirmedArtifacts": [],
-  "createdAt": "2026-07-03T18:16:40Z",
-  "updatedAt": "2026-07-03T20:55:00Z"
+  "confirmedArtifacts": [
+    "pipeline/badge-display-options/strategic-brief.md",
+    "pipeline/badge-display-options/prd.md",
+    "pipeline/badge-display-options/spike-report.md",
+    "pipeline/badge-display-options/schema.md",
+    "pipeline/badge-display-options/design.html",
+    "pipeline/badge-display-options/design-spec.md",
+    "pipeline/badge-display-options/decisions.md",
+    "pipeline/badge-display-options/qa-report.md",
+    "pipeline/badge-display-options/security-report.md",
+    "pipeline/badge-display-options/how-to-see-it.md",
+    "pipeline/badge-display-options/pr-description.md"
+  ],
+  "createdAt": "2026-07-03T20:09:26Z",
+  "updatedAt": "2026-07-03T22:55:00Z"
 }
