@@ -39,19 +39,40 @@ function host(label, { self = false, tools = null, reachable = true, hostDiagnos
 }
 function combined(hosts) { return { hosts, generatedAt: iso(0) }; }
 
-// ── Single-host = byte-for-byte today's badge (QA-13) ─────────────────────────
-test('single host ⇒ mode "single"; delegated emit == the shipped single-host badge (QA-13)', () => {
+// ── Single-host: shipped glyph + tool rows, PLUS the always-present Add action ─
+// FR-13 refined: single-host keeps the VISUAL byte-for-byte (glyph + per-tool
+// rows), but the host-config affordance rides it too so the FIRST host is addable
+// from the menu bar. (Coordinator deploy-time fix.)
+test('single host ⇒ mode "single"; the glyph + tool rows match the shipped badge exactly (QA-13)', () => {
   const state = { tools: [tool('claude-code', 46, 61), tool('codex', 88, 72)], headroom: null, generatedAt: iso(0) };
   const c = combined([host('This machine', { self: true, tools: state.tools })]);
   const multi = computeMultiBadge(c);
   assert.equal(multi.mode, 'single');
-  // The caller unwraps hosts[0].state and runs the EXISTING computeBadge/emit —
-  // byte-for-byte identical to calling emit(computeBadge(state)) directly.
-  const shipped = emit(computeBadge(state), { host: '127.0.0.1', port: '8787' });
-  const viaMulti = emit(computeBadge(c.hosts[0].state), { host: '127.0.0.1', port: '8787' });
-  assert.equal(viaMulti, shipped);
-  // No host cue anywhere in the single-host output.
-  assert.doesNotMatch(shipped.split('\n')[0], /·[CX]/);
+  // The caller unwraps hosts[0].state and runs the EXISTING computeBadge/emit.
+  const out = emit(computeBadge(c.hosts[0].state), { host: '127.0.0.1', port: '8787' });
+  const lines = out.split('\n');
+  // The GLYPH is byte-for-byte the shipped single-host glyph (no host cue).
+  assert.match(lines[0], /^▪ C 46% \| color=#[0-9a-f]{6}$/);
+  assert.doesNotMatch(lines[0], /·[CX]/);
+  // The per-tool ROWS are the shipped rows, unchanged.
+  assert.match(out, /^Claude Code \| size=13 color=#888888$/m);
+  assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo$/m);
+  assert.match(out, /^Codex \| size=13 color=#888888$/m);
+});
+
+test('single-host mode still offers ＋ Add host… so the first machine is addable from the menu bar (FR-14)', () => {
+  const state = { tools: [tool('claude-code', 46, 61), tool('codex', 88, 72)], headroom: null, generatedAt: iso(0) };
+  const c = combined([host('This machine', { self: true, tools: state.tools })]);
+  const out = emit(computeBadge(c.hosts[0].state), { host: '127.0.0.1', port: '8787' });
+  // The Add action is present in single-host mode — the ONLY way to add the first host.
+  assert.match(out, /^＋ Add host… \| shell=.*param2=add terminal=false refresh=true$/m);
+  // No Remove submenu in single mode (nothing to remove); the count is honest.
+  assert.doesNotMatch(out, /Remove host…/);
+  assert.doesNotMatch(out, /Stop watching/);
+  assert.match(out, /^☰ Watching: 0 other machines \| color=#999999$/m);
+  // Open dashboard / Refresh still present, unchanged.
+  assert.match(out, /^Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\/$/m);
+  assert.match(out, /^Refresh \| refresh=true$/m);
 });
 
 // ── Glyph = min across HOST × tool × window with a reading (QA-07) ─────────────
@@ -285,7 +306,7 @@ test('the Remove submenu + Watching count reflect the remote set (FR-14)', () =>
   assert.match(out, /Remove host…/);
   assert.match(out, /Stop watching Desktop \(100\.64\.0\.7:8788\)/);
   assert.match(out, /param2=remove param3="100\.64\.0\.7:8788"/); // key passed on ARGV
-  assert.match(out, /Watching: 1 host/);
+  assert.match(out, /Watching: 1 other machine\b/); // one remote → singular
   // The Open-dashboard href uses THIS machine's loopback, never a peer's.
   assert.match(out, /Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\//);
 });

@@ -410,6 +410,13 @@ function dropdownLines(badge, host, port) {
     for (const dl of diagBlock) lines.push(dl);
   }
 
+  // The host-config actions ride the single-host dropdown too, so the FIRST host
+  // is addable straight from the menu bar (there are no remotes in single mode, so
+  // this is just `＋ Add host…` + an honest "Watching: 0 other machines"; the
+  // Remove submenu is omitted — nothing to remove). The glyph and the per-tool
+  // rows above stay byte-for-byte today's badge; only this affordance is added.
+  for (const l of hostConfigActionLines({ remotes: [] })) lines.push(l);
+
   lines.push('---');
   lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
   lines.push('Refresh | refresh=true');
@@ -534,25 +541,39 @@ function hostSectionLines(view, { isBinding = false } = {}) {
   return lines;
 }
 
-// The Add / Remove / List actions (FR-14). Each shells to the tracked helper
-// under $ABS_NODE (terminal=false windowless, refresh=true so the dropdown
-// reflects the new list). Remove is a submenu of the REMOVABLE (non-self) hosts —
-// the local host is never offered. `remotes` = [{label, key, addr}] from listHosts.
-function actionLines(remotes) {
+// The Add / Remove / List actions (FR-14) — the ONE source of truth for the
+// host-config affordance, called from BOTH the single-host and multi-host
+// dropdowns so the first host is always addable from the menu bar. Each action
+// shells to the tracked helper under $ABS_NODE (terminal=false windowless,
+// refresh=true so the dropdown reflects the new list).
+//
+// `＋ Add host…` is ALWAYS present — on a fresh single-host machine (remotes=[])
+// it is the ONLY way to add the first machine; omitting it there would defeat the
+// feature's headline (add hosts from the statusbar). With no remotes we omit the
+// Remove submenu (nothing to remove) and state the count honestly
+// ("Watching: 0 other machines"). With remotes, Remove is a submenu of the
+// REMOVABLE (non-self) hosts — the local host is never offered — and Watching
+// counts them. `remotes` = [{label, key, addr}] from remotesFromCombined.
+export function hostConfigActionLines({ remotes = [] } = {}) {
   const lines = ['---'];
   lines.push(`＋ Add host… | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=add terminal=false refresh=true`);
-  // Remove submenu: SwiftBar renders a nested item with a leading `--`. One item
-  // per removable host; each passes the host KEY on ARGV (param3). The key is a
-  // sanitized host:port identity — never a free-form label.
-  lines.push('－ Remove host…');
-  for (const r of remotes) {
-    const label = sanitize(r.label);
-    const key = sanitizeHostPort(r.key);
-    lines.push(`--Stop watching ${label} (${r.addr}) | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`);
+  if (remotes.length) {
+    // Remove submenu: SwiftBar renders a nested item with a leading `--`. One item
+    // per removable host; each passes the host KEY on ARGV (param3). The key is a
+    // sanitized host:port identity — never a free-form label.
+    lines.push('－ Remove host…');
+    for (const r of remotes) {
+      const label = sanitize(r.label);
+      const key = sanitizeHostPort(r.key);
+      lines.push(`--Stop watching ${label} (${r.addr}) | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`);
+    }
+    // A live listing of the current remote set (a real affordance, not a dead item).
+    lines.push(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'} | color=#999999`);
+  } else {
+    // Single-host: no remotes to remove; state the honest zero so the count line
+    // is never a dead/absent affordance. Add host… above is the live path.
+    lines.push('☰ Watching: 0 other machines | color=#999999');
   }
-  if (!remotes.length) lines.push('--No removable hosts | color=#999999');
-  // A live listing of the current remote set (a real affordance, not a dead item).
-  lines.push(`☰ Watching: ${remotes.length} host${remotes.length === 1 ? '' : 's'} | color=#999999`);
   return lines;
 }
 
@@ -582,7 +603,7 @@ function multiDropdownLines(multi, host, port, remotes) {
     for (const l of hostSectionLines(view, { isBinding: view === bindingView && !!multi.binding })) lines.push(l);
   }
 
-  for (const l of actionLines(remotes)) lines.push(l);
+  for (const l of hostConfigActionLines({ remotes })) lines.push(l);
 
   lines.push('---');
   lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
