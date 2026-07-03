@@ -29,3 +29,19 @@
 - Copy table in design-spec.md is verbatim-binding for the Engineer (the
   enumeration, the honesty note, the data opt-in, and the safe-default must survive
   any wording change).
+
+## Stage 8 (Deployer) — 2026-07-03
+- **Shipped.** Commit 96ee98d on origin/main; installed copy at ~/llmdash
+  fast-forwarded and the launchd service restarted. Health-checked live: /api/state
+  200, POST /api/hosts → 405 (serve-only preserved). The installed badge dropdown
+  now shows the state-aware toggle ("－ Remove the local service · running" — reading
+  the real launchd state) and the "Uninstall llmdash…" submenu, both pointing at the
+  installed service-control-action.mjs under the absolute node. The three osascript
+  dialogs (enumerate / data opt-in / service-remove) are the only deploy-deferred
+  item — they fire on a real click and were deliberately NOT triggered (one of them
+  uninstalls llmdash).
+- **Security finding 1 resolved in-stage before ship** (the statusline-revert
+  substring→boundary match, commit folded into the feature commit; 378 tests).
+- All build/QA/security verification used scratch launchd labels + scratch paths;
+  the real service, checkout, and data were verified untouched throughout and after
+  deploy.

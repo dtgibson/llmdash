@@ -1,34 +1,31 @@
 ## What We Accomplished
-Mid-run on menubar-service-controls (feature lane, Studio Style — hands-off except
-the design step and the deploy sign-off). Stages 1–3 done. The feature adds two
-menu-bar controls so the user never touches the terminal: a state-aware toggle to
-install/remove the local llmdash service, and a two-tier "Uninstall llmdash"
-(remove the badge only, or uninstall completely). Strategy made the key call that
-the snapshot-history DB is the product's only irreplaceable asset, so a full
-uninstall preserves your data by default with an explicit opt-in. The Architect
-ran the self-uninstall spike (PASS, scratch-only, real service/data verified
-intact): a detached temp-copied helper survives tearing down the service and
-deleting its own folder as long as it reads everything up front; teardown order is
-service → statusline → trust → wrapper → checkout last → data (opt-in). The
-installer is extended with --service/--uninstall hooks; a new tracked helper drives
-the osascript dialogs.
+Shipped menubar-service-controls — llmdash's install lifecycle no longer needs a
+terminal. The badge dropdown gained a state-aware toggle to install or remove the
+local monitoring service (it reads your real launchd state), and a two-tier
+"Uninstall llmdash" — remove just the badge, or uninstall completely. The complete
+uninstall lists every artifact before acting and keeps your usage history by
+default (rescuing the DB out of the app folder before deleting it), only wiping it
+on a second explicit confirmation. SwiftBar is never removed. It's all local,
+confirmed, user-scoped (no sudo), and the HTTP surface stayed read-only. It's live
+in your menu bar now.
 
 ## What Has Been Saved
-- pipeline/menubar-service-controls/strategic-brief.md (Stage 1)
-- pipeline/menubar-service-controls/prd.md (Stage 2)
-- pipeline/menubar-service-controls/spike-report.md (Stage 3 — self-uninstall PASS)
-- pipeline/menubar-service-controls/schema.md (Stage 3 — the system design)
+- Feature: commit 96ee98d (installer hooks + the service-control helper + the badge
+  items + tests + pipeline/menubar-service-controls/).
+- Project memory: commit afed27a (DECISIONS, PRODUCT_CONTEXT, CLAUDE, ROADMAP).
+- All pushed to origin/main; installed copy at ~/llmdash updated and the service
+  restarted; verified live (endpoints healthy, read-only preserved, the new
+  dropdown controls present).
 
 ## Where We Are
-Stage 4, The Designer — the user's participate stage. A first mockup is being
-prepared (the dropdown toggle + Uninstall submenu in both modes, and the
-osascript dialogs: the enumerated uninstall confirm, the data opt-in, the
-service-remove confirm). The user rejoins here to ratify THE call — exactly what a
-full uninstall removes and whether usage history is preserved by default — plus
-the confirmation copy, then iterates and gates to The Engineer.
+Feature complete and live. Pipeline idle.
+
+Everything was built and tested against throwaway scratch copies — your real
+service, app folder, and usage-history DB were verified untouched throughout.
+
+One follow-on remains on the roadmap (On the Horizon): a tmux/terminal statusline.
+"Limit alerts" is Up Next.
 
 ## Resume Prompt
 
-To resume: run `/weft` in this project. It reads saved state and picks up at
-Stage 4 (Designer), where the user ratifies the uninstall scope + the data-safety
-default and reviews the dropdown/dialog design.
+Run `/weft` to start the next thing.

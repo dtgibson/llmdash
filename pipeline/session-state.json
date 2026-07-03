@@ -1,24 +1,11 @@
 {
-  "activeFeature": "menubar-service-controls",
-  "sessionType": "feature",
-  "currentStage": 8,
-  "lastCompletedStage": 7,
-  "lastCheckpointStatus": "in-progress",
+  "activeFeature": null,
+  "sessionType": null,
+  "currentStage": null,
+  "lastCompletedStage": 9,
+  "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
-  "confirmedArtifacts": [
-    "pipeline/menubar-service-controls/strategic-brief.md",
-    "pipeline/menubar-service-controls/prd.md",
-    "pipeline/menubar-service-controls/spike-report.md",
-    "pipeline/menubar-service-controls/schema.md",
-    "pipeline/menubar-service-controls/design-spec.md",
-    "pipeline/menubar-service-controls/design.html",
-    "pipeline/menubar-service-controls/decisions.md",
-    "scripts/menubar/service-control-action.mjs",
-    "pipeline/menubar-service-controls/pr-description.md",
-    "pipeline/menubar-service-controls/how-to-see-it.md",
-    "pipeline/menubar-service-controls/qa-report.md",
-    "pipeline/menubar-service-controls/security-report.md"
-  ],
+  "confirmedArtifacts": [],
   "createdAt": "2026-07-03T18:16:40Z",
-  "updatedAt": "2026-07-03T20:35:00Z"
+  "updatedAt": "2026-07-03T20:55:00Z"
 }
