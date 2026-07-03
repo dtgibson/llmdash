@@ -155,3 +155,21 @@ All items below are ratified and binding for the Engineer.
 - The Auditor suggests tightening the shipped SwiftBar-line render rule to also say
   *"sanitize at the cue helper, not only at ingest"* (the INFO-3 lesson — now
   reflected in `truncateHostCue`). Fold into the conventions update at close-out.
+
+## Stage 8 (Deployer) — 2026-07-03
+- **User approved the deploy ("Ship it").** Shipped:
+  - Commit `07682e2` on `origin/main` (feature + artifacts + docs).
+  - Installed `~/llmdash` checkout fast-forwarded `35c3cbf → 07682e2` (clean ff).
+  - `com.llmdash.dashboard` restarted in the **user domain** (`launchctl kickstart -k
+    gui/<uid>/…`, no sudo); `state = active`, port 8787.
+  - **Health-checked live:** `GET /api/state` 200, `GET /api/hosts` 200, `POST /api/hosts`
+    **405** (`allow: GET, HEAD`) — serve-only preserved.
+  - **Real-invocation verified:** ran the installed badge through its actual SwiftBar
+    **wrapper** (`~/Library/Application Support/SwiftBar/Plugins/llmdash.5s.js` → abs-node
+    → `~/llmdash/scripts/menubar/llmdash.5s.js`); it renders live with the new cue —
+    `▪ This machi…·◆ 24% | color=#f0a94b` (the ratified `C`→`◆` swap is live; glyph
+    populated, dropdown full). Not blank, not just "loads."
+- **Logo asset shipped as placeholders** (per the Auditor + user gate) — real brand art
+  is a later drop-in-two-PNGs operator choice.
+- All build/QA/security verification stayed scratch-only; the real service/checkout/data
+  were verified untouched before the deploy and healthy after.
