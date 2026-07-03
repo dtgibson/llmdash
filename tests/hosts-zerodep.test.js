@@ -18,12 +18,23 @@ test('package.json has zero runtime dependencies and no build step (QA-20)', () 
 });
 
 test('the multi-host modules import only Node builtins (node: or relative)', () => {
-  for (const f of ['hosts.js', 'host-cache.js', 'host-view.js', 'poller.js']) {
-    const src = fs.readFileSync(path.join(root, 'src', f), 'utf8');
+  const files = [
+    // src/
+    path.join(root, 'src', 'hosts.js'),
+    path.join(root, 'src', 'host-cache.js'),
+    path.join(root, 'src', 'host-view.js'),
+    path.join(root, 'src', 'poller.js'),
+    path.join(root, 'src', 'host-config.js'),            // multi-host-badge: the config-file layer
+    // the badge plugin + its Add/Remove helper (multi-host-badge)
+    path.join(root, 'scripts', 'menubar', 'llmdash.5s.js'),
+    path.join(root, 'scripts', 'menubar', 'host-config-action.mjs'),
+  ];
+  for (const fp of files) {
+    const src = fs.readFileSync(fp, 'utf8');
     const imports = [...src.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
     for (const spec of imports) {
       const ok = spec.startsWith('node:') || spec.startsWith('.') || spec.startsWith('/');
-      assert.ok(ok, `${f} imports a non-builtin: ${spec}`);
+      assert.ok(ok, `${path.basename(fp)} imports a non-builtin: ${spec}`);
     }
   }
 });

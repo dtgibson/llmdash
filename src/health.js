@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { parseHosts, remoteHosts } from './hosts.js';
 import { _peek } from './host-cache.js';
+import { configFileHealth } from './host-config.js';
 
 // Resolve a command the way spawn() will: a path (contains a separator) is
 // checked directly; a bare name is searched on PATH. Returns the resolved
@@ -124,6 +125,37 @@ export function peerHealthLines(parsed = parseHosts(), peek = _peek) {
   return lines;
 }
 
+// Config-file disclosure line (FR-21): which host SOURCE is in effect — the
+// hosts.conf FILE, an env seed (LLMDASH_HOSTS, file absent), or neither (single-
+// host) — plus the file path, an ignored-LLMDASH_HOSTS-because-file-exists note,
+// and any unreadable/malformed-directive state with the fix. A cheap fs check
+// (configFileHealth), off the request path. `health` is injectable for tests.
+export function hostsConfigLine(health = configFileHealth()) {
+  const loc = health.file;
+  if (health.error && health.error.reason === 'unreadable') {
+    return `Host config: hosts.conf is UNREADABLE (${health.error.detail || 'read failed'}) at ${loc} — `
+      + `falling back to LLMDASH_HOSTS/last-good. Fix the file's permissions/contents and it is re-read on the next poll (no restart).`;
+  }
+  let line;
+  if (health.source === 'file') {
+    line = `Host config: reading the watched-host list from ${loc} (this file is the runtime source of truth; edited live by the badge or by hand).`;
+    if (health.envIgnored) {
+      line += ` LLMDASH_HOSTS is set but IGNORED because the file exists (it only seeds the file on first run when absent) — edit ${loc} to change what's watched.`;
+    }
+  } else if (health.source === 'env-seed') {
+    line = `Host config: no hosts.conf yet — seeding it from LLMDASH_HOSTS at ${loc} (once seeded, the file becomes the runtime source of truth; later LLMDASH_HOSTS edits are ignored).`;
+  } else {
+    line = `Host config: no hosts.conf and LLMDASH_HOSTS unset — single-host (this machine only, no outbound reads). Add a host from the menu-bar badge, or create ${loc} (format host[:port][=label], one per line).`;
+  }
+  if (health.localMode && health.localMode !== 'auto') {
+    line += ` Monitoring-station: !local=${health.localMode} in the config file (local host ${health.localMode === 'exclude' ? 'always de-emphasized' : 'always shown in the glyph/headline'}).`;
+  }
+  for (const e of (health.fileErrors || [])) {
+    line += ` Ignored a bad directive "${e.entry}" (${e.reason}) — valid: !local=include|exclude|auto.`;
+  }
+  return line;
+}
+
 // Startup-log lines describing data-source health. Honest and actionable:
 // each "missing" line says what is missing, why it matters, and how to fix it.
 export function healthLines(h = dataSourceHealth()) {
@@ -142,6 +174,9 @@ export function healthLines(h = dataSourceHealth()) {
   lines.push(h.codexSessions.present
     ? `  Codex activity: sessions dir present (${h.codexSessions.dir})`
     : `  Codex activity: no Codex sessions recorded on this machine yet (${h.codexSessions.dir}) — activity stats fill in after the first Codex session`);
+  // Host-config-file state (multi-host-badge): which source is in effect and the
+  // fix for an unreadable/misconfigured file. A cheap fs check, off the request path.
+  lines.push(`  ${hostsConfigLine()}`);
   // Per-configured-peer reachability (multi-host). Cheap in-memory cache read;
   // empty when no peers are configured (single-host).
   for (const line of peerHealthLines()) lines.push(line);

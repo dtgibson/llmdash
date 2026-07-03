@@ -79,6 +79,13 @@ export const config = {
   get dbPath() { return path.join(this.dataDir, 'llmdash.db'); },
   // The Claude Code statusline script writes the latest rate-limit reading here.
   get rateLimitsFile() { return path.join(this.dataDir, 'claude-ratelimits.json'); },
+  // The runtime-mutable watched-host list (multi-host-badge). A line-oriented
+  // text file the interval poller re-reads each tick and the menu-bar badge edits
+  // locally (atomic temp+rename). hostsRaw (LLMDASH_HOSTS) seeds this file on
+  // first run when it is absent; once it exists, the FILE is the runtime source of
+  // truth (seed-once precedence — see src/host-config.js). Neither set = today's
+  // single-host behavior, so no dead knob.
+  get hostsFile() { return path.join(this.dataDir, 'hosts.conf'); },
 
   pollIntervalMs: Number(process.env.LLMDASH_POLL_MS || 60_000),
   dedupWindowMs: Number(process.env.LLMDASH_DEDUP_MS || 5 * 60_000),

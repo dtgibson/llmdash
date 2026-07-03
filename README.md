@@ -157,11 +157,13 @@ will go (or, unset, that no outbound reads are issued).
 
 ## Menu-bar badge (SwiftBar) — optional
 A one-glance remaining-% badge for your macOS menu bar: the **most-constrained
-window** across Claude Code and Codex, updating on its own, with a dropdown that
-carries the full picture (both tools × both windows, reset countdowns, freshness,
+window** across Claude Code and Codex — and, when you watch several machines,
+across **all of them** — updating on its own, with a dropdown that carries the
+full picture (each machine's tools × windows, reset countdowns, freshness,
 diagnostics). It's a tiny **zero-dependency Node plugin** (`scripts/menubar/llmdash.5s.js`)
-that reads the dashboard's existing `/api/state` — no second data path, no extra
-dependency for llmdash itself.
+that reads the dashboard's existing `/api/hosts` (its local instance's combined
+view) over loopback — no second data path, no extra dependency for llmdash itself.
+When you watch just one machine, it behaves **exactly as a single-host badge**.
 
 **SwiftBar is a prerequisite you install once — llmdash never installs it for you.**
 It's a free third-party menu-bar host (the badge also works on xbar):
@@ -221,21 +223,70 @@ overrides where `--setup-badge` / `--remove-badge` look for SwiftBar's plugin
 folder. Set it if your SwiftBar plugin directory isn't the default location and
 isn't picked up automatically.
 
-**Reading the glyph.** It reads `▪ <tool> <number><marker>`:
+**Reading the glyph (single machine).** It reads `▪ <tool> <number><marker>`:
 - `▪` — the stable llmdash mark (always there, so it's recognizable in the bar).
 - **`C` / `X`** — which tool is tightest: **C = Claude Code, X = code&#x200B;X (Codex)**.
 - The number is the lowest remaining % across both tools' windows, colored
   **green / amber / red** by how much is left.
 
+**Reading the glyph (several machines).** When you watch more than one machine the
+glyph names **which machine** binds, in front of the tool cue:
+`▪ <machine>·<C|X> <number>` — e.g. `▪ Desktop·C 12%` means Desktop's Claude
+5-hour window is the tightest across every machine you watch. The machine label is
+shown up to 10 characters, then truncated with `…` (the dropdown header always
+carries the full name). One glance says **which machine, which tool, how much**.
+
 The badge mirrors the dashboard's honesty — it never shows a confident number
 that's secretly old, and it never fabricates one:
-- **fresh** — a plain, confident number (`▪ C 46%`).
-- **aging** — the number kept, with a trailing `·` and a slight dim (the reading
-  is getting old but you still see how much).
-- **stale** — the number tinted amber with a trailing `⚠`.
-- **no reading yet** — `▪ —` (a dash, never a number); the dropdown says why per tool.
-- **offline** — `▪ llmdash ⚠` when the dashboard isn't reachable — unmistakably
-  "no server," **never** a number that could be mistaken for headroom.
+- **fresh** — a plain, confident number (`▪ C 46%`, or `▪ Desktop·C 12%`).
+- **aging** — the number kept, with a trailing `·` and a slight dim.
+- **stale** — the number tinted amber with a trailing `⚠` (still names the machine).
+- **no reading yet** — `▪ —` (a dash, never a number); the dropdown says why per host.
+- **offline** — `▪ llmdash ⚠` when your **local** dashboard isn't reachable —
+  unmistakably "no server," **never** a number. (A single *remote* machine being
+  unreachable is named in the dropdown, never in the glyph.)
+
+The dropdown carries **one section per machine** (the binding machine first), each
+with that host's per-tool rows and its own freshness/offline state — one machine
+aging or offline never flags or suppresses another's. An unreachable machine is
+**named** ("… is unreachable — no response within 3s …"), never a fabricated zero.
+
+### Watching several machines from the badge
+
+The badge reads the **combined** view your local llmdash already assembles (it
+fans out to the peers — the badge itself opens no outbound connection). The
+watched-host list lives in a small local file, **`hosts.conf`**, under the data
+dir (`$LLMDASH_DATA_DIR/hosts.conf`, default `~/llmdash/data/hosts.conf`), and you
+can edit it **live from the badge** — no plist edit, no restart:
+
+- **`＋ Add host…`** pops a native macOS dialog; type a `host[:port][=label]`
+  (e.g. `100.64.0.7:8788=Desktop`). It's sanitized, validated, deduped, and
+  appended — a malformed or duplicate entry is rejected with an honest message and
+  **nothing is written**.
+- **`－ Remove host…`** is a submenu of the machines you watch (never *This
+  machine* — the local host is always included). Picking one confirms, then drops
+  it from the file.
+- **`☰ Watching: N hosts`** lists the current remote set.
+
+Every edit writes the **local file** — never an HTTP request, so the dashboard
+stays serve-only (405 for non-GET/HEAD). The change applies on the **next poller
+update** (within your poll interval); the badge says "on the next update," never
+claims it's live before the poller has re-read the file.
+
+**File precedence (seed-once).** Once `hosts.conf` exists, **it is the runtime
+source of truth**. `LLMDASH_HOSTS`, if set and the file is absent, **seeds** the
+file once on first run — after that, editing `LLMDASH_HOSTS` does nothing (the
+file wins; the startup log says so). With **neither** set, the badge is a plain
+single-host badge, exactly as before. The file is line-oriented (`host[:port][=label]`
+per line, `#` comments), so you can also hand-edit it.
+
+**Monitoring station.** A Mac that runs the badge but does no Claude/Codex work of
+its own (it only watches its peers) has its **empty local reading de-emphasized** —
+dropped from the glyph and headline, but kept in the dropdown, honestly labeled
+"no local activity" (never fabricated zeros). This is automatic when the local host
+has no readings and at least one remote is configured. To override, add a directive
+line to `hosts.conf`: `!local=exclude` (always de-emphasize), `!local=include`
+(always show the local host in the glyph), or `!local=auto` (the default).
 
 The **live in-menu-bar view requires SwiftBar** (the one prerequisite). Without it,
 the plugin still runs from a terminal (`node scripts/menubar/llmdash.5s.js`) and

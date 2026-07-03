@@ -1,0 +1,87 @@
+{
+  "hosts": [
+    {
+      "host": "local",
+      "label": "This machine",
+      "port": 8787,
+      "self": true,
+      "reachable": true,
+      "hostDiagnostic": null,
+      "fetchedAt": "@-10000",
+      "state": {
+        "tools": [
+          {
+            "source": "claude-code",
+            "label": "Claude Code",
+            "plan": "Max",
+            "haveLimits": false,
+            "limits": { "five_hour": null, "seven_day": null },
+            "freshness": { "capturedAt": null, "freshForMs": 300000, "staleAfterMs": 600000 },
+            "limitsDiagnostic": { "reason": "no-statusline-reading" }
+          },
+          {
+            "source": "codex",
+            "label": "Codex",
+            "plan": "ChatGPT Plus",
+            "haveLimits": false,
+            "limits": { "five_hour": null, "seven_day": null },
+            "freshness": null,
+            "limitsDiagnostic": { "reason": "no-reading" }
+          }
+        ],
+        "headroom": null,
+        "generatedAt": "@0"
+      }
+    },
+    {
+      "host": "100.64.0.7",
+      "label": "Desktop",
+      "port": 8788,
+      "self": false,
+      "reachable": true,
+      "hostDiagnostic": null,
+      "fetchedAt": "@-18000",
+      "state": {
+        "tools": [
+          {
+            "source": "claude-code",
+            "label": "Claude Code",
+            "plan": "Max",
+            "haveLimits": true,
+            "limits": {
+              "five_hour": { "usedPct": 88, "remainingPct": 12, "resetsAt": "@9600000", "capturedAt": "@-60000" },
+              "seven_day": { "usedPct": 62, "remainingPct": 38, "resetsAt": "@280800000", "capturedAt": "@-60000" }
+            },
+            "freshness": { "capturedAt": "@-60000", "freshForMs": 300000, "staleAfterMs": 600000 },
+            "limitsDiagnostic": null
+          },
+          {
+            "source": "codex",
+            "label": "Codex",
+            "plan": "ChatGPT Plus",
+            "haveLimits": true,
+            "limits": {
+              "five_hour": { "usedPct": 29, "remainingPct": 71, "resetsAt": "@14700000", "capturedAt": "@-90000" },
+              "seven_day": { "usedPct": 36, "remainingPct": 64, "resetsAt": "@439200000", "capturedAt": "@-90000" }
+            },
+            "freshness": null,
+            "limitsDiagnostic": null
+          }
+        ],
+        "headroom": null,
+        "generatedAt": "@0"
+      }
+    },
+    {
+      "host": "100.64.0.9",
+      "label": "Studio VM",
+      "port": 8790,
+      "self": false,
+      "reachable": false,
+      "hostDiagnostic": { "reason": "peer-unreachable", "cause": "timeout", "detail": "no response within 3000ms" },
+      "fetchedAt": "@-12000",
+      "state": null
+    }
+  ],
+  "generatedAt": "@0"
+}

@@ -7,7 +7,7 @@ import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { getRefreshState } from './claude-refresh.js';
 import { codexLimitsDiagnostic } from './codex-limits.js';
-import { healthLines, freshnessModeLine, peerDisclosureLine } from './health.js';
+import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
 import { buildTrends } from './trends.js';
@@ -15,6 +15,7 @@ import { startPoller } from './poller.js';
 import { tailnetIPv4 } from './net.js';
 import { getCombined, setHost } from './host-cache.js';
 import { parseHosts } from './hosts.js';
+import { readHostsConfig } from './host-config.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -211,18 +212,29 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Surface-defaults convention: state the refresh reality and the freshness
   // knob (with its default and the derived stale band) loudly at startup.
   console.log(freshnessModeLine());
-  // Multi-host disclosure: how many peers are configured and to which
-  // host:ports outbound reads will go (or the single-host / no-outbound reality)
-  // — the surface-security-relevant-defaults convention, never silently.
-  console.log(peerDisclosureLine());
+  // Host-config disclosure (multi-host-badge): which host SOURCE is in effect
+  // (the hosts.conf file / an env seed / neither), the file path, and the
+  // ignored-LLMDASH_HOSTS-because-file-exists note — stated honestly at startup.
+  console.log(hostsConfigLine());
+  // Multi-host disclosure: how many peers are configured and to which host:ports
+  // outbound reads will go (or the single-host / no-outbound reality). Derived
+  // from the config FILE (seed-once precedence) so it matches what the poller
+  // reads from tick zero, not config.hostsRaw directly.
+  const startupCfg = readHostsConfig();
+  const startupParsed = parseHosts(startupCfg.raw);
+  console.log(peerDisclosureLine(startupParsed));
   // Seed the local host into the combined-view cache synchronously so
-  // /api/hosts is never briefly empty before the first poller tick lands.
+  // /api/hosts is never briefly empty before the first poller tick lands. Echo the
+  // !local= directive onto the local reading so the badge's monitoring-station
+  // override is live from tick zero.
   {
-    const local = parseHosts().hosts.find((h) => h.self);
+    const local = startupParsed.hosts.find((h) => h.self);
     if (local) setHost(local.key, {
       host: local.host, label: local.label, port: local.port, self: true,
       reachable: true, hostDiagnostic: null,
-      fetchedAt: new Date().toISOString(), state: buildState(),
+      fetchedAt: new Date().toISOString(),
+      localMode: startupCfg.localMode || 'auto',
+      state: buildState(),
     });
   }
   startPoller();

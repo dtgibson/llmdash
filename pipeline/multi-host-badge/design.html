@@ -1,0 +1,1342 @@
+<meta charset="utf-8" />
+<style>
+  /* ============================================================
+     llmdash — multi-host-badge design mockup (DRAFT, pre-iteration)
+     A macOS menu-bar surface, NOT a web page. Extends the SHIPPED
+     single-host badge (pipeline/menu-bar-badge/design.html) by ONE
+     new axis: HOST. Every token, chrome color, and honesty grammar
+     is reused verbatim from the established design system
+     (pipeline/design-system.md + public/styles.css) and the shipped
+     badge spec. The only additions are host chrome — a host header
+     row and a host-level freshness/offline pill — mirroring the
+     multi-host dashboard's host-group treatment on the menu-bar
+     surface. Self-contained: all CSS/JS inline, no external deps.
+     ============================================================ */
+
+  :root {
+    /* ---- llmdash design-system tokens (verbatim from styles.css) ---- */
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e6e6e6;
+    --text: #15171a;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --good: #16a34a;
+    --warn: #d97706;
+    --crit: #dc2626;
+    --accent: #2563eb;
+    --accent-bg: #eef2ff;
+    --warn-bg: #fef3e7;
+    --good-bg: #e7f6ec;
+    --crit-bg: #fdeaea;
+    --track: #eceef0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    /* ---- stage surfaces (the page these mockups sit on) ---- */
+    --stage-bg: #eef1f4;
+    --stage-panel: #ffffff;
+
+    /* ---- the macOS menu bar + SwiftBar dropdown chrome (the OS's colors,
+       not llmdash's — reused verbatim from the shipped badge mockup). ---- */
+    --menubar-bg: #2b2d31;
+    --menubar-text: #f4f5f7;
+    --menubar-text-dim: #9b9ea6;
+    --dropdown-bg: #f6f6f7;
+    --dropdown-panel: #ffffff;
+    --dropdown-text: #1d1d1f;
+    --dropdown-sep: #e2e2e5;
+    --dropdown-muted: #86868b;
+    --dropdown-highlight: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013;
+      --panel: #161a1f;
+      --border: #262b32;
+      --text: #e7eaee;
+      --muted: #9aa3ad;
+      --faint: #6b7480;
+      --accent: #6b9bff;
+      --accent-bg: #18203a;
+      --warn-bg: #2a1f12;
+      --good-bg: #122a1b;
+      --crit-bg: #2c1517;
+      --track: #232830;
+
+      --stage-bg: #0a0b0d;
+      --stage-panel: #14171b;
+
+      --menubar-bg: #1c1d20;
+      --menubar-text: #f4f5f7;
+      --menubar-text-dim: #7c7f87;
+      --dropdown-bg: #2a2b2e;
+      --dropdown-panel: #313236;
+      --dropdown-text: #ececee;
+      --dropdown-sep: #3a3b3f;
+      --dropdown-muted: #9295a0;
+      --dropdown-highlight: #4a7dff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--stage-bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 72px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+
+  /* ---------------- page masthead ---------------- */
+  .masthead { margin-bottom: 8px; }
+  .masthead .kicker {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .masthead h1 {
+    font-family: var(--sans);
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0 0 12px;
+    max-width: 22ch;
+  }
+  .masthead .lede {
+    font-size: 1.02rem;
+    color: var(--muted);
+    max-width: 66ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .masthead .lede b { color: var(--text); font-weight: 600; }
+  .draft-flag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-radius: 999px;
+    padding: 3px 10px;
+    margin-top: 14px;
+  }
+
+  .rule { height: 1px; background: var(--border); border: 0; margin: 32px 0 30px; }
+
+  /* ---------------- section headers ---------------- */
+  .section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0 0 4px;
+    font-family: var(--mono);
+  }
+  .section-lede {
+    font-size: 0.9rem;
+    color: var(--faint);
+    margin: 0 0 22px;
+    max-width: 74ch;
+    line-height: 1.5;
+  }
+  .section-lede b { color: var(--muted); font-weight: 600; }
+  .section-lede code, .section-lede .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .section { margin-bottom: 54px; }
+
+  /* =========================================================
+     THE MENU-BAR STRIP — a realistic macOS top bar.
+     ========================================================= */
+  .menubar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    border-radius: 10px 10px 0 0;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 12px;
+    gap: 16px;
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    color: var(--menubar-text);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+    user-select: none;
+  }
+  .menubar .sys {
+    color: var(--menubar-text);
+    opacity: 0.86;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .menubar .sys.time { font-variant-numeric: tabular-nums; opacity: 0.95; }
+
+  /* The badge glyph itself — monospace, tabular, sits in the bar. */
+  .glyph {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    padding: 3px 7px;
+    border-radius: 6px;
+    cursor: default;
+    position: relative;
+  }
+  .glyph.selected { background: rgba(255,255,255,0.16); }
+  .glyph .mark { opacity: 0.92; }
+  /* HOST CUE — the new axis. The binding host's short label, then a tight
+     '·' binding it to the tool cue, so host+tool read as ONE token before
+     the number: ▪ Desktop·C 12%. Rendered dim (a locator label, like the
+     tool cue) so the eye still lands on the percentage. */
+  .glyph .host {
+    color: var(--menubar-text);
+    opacity: 0.92;
+    font-weight: 500;
+    margin-left: -1px;
+  }
+  .glyph .hostsep { color: var(--menubar-text-dim); margin: 0 1px 0 2px; opacity: 0.85; }
+  /* tool cue — a single dim letter (C=Claude, X=codeX). Unchanged from shipped. */
+  .glyph .cue {
+    color: var(--menubar-text-dim);
+    font-weight: 600;
+    margin-right: 1px;
+  }
+  /* state colors — design-system status semantics, lifted for the dark bar. */
+  .glyph .num.good { color: #5bd88a; }
+  .glyph .num.warn { color: #f0a94b; }
+  .glyph .num.crit { color: #ff6b6b; }
+  .glyph.aging  { opacity: 0.82; }
+  .glyph.aging .agedot { opacity: 0.9; margin-left: 1px; }
+  .glyph.stale .marker { color: #f0a94b; }
+  .glyph.stale .num { color: #e6c07b; }
+  .glyph.nodata { color: var(--menubar-text); opacity: 0.9; }
+  .glyph.nodata .dash { color: var(--menubar-text-dim); }
+  .glyph.offline { color: var(--menubar-text-dim); opacity: 0.75; }
+  .glyph.offline .marker { color: var(--menubar-text-dim); }
+  .glyph .marker { font-size: 0.78rem; }
+  .glyph .agedot { opacity: 0.7; }
+
+  /* =========================================================
+     STATE GALLERY cards
+     ========================================================= */
+  .states {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(186px, 1fr));
+    gap: 14px;
+  }
+  .state-card {
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .state-strip {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+  }
+  .state-body { padding: 13px 15px 15px; }
+  .state-name {
+    font-size: 0.86rem;
+    font-weight: 600;
+    font-family: var(--mono);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .state-name .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .sw-good { background: var(--good); }
+  .sw-warn { background: var(--warn); }
+  .sw-crit { background: var(--crit); }
+  .sw-muted { background: var(--faint); }
+  .sw-accent { background: var(--accent); }
+  .state-trigger { font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+  .state-trigger code, .state-trigger .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .state-rule {
+    font-size: 0.72rem;
+    color: var(--faint);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    font-style: italic;
+  }
+
+  /* =========================================================
+     THE DROPDOWN — SwiftBar-style menu with one section per host.
+     ========================================================= */
+  .dropdown-demo {
+    display: grid;
+    grid-template-columns: minmax(0, 420px) 1fr;
+    gap: 30px;
+    align-items: start;
+  }
+  @media (max-width: 780px) { .dropdown-demo { grid-template-columns: 1fr; } }
+  .demo-col { min-width: 0; }
+
+  .anchor-bar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 30px;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 10px;
+    gap: 14px;
+    position: relative;
+    z-index: 2;
+  }
+  .anchor-bar .sys { color: var(--menubar-text); opacity: 0.82; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+
+  .dropdown {
+    background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12);
+    padding: 6px;
+    margin-top: -2px;
+    width: 100%;
+    max-width: 420px;
+    font-family: var(--sans);
+    color: var(--dropdown-text);
+    position: relative;
+    z-index: 1;
+  }
+  /* Title echo — the glyph line repeated at the dropdown top, now naming
+     the binding HOST + tool + window. */
+  .dd-title {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 7px 10px 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--dropdown-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .dd-title .num.crit { color: var(--crit); }
+  .dd-title .num.warn { color: var(--warn); }
+  .dd-title .num.good { color: var(--good); }
+  .dd-title .rem-word { color: var(--dropdown-muted); font-weight: 500; font-family: var(--sans); font-size: 0.76rem; }
+  .dd-title .binding {
+    margin-left: auto;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--dropdown-muted);
+    white-space: nowrap;
+  }
+  .dd-watching {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    color: var(--dropdown-muted);
+    padding: 0 10px 6px;
+  }
+
+  .dd-sep { height: 1px; background: var(--dropdown-sep); margin: 5px 4px; border: 0; }
+
+  /* ----- HOST SECTION (the new chrome) ----- */
+  /* A host header row: escaped label + address + a per-host freshness/offline
+     pill (mirrors the multi-host dashboard's .host-head + .host-pill). */
+  .dd-host-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 3px;
+    flex-wrap: wrap;
+  }
+  .dd-host-name {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--dropdown-text);
+    letter-spacing: 0.01em;
+  }
+  .dd-host-bind {
+    font-family: var(--sans);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-bg);
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  .dd-host-you {
+    font-family: var(--sans);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    color: var(--dropdown-muted);
+    background: color-mix(in srgb, var(--dropdown-muted) 16%, transparent);
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  .dd-host-state {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--dropdown-muted);
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .dd-host-state .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--good); vertical-align: middle;
+  }
+  .dd-host-state.is-offline .pulse { background: var(--crit); }
+  /* host-level freshness/offline pill — the .age-pill grammar, miniaturized */
+  .dd-host-pill {
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill-aging { color: var(--warn); background: var(--warn-bg); }
+  .pill-stale { color: var(--crit); background: var(--crit-bg); }
+  .pill-offline { color: var(--crit); background: var(--crit-bg); }
+  .pill-idle { color: var(--dropdown-muted); background: color-mix(in srgb, var(--dropdown-muted) 15%, transparent); }
+
+  /* a per-tool sub-group inside a host section */
+  .dd-tool-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 2px 18px;
+  }
+  .dd-tool-name {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--dropdown-muted);
+  }
+  .dd-tag {
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .tag-aging { color: var(--warn); background: var(--warn-bg); }
+  .tag-stale { color: var(--crit); background: var(--crit-bg); }
+
+  .dd-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 10px 4px 18px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+  }
+  .dd-row:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-row:hover .dd-win, .dd-row:hover .dd-reset, .dd-row:hover .dd-rem { color: #fff; }
+  .dd-win { color: var(--dropdown-muted); font-size: 0.78rem; }
+  .dd-metrics {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .dd-rem { font-weight: 600; }
+  .dd-rem.good { color: var(--good); }
+  .dd-rem.warn { color: var(--warn); }
+  .dd-rem.crit { color: var(--crit); }
+  .dd-rem.na { color: var(--dropdown-muted); font-weight: 500; }
+  .dd-rem.reached { color: var(--crit); font-weight: 600; }
+  .dd-reset { color: var(--dropdown-muted); font-size: 0.76rem; }
+
+  /* offline / no-activity host note — reuses the .stale-note grammar */
+  .dd-hostnote {
+    margin: 3px 8px 4px 18px;
+    padding: 7px 11px;
+    border-radius: 8px;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    background: var(--crit-bg);
+    border-left: 3px solid var(--crit);
+    color: var(--dropdown-text);
+  }
+  .dd-hostnote.muted {
+    background: color-mix(in srgb, var(--dropdown-muted) 12%, transparent);
+    border-left-color: var(--dropdown-muted);
+    color: var(--dropdown-muted);
+  }
+  .dd-hostnote b { font-weight: 600; }
+  .dd-hostnote code {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    background: color-mix(in srgb, var(--dropdown-text) 8%, transparent);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+
+  /* the de-emphasized local host section wrapper */
+  .dd-host-self.deemph { opacity: 0.72; }
+  .dd-host-self.deemph .dd-host-name { font-weight: 600; }
+
+  /* diagnostics block */
+  .dd-diag {
+    padding: 4px 10px 6px 18px;
+    font-size: 0.73rem;
+    line-height: 1.42;
+    color: var(--dropdown-muted);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+  .dd-diag .ic { line-height: 1.42; }
+  .dd-diag.warn .ic { color: var(--warn); }
+  .dd-diag.crit .ic { color: var(--crit); }
+  .dd-diag b { color: var(--dropdown-text); font-weight: 600; }
+
+  /* actions */
+  .dd-action {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    cursor: default;
+    color: var(--dropdown-text);
+    position: relative;
+  }
+  .dd-action:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-action:hover .kbd, .dd-action:hover .ic, .dd-action:hover .caret { color: #fff; opacity: 0.9; }
+  .dd-action .ic { color: var(--dropdown-muted); width: 15px; text-align: center; flex: none; }
+  .dd-action .kbd {
+    margin-left: auto;
+    color: var(--dropdown-muted);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+  .dd-action .caret { margin-left: auto; color: var(--dropdown-muted); font-size: 0.8rem; }
+  .dd-action.listing { color: var(--dropdown-muted); font-size: 0.78rem; cursor: default; }
+  .dd-action.listing:hover { background: transparent; color: var(--dropdown-muted); }
+
+  /* a rendered submenu popping to the right of Remove host… */
+  .dd-submenu {
+    margin: 2px 8px 2px 26px;
+    background: var(--dropdown-panel);
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 8px;
+    padding: 5px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.20);
+  }
+  .dd-submenu .sub-label {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dropdown-muted);
+    padding: 4px 8px 5px;
+    font-family: var(--mono);
+  }
+  .dd-subitem {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px; font-size: 0.8rem;
+    color: var(--dropdown-text);
+  }
+  .dd-subitem:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-subitem .addr { margin-left: auto; font-family: var(--mono); font-size: 0.7rem; color: var(--dropdown-muted); }
+  .dd-subitem:hover .addr { color: rgba(255,255,255,0.8); }
+
+  /* callout under a dropdown */
+  .demo-notes {
+    margin-top: 14px;
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 12px 15px;
+    font-size: 0.79rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .demo-notes b { color: var(--text); font-weight: 600; }
+  .demo-notes code, .demo-notes .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .demo-notes.warn { border-left-color: var(--warn); }
+  .demo-notes.crit { border-left-color: var(--crit); }
+  .demo-notes ul { margin: 8px 0 0; padding-left: 18px; }
+  .demo-notes li { margin-bottom: 5px; }
+  .demo-caption {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin: 0 0 12px;
+    line-height: 1.5;
+  }
+  .demo-caption b { color: var(--text); font-weight: 600; }
+  .demo-caption code, .demo-caption .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+
+  /* =========================================================
+     THE osascript DIALOG — a rendered macOS display dialog.
+     ========================================================= */
+  .dialog-row { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 780px) { .dialog-row { grid-template-columns: 1fr; } }
+  .osa-dialog {
+    background: var(--dropdown-panel);
+    border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.32), 0 2px 6px rgba(0,0,0,0.14);
+    width: 100%;
+    max-width: 400px;
+    padding: 20px 20px 16px;
+    font-family: var(--sans);
+    color: var(--dropdown-text);
+    border: 1px solid var(--dropdown-sep);
+  }
+  .osa-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 12px; }
+  .osa-icon {
+    width: 46px; height: 46px; border-radius: 10px; flex: none;
+    background: linear-gradient(150deg, #3a3c40, #26282b);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-weight: 700; font-size: 1.05rem;
+    color: var(--menubar-text);
+  }
+  .osa-prompt { font-size: 0.86rem; line-height: 1.45; color: var(--dropdown-text); }
+  .osa-prompt .strong { font-weight: 600; }
+  .osa-prompt .hint { display: block; margin-top: 6px; color: var(--dropdown-muted); font-size: 0.8rem; }
+  .osa-prompt .hint code {
+    font-family: var(--mono);
+    background: color-mix(in srgb, var(--dropdown-text) 8%, transparent);
+    padding: 1px 4px; border-radius: 4px; font-size: 0.92em;
+  }
+  .osa-input {
+    width: 100%;
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    color: var(--dropdown-text);
+    background: var(--dropdown-bg);
+    margin: 4px 0 14px;
+  }
+  .osa-input.typed { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+  .osa-buttons { display: flex; justify-content: flex-end; gap: 10px; }
+  .osa-btn {
+    font-size: 0.83rem;
+    font-weight: 500;
+    padding: 6px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--dropdown-sep);
+    background: var(--dropdown-panel);
+    color: var(--dropdown-text);
+    cursor: default;
+  }
+  .osa-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .osa-err {
+    background: var(--dropdown-panel);
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.32);
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+  }
+  .osa-err.dup { }
+  .osa-err-msg { font-size: 0.86rem; line-height: 1.5; color: var(--dropdown-text); margin-bottom: 14px; }
+  .osa-err-msg .m {
+    font-family: var(--mono);
+    background: color-mix(in srgb, var(--dropdown-text) 8%, transparent);
+    padding: 1px 4px; border-radius: 4px; font-size: 0.9em;
+  }
+  .osa-err-msg .lead { font-weight: 600; }
+  .dialog-cap {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 12px 2px 0;
+    line-height: 1.5;
+  }
+  .dialog-cap b { color: var(--text); font-weight: 600; }
+  .dialog-cap .badge-pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+  }
+  .bp-invalid { color: var(--crit); background: var(--crit-bg); }
+  .bp-dup { color: var(--warn); background: var(--warn-bg); }
+  .bp-prompt { color: var(--accent); background: var(--accent-bg); }
+  .bp-ok { color: var(--good); background: var(--good-bg); }
+
+  /* ---------------- copy / legend table ---------------- */
+  .legend-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.83rem;
+    background: var(--stage-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .table-scroll { overflow-x: auto; }
+  .legend-table th, .legend-table td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .legend-table thead th {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+    background: color-mix(in srgb, var(--stage-panel) 88%, var(--track));
+    white-space: nowrap;
+  }
+  .legend-table tbody tr:last-child td { border-bottom: 0; }
+  .legend-table .st { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+  .legend-table .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--menubar-bg);
+    color: var(--menubar-text);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .legend-table .chip .h { color: var(--menubar-text); opacity: 0.92; }
+  .legend-table .chip .sep { color: var(--menubar-text-dim); }
+  .legend-table .chip .c { color: var(--menubar-text-dim); font-weight: 600; }
+  .legend-table td.rule-cell { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .legend-table code, .legend-table .m {
+    font-family: var(--mono);
+    background: var(--track);
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.86em;
+  }
+  .copy-table td.str { font-family: var(--mono); font-size: 0.78rem; color: var(--text); line-height: 1.5; }
+  .copy-table td.when { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+
+  .footnote {
+    margin-top: 36px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--faint);
+    line-height: 1.6;
+  }
+  .footnote b { color: var(--muted); font-weight: 600; }
+  .footnote code {
+    font-family: var(--mono);
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.86em;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">llmdash · multi-host badge · design draft</div>
+    <h1>One glyph for every machine you watch — and which one is tight.</h1>
+    <p class="lede">
+      The badge grows from one machine to several. The glyph now shows the
+      <b>most-constrained window across all monitored machines</b> and names
+      <b>which machine</b> binds, alongside the existing <b>C / X</b> tool cue —
+      <span class="m">▪ Desktop·C 12%</span>. The dropdown carries one honest
+      section per host. Offline hosts are named; a monitoring station's empty
+      local reading is <b>de-emphasized but never faked</b>. When you watch just
+      one machine, it's byte-for-byte today's badge.
+    </p>
+    <span class="draft-flag">Draft · first direction · react and iterate</span>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ============ THE BINDING CASE — the glyph in a real menu bar ============ -->
+  <section class="section">
+    <p class="section-label">The badge, watching four machines from a monitoring station</p>
+    <p class="section-lede">
+      This Mac runs no Claude/Codex work of its own — it watches
+      <b>Desktop</b>, <b>Work laptop</b>, and <b>Studio VM</b>. Across every machine,
+      <b>Desktop's Claude 5-hour window</b> is the tightest at <b>12% remaining</b> (crit) —
+      so the glyph names it: <span class="m">▪ Desktop·C 12%</span>. Host cue, tool cue,
+      then the number in its status color. The empty local machine is kept out of the glance.
+    </p>
+    <div class="menubar" role="img" aria-label="macOS menu bar with the llmdash multi-host badge">
+      <span class="glyph selected fresh" title="llmdash — Desktop binds — Claude 5-hour 12%">
+        <span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span>
+      </span>
+      <span class="sys">🔋 84%</span>
+      <span class="sys">📶</span>
+      <span class="sys">🔍</span>
+      <span class="sys time">Thu 2 Jul&nbsp;&nbsp;11:52</span>
+    </div>
+    <div class="demo-notes">
+      <b>Reading it left to right:</b> <span class="m">▪</span> is the stable llmdash mark
+      (unchanged). <b>Desktop</b> is the new <b>host cue</b> — which machine binds.
+      <span class="m">·C</span> is the tool cue — Claude owns the tightest window.
+      <span class="m">12%</span> is the lowest remaining across every host × tool × window,
+      in its own crit color. One glance answers <b>which machine, which tool, how much</b>.
+    </div>
+  </section>
+
+  <!-- ============ HOST-CUE FORM — the decision to ratify ============ -->
+  <section class="section">
+    <p class="section-label">The host cue — form to ratify (OQ-05)</p>
+    <p class="section-lede">
+      The glyph must name the binding host without getting busy. Below is the proposed
+      form and the two alternatives considered. All stay xbar-safe (plain text + <span class="m">color=</span>),
+      and all collapse to today's badge exactly when only one machine is watched.
+    </p>
+    <div class="states">
+      <div class="state-card" style="border-color:var(--accent);">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name" style="font-size:.8rem;color:var(--accent);"><span class="swatch sw-accent"></span>host·tool ✓ proposed</div>
+          <div class="state-trigger">Full short label, a tight <code>·</code> binding host to tool, then the number. Host and tool read as one token; the number still lands first. <b>Recommended.</b></div>
+        </div>
+      </div>
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">DT</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name" style="font-size:.8rem;"><span class="swatch sw-muted"></span>initials</div>
+          <div class="state-trigger">Shortest (<code>DT·C</code>), but a 2-letter initial is guessable, not legible — you re-learn which machine <code>DT</code> is. Saves space you don't need.</div>
+        </div>
+      </div>
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Studio&nbsp;VM…</span><span class="hostsep">·</span><span class="cue">X</span><span class="num crit">8%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name" style="font-size:.8rem;"><span class="swatch sw-muted"></span>truncation rule</div>
+          <div class="state-trigger">A long label truncates at ~10 chars with an ellipsis (<code>Studio VM…</code>). The full name is in the dropdown header; the glyph stays one clean token.</div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-notes">
+      <b>Proposed rule:</b> <span class="m">▪ &lt;host&gt;·&lt;C|X&gt; &lt;pct&gt;</span> in multi-host mode.
+      Host label rendered at full length up to <b>10 characters</b>, then truncated with <span class="m">…</span>
+      (the dropdown always carries the full escaped label). The <span class="m">·</span> is a
+      hairline separator, not a state marker — it never collides with the <b>aging</b> trailing
+      <span class="m">·</span> because the aging dot sits <b>after the number</b>, the host separator
+      <b>before the tool cue</b>. In <b>single-host mode the entire host cue is omitted</b> —
+      the glyph is <span class="m">▪ C 12%</span>, exactly today's badge.
+    </div>
+  </section>
+
+  <!-- ============ GLYPH HONESTY STATES — multi-host ============ -->
+  <section class="section">
+    <p class="section-label">The five honesty states — carried per binding host</p>
+    <p class="section-lede">
+      The shipped five-state glyph grammar is unchanged; the host cue simply rides in
+      front of the tool cue. The binding host's freshness band drives the glyph state,
+      exactly as the binding tool's band does today. Offline (no server) is the badge's
+      own local instance being down — distinct from a single <b>remote</b> host being
+      unreachable, which is named per-host in the dropdown, never in the glyph.
+    </p>
+    <div class="states">
+      <!-- fresh -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-crit"></span>fresh</div>
+          <div class="state-trigger">Binding host's reading is <b>fresh</b>. Plain and confident; number in its own status color (here crit at 12%).</div>
+        </div>
+      </div>
+      <!-- aging -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph aging"><span class="mark">▪</span><span class="host">Work&nbsp;laptop</span><span class="hostsep">·</span><span class="cue">X</span><span class="num warn">31%</span><span class="agedot">·</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-warn"></span>aging</div>
+          <div class="state-trigger">Binding host's reading is older than <code>freshForMs</code>. Number <b>keeps its status color</b>, takes a trailing <code>·</code> after the number, whole glyph dimmed slightly.</div>
+        </div>
+      </div>
+      <!-- stale -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph stale"><span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num">12%</span><span class="marker">⚠</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-warn"></span>stale</div>
+          <div class="state-trigger">Binding host's reading is older than <code>staleAfterMs</code>. Number goes amber, trailing <b>⚠</b>. Still names the host — <b>you know which machine</b> is stale.</div>
+        </div>
+      </div>
+      <!-- no-reading -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph nodata"><span class="mark">▪</span><span class="dash">—</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>no-reading</div>
+          <div class="state-trigger">No window on <b>any</b> monitored host has a reading yet. A dash — never a number, no host or tool cue. Dropdown explains per host.</div>
+        </div>
+      </div>
+      <!-- offline -->
+      <div class="state-card">
+        <div class="state-strip">
+          <span class="glyph offline"><span class="mark">▪</span>&nbsp;llmdash&nbsp;<span class="marker">⚠</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>offline / error</div>
+          <div class="state-trigger">The <b>local</b> llmdash instance is unreachable (the badge's own loopback read failed). Wordmark + slash, dimmed. Never a number — distinct from a single remote being down.</div>
+        </div>
+      </div>
+      <!-- single-host -->
+      <div class="state-card" style="border-style:dashed;">
+        <div class="state-strip">
+          <span class="glyph fresh"><span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span></span>
+        </div>
+        <div class="state-body">
+          <div class="state-name"><span class="swatch sw-muted"></span>single-host</div>
+          <div class="state-trigger"><b>Unchanged from today.</b> One machine watched → no host cue at all: <code>▪ C 46%</code>. Byte-for-byte the shipped single-host badge (FR-13).</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THE DROPDOWN — one section per host ============ -->
+  <section class="section">
+    <p class="section-label">The dropdown — one honest section per machine</p>
+    <p class="section-lede">
+      Click the glyph and SwiftBar renders the plugin's dropdown: a title echo naming
+      the binding machine, then <b>one section per host</b> — each a host header (escaped
+      label + a freshness/offline pill) wrapping that host's Claude and Codex rows.
+      <b>Binding host leads</b>; then reachable hosts in config order; the unreachable
+      host named honestly; the empty local machine de-emphasized at the bottom, still shown.
+    </p>
+
+    <div class="dropdown-demo">
+      <div class="demo-col">
+        <div class="anchor-bar">
+          <span class="glyph selected fresh"><span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <!-- title echo — names the binding HOST + tool + window -->
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num crit">12%</span>
+            <span class="rem-word">remaining</span>
+            <span class="binding">Desktop · Claude · 5-hour</span>
+          </div>
+          <div class="dd-watching">Watching 4 machines · 1 not reachable</div>
+          <hr class="dd-sep" />
+
+          <!-- HOST 1 — Desktop (binding, fresh) -->
+          <div class="dd-host-head">
+            <span class="dd-host-name">Desktop</span>
+            <span class="dd-host-bind">binding</span>
+            <span class="dd-host-state"><span class="pulse"></span>updated 18s ago</span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Claude Code</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem crit">12%</span><span class="dd-reset">resets 2h 40m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem warn">38%</span><span class="dd-reset">resets 3d 6h</span></span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Codex</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem good">71%</span><span class="dd-reset">resets 4h 05m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem good">64%</span><span class="dd-reset">resets 5d 2h</span></span>
+          </div>
+
+          <hr class="dd-sep" />
+
+          <!-- HOST 2 — Work laptop (fresh, Codex binding-ish) -->
+          <div class="dd-host-head">
+            <span class="dd-host-name">Work laptop</span>
+            <span class="dd-host-state"><span class="pulse"></span>updated 26s ago</span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Claude Code</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem na">not available</span><span class="dd-reset">—</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem na">not available</span><span class="dd-reset">—</span></span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Codex</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem good">88%</span><span class="dd-reset">resets 3h 20m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem good">61%</span><span class="dd-reset">resets 4d 11h</span></span>
+          </div>
+
+          <hr class="dd-sep" />
+
+          <!-- HOST 3 — Studio VM (offline / unreachable) -->
+          <div class="dd-host-head">
+            <span class="dd-host-name">Studio VM</span>
+            <span class="dd-host-state is-offline"><span class="pulse"></span><span class="dd-host-pill pill-offline">unreachable</span></span>
+          </div>
+          <div class="dd-hostnote">
+            <b>Studio VM is unreachable</b> — no response within 3s. Check the machine is awake and llmdash is running on <code>100.64.0.9:8790</code>. Its limits aren't shown while it's offline; the other machines are unaffected.
+          </div>
+
+          <hr class="dd-sep" />
+
+          <!-- HOST 4 — This machine (de-emphasized, no local activity) -->
+          <div class="dd-host-self deemph">
+            <div class="dd-host-head">
+              <span class="dd-host-name">This machine</span>
+              <span class="dd-host-you">you</span>
+              <span class="dd-host-state"><span class="dd-host-pill pill-idle">no local activity</span></span>
+            </div>
+            <div class="dd-hostnote muted">
+              This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated.
+            </div>
+          </div>
+
+          <hr class="dd-sep" />
+          <!-- edit actions -->
+          <div class="dd-action"><span class="ic">＋</span>Add host…</div>
+          <div class="dd-action"><span class="ic">－</span>Remove host…<span class="caret">▸</span></div>
+          <div class="dd-action listing"><span class="ic">☰</span>Watching: 3 hosts</div>
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+      <div class="demo-col">
+        <div class="demo-notes">
+          <b>How to read the sections, top to bottom:</b>
+          <ul>
+            <li><b>Title echo</b> — repeats the glyph and spells out the binding machine, tool, and window: <span class="m">Desktop · Claude · 5-hour</span>. A <span class="m">Watching 4 machines · 1 not reachable</span> line sets the scope honestly.</li>
+            <li><b>Desktop</b> leads because it <b>binds</b> (a small <span class="m">binding</span> pill marks it). Its rows are the exact per-tool rows the badge renders today — <span class="m">N% · resets …</span>, and Claude 5-hour reads <b>12%</b> in crit.</li>
+            <li><b>Work laptop</b> follows in config order, fresh. Its Claude rows honestly read <b>not available</b> (it only runs Codex), never a fabricated <span class="m">0%</span>.</li>
+            <li><b>Studio VM</b> is <b>named unreachable</b> — a per-host offline note carrying which machine and why, reusing the dashboard's stale-note grammar. Never a zero, never stale-as-fresh, never dropped.</li>
+            <li><b>This machine</b> sits last, dimmed, labeled <b>no local activity</b> — retained honestly but out of the glance (the monitoring-station treatment).</li>
+          </ul>
+        </div>
+        <div class="demo-notes crit" style="margin-top:14px;">
+          <b>The honesty floor holds per host.</b> One host aging, stale, or offline never
+          flags or suppresses another host's section — each carries its own freshness/offline
+          state (the shipped five states, now per machine). Every host label is escaped before
+          it touches a line; the <span class="m">Open dashboard</span> link uses this machine's
+          own loopback, never a peer's.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THE EDIT ACTIONS + REMOVE SUBMENU ============ -->
+  <section class="section">
+    <p class="section-label">Editing the watched set — from the dropdown, no restart</p>
+    <p class="section-lede">
+      The dropdown's bottom carries the live-config actions. <b>Add host…</b> opens a native
+      macOS dialog; <b>Remove host…</b> opens a submenu listing the removable machines (never
+      <b>This machine</b>); <b>Watching: N hosts</b> is a live listing. Each writes the local
+      config file — <b>no HTTP mutation</b> — and the change applies on the next update.
+    </p>
+
+    <div class="dropdown-demo">
+      <div class="demo-col">
+        <div class="anchor-bar">
+          <span class="glyph selected fresh"><span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-action"><span class="ic">＋</span>Add host…</div>
+          <div class="dd-action" style="background:var(--dropdown-highlight);color:#fff;"><span class="ic" style="color:#fff;">－</span>Remove host…<span class="caret" style="color:#fff;">▸</span></div>
+          <!-- the submenu popping open -->
+          <div class="dd-submenu">
+            <div class="sub-label">Stop watching…</div>
+            <div class="dd-subitem">Desktop<span class="addr">100.64.0.7:8788</span></div>
+            <div class="dd-subitem">Work laptop<span class="addr">laptop:8787</span></div>
+            <div class="dd-subitem">Studio VM<span class="addr">100.64.0.9:8790</span></div>
+          </div>
+          <div class="dd-action listing"><span class="ic">☰</span>Watching: 3 hosts</div>
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+      <div class="demo-col">
+        <div class="demo-notes">
+          <b>The action set:</b>
+          <ul>
+            <li><span class="m">＋ Add host…</span> — opens the macOS input dialog (next section) to collect a <span class="m">host[:port][=label]</span>.</li>
+            <li><span class="m">－ Remove host…</span> — a submenu, one item per <b>removable</b> host with its address. <b>This machine is never listed</b> (it's always present). Selecting one opens a confirm dialog.</li>
+            <li><span class="m">☰ Watching: 3 hosts</span> — a live listing of the current remote set (escaped labels), a real affordance, not a dead item. Counts the 3 configured remotes; the title echo's "4 machines" includes this machine.</li>
+            <li><span class="m">◱ Open dashboard</span> / <span class="m">⟳ Refresh</span> — the shipped actions, unchanged.</li>
+          </ul>
+        </div>
+        <div class="demo-notes" style="margin-top:14px;">
+          <b>After any edit</b> the badge refreshes so the dropdown reflects the new list, and
+          the actual monitoring change takes effect <b>on the next poller update</b> — the copy
+          never claims it's live before the poller has re-read the file. No plist edit, no
+          service restart.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THE ADD DIALOG + VALIDATION ============ -->
+  <section class="section">
+    <p class="section-label">Add a host — the native dialog and its honest responses</p>
+    <p class="section-lede">
+      <b>Add host…</b> runs a fixed-literal <span class="m">osascript display dialog</span>
+      on the same machine (no HTTP, no shell interpolation of the typed value). The entered
+      string is sanitized, validated against the same grammar <span class="m">LLMDASH_HOSTS</span>
+      uses, deduped, and — only if valid — appended atomically. Malformed and duplicate entries
+      are <b>rejected with an honest message and nothing is written</b>.
+    </p>
+
+    <div class="dialog-row">
+      <!-- the prompt dialog -->
+      <div>
+        <span class="dialog-cap badge-pill bp-prompt">the prompt</span>
+        <div class="osa-dialog">
+          <div class="osa-head">
+            <div class="osa-icon">▪</div>
+            <div class="osa-prompt">
+              <span class="strong">Add a machine to watch.</span>
+              <span class="hint">Enter its Tailscale hostname or IP — optionally <code>host:port</code> or <code>host=Label</code>.<br>e.g. <code>100.64.0.7:8788=Desktop</code></span>
+            </div>
+          </div>
+          <input class="osa-input typed" value="100.64.0.7:8788=Desktop" readonly aria-label="hostname input" />
+          <div class="osa-buttons">
+            <span class="osa-btn">Cancel</span>
+            <span class="osa-btn primary">Add</span>
+          </div>
+        </div>
+        <p class="dialog-cap"><b>Valid entry</b> → sanitized, validated, atomically appended. The badge then shows <b>“Added Desktop — it'll appear on the next update.”</b></p>
+      </div>
+
+      <!-- the two error responses -->
+      <div>
+        <span class="dialog-cap badge-pill bp-invalid">invalid — nothing written</span>
+        <div class="osa-err">
+          <div class="osa-head" style="margin-bottom:10px;">
+            <div class="osa-icon" style="background:linear-gradient(150deg,#5a2b2b,#3a1e1e);">⚠</div>
+            <div class="osa-err-msg" style="margin-bottom:0;">
+              <span class="lead">That doesn't look like a valid host</span> — nothing was added. Expected <span class="m">host[:port][=label]</span>.
+            </div>
+          </div>
+          <div class="osa-buttons"><span class="osa-btn primary">OK</span></div>
+        </div>
+
+        <span class="dialog-cap badge-pill bp-dup" style="margin-top:18px;">duplicate — deduped</span>
+        <div class="osa-err dup">
+          <div class="osa-head" style="margin-bottom:10px;">
+            <div class="osa-icon" style="background:linear-gradient(150deg,#5a4620,#3a2f16);">≡</div>
+            <div class="osa-err-msg" style="margin-bottom:0;">
+              <span class="lead">That host is already being watched.</span> <span class="m">Desktop</span> (<span class="m">100.64.0.7:8788</span>) is already in your list — nothing changed.
+            </div>
+          </div>
+          <div class="osa-buttons"><span class="osa-btn primary">OK</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-notes" style="margin-top:20px;">
+      <b>Remove confirm</b> (from the submenu) reads <span class="m">Stop watching Studio VM (100.64.0.9:8790)?</span>
+      with <b>Cancel / Stop watching</b>. <b>A write failure</b> reads
+      <span class="m">Couldn't save the host list — &lt;reason&gt;. Nothing changed.</span>
+      Every string is honest: an invalid entry names what was expected and writes nothing; a
+      write failure states nothing changed; the post-write line says the change applies
+      <b>on the next update</b>, never that it's already live.
+    </div>
+  </section>
+
+  <!-- ============ GLYPH BINDING SPEC TABLE ============ -->
+  <section class="section">
+    <p class="section-label">Glyph composition — the binding spec (multi-host)</p>
+    <p class="section-lede">
+      What the Engineer implements. The host cue is the only new element; every other state
+      is the shipped badge unchanged. Colors are the design-system status tokens, lifted for
+      the dark bar. Host + tool cue are dim locators; the number is the headline.
+    </p>
+    <div class="table-scroll">
+    <table class="legend-table">
+      <thead>
+        <tr><th>Mode / state</th><th>Glyph</th><th>Host cue</th><th>The rule it enforces</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="st">multi · fresh</td>
+          <td><span class="chip">▪ <span class="h">Desktop</span><span class="sep">·</span><span class="c">C</span> <span style="color:#ff6b6b;">12%</span></span></td>
+          <td class="tok"><code>&lt;host&gt;·&lt;C|X&gt;</code>, ≤10 chars then <code>…</code></td>
+          <td class="rule-cell">Binding host + tool named before the number. Number in its own status color. One clean token.</td>
+        </tr>
+        <tr>
+          <td class="st">multi · aging</td>
+          <td><span class="chip" style="opacity:.82">▪ <span class="h">Work laptop</span><span class="sep">·</span><span class="c">X</span> <span style="color:#f0a94b;">31%</span>·</span></td>
+          <td class="tok">host cue kept, ~0.82 opacity</td>
+          <td class="rule-cell">Trailing <code>·</code> sits <b>after</b> the number; host separator sits <b>before</b> the tool cue — the two dots never collide.</td>
+        </tr>
+        <tr>
+          <td class="st">multi · stale</td>
+          <td><span class="chip">▪ <span class="h">Desktop</span><span class="sep">·</span><span class="c">C</span> <span style="color:#e6c07b;">12%</span> <span style="color:#f0a94b;">⚠</span></span></td>
+          <td class="tok">host cue kept</td>
+          <td class="rule-cell">Amber number + trailing <b>⚠</b>. Still names <b>which machine</b> is stale.</td>
+        </tr>
+        <tr>
+          <td class="st">multi · no-reading</td>
+          <td><span class="chip">▪ <span style="color:var(--menubar-text-dim)">—</span></span></td>
+          <td class="tok">omitted (no binding host)</td>
+          <td class="rule-cell">No host on any machine has a reading. A dash — no host cue, no tool cue, never a number.</td>
+        </tr>
+        <tr>
+          <td class="st">local offline</td>
+          <td><span class="chip" style="color:var(--menubar-text-dim)">▪ llmdash ⚠</span></td>
+          <td class="tok">omitted</td>
+          <td class="rule-cell">The local llmdash instance is down. Wordmark + slash, never a number. A single <b>remote</b> being down is a dropdown line, not this.</td>
+        </tr>
+        <tr>
+          <td class="st">single-host</td>
+          <td><span class="chip">▪ <span class="c">C</span> <span style="color:#f0a94b;">46%</span></span></td>
+          <td class="tok"><b>no host cue at all</b></td>
+          <td class="rule-cell">One machine watched → byte-for-byte today's badge (FR-13). Host chrome engages only when &gt;1 machine.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ============ COPY TABLE ============ -->
+  <section class="section">
+    <p class="section-label">Every new user-facing string</p>
+    <p class="section-lede">
+      Honest and validating, refined from the PRD's pinned copy (FR-18). The behavior is
+      pinned; wording here is the draft to react to.
+    </p>
+    <div class="table-scroll">
+    <table class="legend-table copy-table">
+      <thead>
+        <tr><th style="width:38%;">String</th><th>When it appears</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="str">Watching 4 machines · 1 not reachable</td><td class="when">Dropdown scope line, under the title echo. Counts all monitored machines incl. this one.</td></tr>
+        <tr><td class="str">Desktop · Claude · 5-hour</td><td class="when">Title-echo binding cue — the binding machine, tool, window spelled out (full names, not the C/X glyph letter).</td></tr>
+        <tr><td class="str">binding</td><td class="when">Pill on the host header of the machine driving the glyph number.</td></tr>
+        <tr><td class="str">no local activity</td><td class="when">Idle pill on the de-emphasized local host (monitoring station), auto-detected.</td></tr>
+        <tr><td class="str">This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated.</td><td class="when">The de-emphasized local host's note (honesty floor: retained, labeled, never zeroed).</td></tr>
+        <tr><td class="str">Studio VM is unreachable — no response within 3s. Check the machine is awake and llmdash is running on 100.64.0.9:8790. Its limits aren't shown while it's offline; the other machines are unaffected.</td><td class="when">Per-host offline note (<span class="m">hostDiagnostic.reason = peer-unreachable</span>).</td></tr>
+        <tr><td class="str">&lt;label&gt; returned an error (&lt;cause&gt;).</td><td class="when">Per-host error note (<span class="m">peer-error</span>).</td></tr>
+        <tr><td class="str">&lt;label&gt; — not polled yet; fills in on the next update.</td><td class="when">Per-host pending note (a seeded host not yet polled).</td></tr>
+        <tr><td class="str">Add host…</td><td class="when">Edit action.</td></tr>
+        <tr><td class="str">Add a machine to watch. Enter its Tailscale hostname or IP — optionally host:port or host=Label (e.g. 100.64.0.7:8788=Desktop).</td><td class="when">The osascript add prompt.</td></tr>
+        <tr><td class="str">That doesn't look like a valid host — nothing was added. Expected host[:port][=label].</td><td class="when">Invalid entry rejection (nothing written).</td></tr>
+        <tr><td class="str">That host is already being watched. &lt;label&gt; (&lt;host:port&gt;) is already in your list — nothing changed.</td><td class="when">Duplicate rejection (deduped).</td></tr>
+        <tr><td class="str">Added &lt;host&gt; — it'll appear on the next update.</td><td class="when">Post-add confirmation (honest about next-tick apply).</td></tr>
+        <tr><td class="str">Remove host…</td><td class="when">Edit action (opens the submenu).</td></tr>
+        <tr><td class="str">Stop watching &lt;label&gt;…</td><td class="when">Submenu item, one per removable host.</td></tr>
+        <tr><td class="str">Stop watching &lt;label&gt; (&lt;host:port&gt;)?</td><td class="when">Remove confirm dialog.</td></tr>
+        <tr><td class="str">Watching: &lt;N&gt; hosts</td><td class="when">Live listing line (the current remote set).</td></tr>
+        <tr><td class="str">Couldn't save the host list — &lt;reason&gt;. Nothing changed.</td><td class="when">Write failure (atomic write did not commit).</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="footnote">
+    <b>Reuse over reinvention.</b> Every color, pill, note, and row grammar above is the
+    established design system — status <code>good/warn/crit</code> tokens, the age-pill
+    vocabulary (<code>aging</code>→warn, <code>stale</code>→crit), and the <code>.stale-note</code>
+    callout — now applied per machine on the menu-bar surface. &nbsp;·&nbsp; <b>The only new
+    chrome</b> is the host header row and the host-level freshness/offline pill, mirroring the
+    multi-host dashboard's <code>.host-head</code> / <code>.host-pill</code> treatment.
+    &nbsp;·&nbsp; <b>xbar-safe floor:</b> the host cue is plain text + <code>color=</code>, like
+    every other glyph element — nothing depends on a SwiftBar-only param. &nbsp;·&nbsp;
+    <b>Single-host is untouched:</b> when one machine is watched, none of the host chrome
+    renders — the badge is exactly what shipped.
+  </div>
+
+</div>

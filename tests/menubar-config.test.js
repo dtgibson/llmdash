@@ -8,19 +8,34 @@ import { startServer, runPlugin, loadFixture } from './helpers/menubar-run.js';
 // knob). Verified end to end: the plugin is pointed at a scratch server on the
 // overridden host:port and its emitted output is read back. The plugin is
 // spawned async so this process's event loop stays live to serve the fetch.
+//
+// Since multi-host-badge the badge reads /api/hosts (its LOCAL instance's combined
+// view), not /api/state (FR-06). A single-host /api/hosts payload wraps the shipped
+// /api/state fixture as the ONE self host, so the badge renders byte-for-byte the
+// shipped single-host glyph (mode:'single', FR-13).
+function singleHostPayload(now = Date.now()) {
+  return {
+    hosts: [{
+      host: 'local', label: 'This machine', port: 8787, self: true,
+      reachable: true, hostDiagnostic: null,
+      fetchedAt: new Date(now).toISOString(), state: loadFixture('state-fresh', now),
+    }],
+    generatedAt: new Date(now).toISOString(),
+  };
+}
 
 test('LLMDASH_PORT drives BOTH the fetch target and the Open-dashboard href', async () => {
   let hitPath = null;
   const srv = await startServer((req, res) => {
     hitPath = req.url;
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(loadFixture('state-fresh')));
+    res.end(JSON.stringify(singleHostPayload()));
   });
   const r = await runPlugin({ LLMDASH_BADGE_HOST: '127.0.0.1', LLMDASH_PORT: String(srv.port) });
   await srv.close();
   assert.equal(r.status, 0);
-  assert.equal(hitPath, '/api/state');                       // fetch hit the overridden port
-  assert.match(r.stdout.split('\n')[0], /^▪ C \d+% \|/);     // rendered a real reading, not offline
+  assert.equal(hitPath, '/api/hosts');                       // the badge now reads /api/hosts (FR-06)
+  assert.match(r.stdout.split('\n')[0], /^▪ C \d+% \|/);     // single-host = byte-for-byte the shipped glyph
   assert.match(r.stdout, new RegExp(`Open dashboard \\| href=http://127\\.0\\.0\\.1:${srv.port}/`)); // href matches
 });
 
@@ -34,7 +49,7 @@ test('LLMDASH_BADGE_HOST override changes both the fetch target and the href', a
     srv = await startServer((req, res) => {
       served = true;
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(loadFixture('state-fresh')));
+      res.end(JSON.stringify(singleHostPayload()));
     }, HOST);
   } catch {
     // Platform can't bind the alias: still prove HOST drives the href via the

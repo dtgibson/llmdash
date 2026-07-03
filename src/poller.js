@@ -7,6 +7,7 @@ import { computeCodexActivity, clearCodexStatsCache } from './codex-stats.js';
 import { config } from '../config.js';
 import { parseHosts, remoteHosts, fetchPeerState } from './hosts.js';
 import { setHost, retainHosts, seedOrder } from './host-cache.js';
+import { readHostsConfig } from './host-config.js';
 
 function snapshot(live) {
   if (!live) return 0;
@@ -20,8 +21,14 @@ function snapshot(live) {
 // The local host's reading is taken IN-PROCESS (the same buildState() the local
 // view serves), never fetched over HTTP from itself. Imported lazily to avoid a
 // server↔poller import cycle (server.js imports startPoller from here).
-async function writeLocalHost(nowMs) {
-  const parsed = parseHosts();
+//
+// `parsed` is passed in (produced from the config FILE this tick, not
+// config.hostsRaw directly), so the file-once-it-exists precedence is applied
+// before the local host is written and the fan-out is computed. `localMode` is the
+// !local= directive from the config file, echoed onto the LOCAL HostReading so the
+// badge's monitoring-station override is a real knob (QA-19) — a pure config echo,
+// no fabricated field; absent → 'auto' (the client default).
+async function writeLocalHost(nowMs, parsed, localMode = 'auto') {
   const local = parsed.hosts.find((h) => h.self) || parsed.hosts[0];
   const { buildState } = await import('./server.js');
   let state = null;
@@ -30,9 +37,9 @@ async function writeLocalHost(nowMs) {
     host: local.host, label: local.label, port: local.port, self: true,
     reachable: !!state, hostDiagnostic: state ? null : { reason: 'peer-error', cause: 'bad-json', detail: 'local build failed' },
     fetchedAt: new Date(nowMs).toISOString(),
+    localMode: (localMode === 'include' || localMode === 'exclude' || localMode === 'auto') ? localMode : 'auto',
     state,
   });
-  return parsed;
 }
 
 // Bounded-concurrency fan-out over the REMOTE peers. Each fetch is timeout-
@@ -91,14 +98,31 @@ export async function pollOnce() {
 
   // Multi-host: local reading in-process, then the bounded peer fan-out. Peer
   // polling runs ONLY here (never on the HTTP request path). An empty peer list
-  // (unset LLMDASH_HOSTS) issues no outbound fetch — single-host behavior.
+  // (no hosts.conf, LLMDASH_HOSTS unset) issues no outbound fetch — single-host.
+  //
+  // The effective host set now comes from the config FILE (re-read each tick), not
+  // config.hostsRaw directly: readHostsConfig applies the seed-once precedence
+  // (file wins; env seeds the file when absent; neither = single-host) and degrades
+  // honestly on an unreadable file (falls back to the last-good/env seed and logs
+  // ONCE via its own latch — never crashes the poller). A LIVE file edit is thus
+  // applied here: an added host is polled next tick; a removed host's cache entry
+  // is dropped by retainHosts next tick (ghost cleanup on a file change mid-run).
   let parsed;
-  try { parsed = await writeLocalHost(nowMs); } catch (e) { console.error('local host:', e.message); }
+  try {
+    const cfgRead = readHostsConfig(); // cheap fs read on the POLLER tick, never the request path
+    parsed = parseHosts(cfgRead.raw);
+    await writeLocalHost(nowMs, parsed, cfgRead.localMode);
+  } catch (e) { console.error('local host:', e.message); }
   if (parsed) {
     // Pin the view ordering to the configured list order (local first, peers as
     // listed) BEFORE the fan-out, so a fast-failing offline peer can't jump
     // ahead of a slower-succeeding one by completion time.
     seedOrder(parsed.hosts);
+    // retainHosts runs BEFORE pollPeers so a same-tick removal is never fetched,
+    // and a peer dropped from the FILE mid-run has its cache entry cleaned here
+    // (the ghost-cleanup path is now exercised on a live file edit, not only on a
+    // process restart — the original "normally the process restarts" belt-and-
+    // braces is the load-bearing runtime-apply half for the badge's Remove).
     retainHosts(parsed.hosts.map((h) => h.key));
     const remotes = remoteHosts(parsed);
     if (remotes.length) {

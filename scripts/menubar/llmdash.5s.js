@@ -179,6 +179,171 @@ export function computeBadge(state) {
   };
 }
 
+// ── HOST-LEVEL diagnostics (multi-host) — own-key mapped, detail sanitized ───
+// A HostReading with reachable:false / state:null carries a hostDiagnostic. Map
+// its reason to a fixed honest line naming WHICH host and WHY — own-key lookup
+// (hasOwnProperty), the same discipline as DIAG_LINES, so an inherited-key reason
+// can't bypass the fallback. Copy verbatim from the design spec's per-host table.
+// The reserved codes auto-refresh-failing/auto-refresh-disabled are NOT reused
+// here (they are tool-level Claude codes). label/host/detail are sanitize()d by
+// the caller before this builds the line; addr is sanitizeHostPort()'d there too.
+export const HOST_DIAG_LINES = {
+  'peer-unreachable': (label, addr) =>
+    `${label} is unreachable — no response within 3s. Check the machine is awake and llmdash is running on ${addr}. Its limits aren't shown while it's offline; the other machines are unaffected.`,
+  'peer-error': (label, addr, cause) =>
+    `${label} returned an error${cause ? ` (${cause})` : ''}.`,
+  'pending': (label) =>
+    `${label} — not polled yet; fills in on the next update.`,
+};
+export const HOST_DIAG_FALLBACK = (label) => `${label} is unavailable.`;
+
+export function hostDiagLine(label, addr, d) {
+  if (!d || !d.reason) return null;
+  const fn = Object.prototype.hasOwnProperty.call(HOST_DIAG_LINES, d.reason)
+    ? HOST_DIAG_LINES[d.reason] : null;
+  const cause = d.cause ? sanitize(d.cause) : '';
+  return fn ? fn(label, addr, cause) : HOST_DIAG_FALLBACK(label);
+}
+
+// ── computeMultiBadge — the HOST axis over computeBadge (FR-07/08/13/19) ──────
+// Wraps the per-tool computeBadge with an outer HOST loop. Given the /api/hosts
+// combined view, it returns:
+//   { mode, state, pct, cue, hostCue, binding, hostViews }
+//   mode = 'single' | 'multi'   ('single' when the effective host count === 1 →
+//          the caller renders the EXISTING single-host glyph/dropdown byte-for-byte)
+//   binding = the min remainingPct across HOST × tool × window WITH a reading
+//             (no-reading hosts/windows excluded — never counted as 0; a maxed
+//             window binds as "limit reached"); the binding host + tool + window.
+//   hostCue = the binding host's short label (multi mode only), for the glyph.
+//   hostViews = per-host { label, addr, self, reachable, hostDiag, badge (computeBadge
+//               result or null), pending, deemph } in RENDER order (binding first).
+//
+// Monitoring-station de-emphasis (FR-19): with localMode 'auto' (default), when
+// the LOCAL host has no readings (its computeBadge is no-reading) AND ≥1 remote is
+// present, the local host is dropped from the binding-min search and the headline
+// (it stays in the dropdown, dimmed, honestly labeled — FR-20). 'exclude' forces
+// de-emphasis; 'include' forces the local host into the glyph/headline. Pure
+// derivation over /api/hosts — no server field. localMode comes from the local
+// HostReading's `localMode` echo (see fetchHosts) or defaults to 'auto'.
+const HOST_CUE_MAX = 10; // truncate a long host label past 10 chars with '…'
+
+function truncateHostCue(label) {
+  const s = String(label == null ? '' : label);
+  return s.length > HOST_CUE_MAX ? s.slice(0, HOST_CUE_MAX) + '…' : s;
+}
+
+export function computeMultiBadge(combined, { localMode = 'auto' } = {}) {
+  const hostsIn = (combined && Array.isArray(combined.hosts)) ? combined.hosts : [];
+
+  // Build a per-host view: the existing computeBadge over each host's nested
+  // state (self reads its own state; a remote with state:null is offline/pending).
+  const views = hostsIn.map((h) => {
+    const label = sanitize(h.label != null ? h.label : (h.host || '')); // data → sanitized
+    const addr = `${sanitizeHostPort(h.host)}:${sanitizeHostPort(h.port)}`;
+    const badge = (h.state && Array.isArray(h.state.tools)) ? computeBadge(h.state) : null;
+    // A host with no state is offline (reachable:false) or pending (seeded, not
+    // yet polled). Prefer the explicit hostDiagnostic; synthesize 'pending' when a
+    // seeded host has neither state nor diagnostic yet.
+    let hostDiag = h.hostDiagnostic || null;
+    if (!badge && !hostDiag && h.pending) hostDiag = { reason: 'pending' };
+    // "Empty local" = self with a no-reading badge (all tools without a reading).
+    const emptyLocal = !!h.self && badge != null && badge.state === 'no-reading';
+    return {
+      label, addr, self: !!h.self, reachable: h.reachable !== false,
+      badge, hostDiag, pending: !!h.pending, emptyLocal,
+      diagLine: hostDiag ? hostDiagLine(label, addr, hostDiag) : null,
+    };
+  });
+
+  const effectiveCount = views.length;
+  if (effectiveCount <= 1) {
+    // Single-host / unconfigured → the EXISTING path, byte-for-byte (FR-13). The
+    // caller unwraps hostViews[0].badge and runs the shipped emit. hostCue omitted.
+    const only = views[0] || null;
+    return {
+      mode: 'single',
+      state: only && only.badge ? only.badge.state : 'no-reading',
+      pct: only && only.badge ? only.badge.pct : null,
+      cue: only && only.badge ? only.badge.cue : null,
+      hostCue: null, binding: null,
+      hostViews: views,
+    };
+  }
+
+  // Monitoring-station: decide whether the local host is de-emphasized (dropped
+  // from the glyph/headline + binding-min search). Retained in the dropdown always.
+  const localView = views.find((v) => v.self) || null;
+  let deemphLocal = false;
+  if (localView) {
+    if (localMode === 'exclude') deemphLocal = true;
+    else if (localMode === 'include') deemphLocal = false;
+    else deemphLocal = localView.emptyLocal; // 'auto': de-emphasize an empty local
+  }
+  if (localView) localView.deemph = deemphLocal;
+
+  // The binding: min remainingPct across HOST × tool × window with a reading,
+  // over the hosts that count toward the glyph (all remotes + the local host
+  // unless de-emphasized). A no-reading host contributes nothing (never 0).
+  let binding = null; // { pct, view, toolLabel, windowLabel, band, maxed }
+  for (const v of views) {
+    if (v.self && deemphLocal) continue;      // de-emphasized local: out of the glyph
+    if (!v.badge || v.badge.binding == null) continue; // no reading on this host
+    const b = v.badge;
+    if (binding == null || b.pct < binding.pct) {
+      binding = {
+        pct: b.pct, view: v,
+        toolLabel: b.binding.toolLabel, windowLabel: b.binding.windowLabel,
+        band: b.binding.band, cue: b.cue, state: b.state,
+      };
+    }
+  }
+
+  // RENDER order (design spec §3): binding host first, then the remaining
+  // reachable hosts in config order, then offline/unreachable hosts, then the
+  // de-emphasized local host pinned last.
+  const bindingView = binding ? binding.view : null;
+  const ordered = [];
+  const rest = views.filter((v) => v !== bindingView);
+  if (bindingView) ordered.push(bindingView);
+  // reachable, non-deemph, has-a-reading (or at least reachable) first
+  for (const v of rest) {
+    if (v.self && v.deemph) continue;        // deemph local goes last
+    if (!v.reachable || (!v.badge)) continue; // offline/no-state next batch
+    ordered.push(v);
+  }
+  for (const v of rest) {                     // offline / unreachable hosts
+    if (v.self && v.deemph) continue;
+    if (v.reachable && v.badge) continue;     // already placed
+    ordered.push(v);
+  }
+  const deemphView = views.find((v) => v.self && v.deemph);
+  if (deemphView) ordered.push(deemphView);   // de-emphasized local pinned last
+
+  if (binding == null) {
+    // No host on any counted machine has a reading → no-reading glyph (a dash),
+    // never a number, no host cue (design spec: multi · no-reading = `▪ —`).
+    return {
+      mode: 'multi', state: 'no-reading', pct: null, cue: null, hostCue: null,
+      binding: null, hostViews: ordered,
+    };
+  }
+
+  return {
+    mode: 'multi',
+    state: binding.state,               // the binding host's glyph band (fresh/aging/stale)
+    pct: binding.pct,
+    cue: binding.cue,                   // binding tool cue (C/X)
+    hostCue: truncateHostCue(binding.view.label), // binding host's short label (≤10 + …)
+    binding: {
+      hostLabel: binding.view.label,
+      toolLabel: binding.toolLabel,
+      windowLabel: binding.windowLabel,
+      band: binding.band,
+    },
+    hostViews: ordered,
+  };
+}
+
 // ── emit — SwiftBar/xbar stdout (the host format) ───────────────────────────
 // Title line, then `---`, then dropdown lines. Glyph honesty is carried by
 // text/emoji + color= (xbar-safe floor); never depends on a SwiftBar-only
@@ -296,6 +461,162 @@ export function emit(badge, { host = HOST, port = PORT, offline = false } = {}) 
   return [title, ...dropdownLines(badge, host, port)].join('\n');
 }
 
+// ── Multi-host dropdown + glyph (FR-07–FR-13, FR-19/20) ──────────────────────
+// The badge dir (where host-config-action.mjs lives) — resolved from this file so
+// the Add/Remove actions can shell to the sibling helper under $ABS_NODE. The
+// installed wrapper passes the tracked plugin path as argv[1], so import.meta.url
+// resolves to the tracked scripts/menubar dir where the helper also lives.
+import { fileURLToPath as _fileURLToPath } from 'node:url';
+import { dirname as _dirname } from 'node:path';
+export const PLUGIN_DIR = (() => {
+  try { return _dirname(_fileURLToPath(import.meta.url)); } catch { return '.'; }
+})();
+// The absolute node the wrapper baked (SwiftBar spawns under a minimal PATH where
+// a bare "node" is dead). process.execPath is exactly that node — the same binary
+// running this plugin — so the Add/Remove actions exec it against the helper.
+export const ABS_NODE = process.execPath;
+const HOST_CONFIG_ACTION = `${PLUGIN_DIR}/host-config-action.mjs`;
+
+// A per-host section: header (escaped label + binding/you pill + freshness/offline
+// state) then the existing per-tool rows. Reuses dropdownLines' per-tool grammar
+// per host. `isBinding` marks the glyph-driving host; `deemph` is the monitoring-
+// station local host (dimmed + "no local activity" + the honest note, FR-20).
+function hostSectionLines(view, { isBinding = false } = {}) {
+  const lines = ['---'];
+  // Host header: label, then a pill (binding / you), then a state suffix.
+  let head = view.label;
+  if (isBinding) head += '  ▸ binding';
+  else if (view.self) head += '  · you';
+  lines.push(`${head} | size=13 color=#cccccc`);
+
+  if (view.self && view.deemph) {
+    // De-emphasized local (monitoring station): the honest idle note, no fake
+    // rows, no zeros — retained but out of the glance (FR-20). Copy verbatim.
+    lines.push('no local activity | size=12 color=#888888');
+    lines.push("This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated. | size=11 color=#888888");
+    return lines;
+  }
+
+  if (view.diagLine) {
+    // Offline / error / pending host: the named line, never a fabricated zero.
+    lines.push(`${view.diagLine} | size=12 color=${COLOR_STALE}`);
+    return lines;
+  }
+
+  if (!view.badge) {
+    // No state and no diagnostic (shouldn't happen post-normalize) — honest dash.
+    lines.push(`no reading | size=12 color=${COLOR_MUTED}`);
+    return lines;
+  }
+
+  // The existing per-tool rows, per host (5-hour / Weekly; not available / limit
+  // reached / N% · resets …). Verbatim from dropdownLines' inner loop.
+  const diagBlock = [];
+  for (const tv of view.badge.toolViews) {
+    const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
+    lines.push(`${tv.label}${tag} | size=12 color=#999999`);
+    for (const row of tv.rows) {
+      let text;
+      if (row.remaining == null) {
+        text = `${row.label}:  not available`;
+      } else if (row.maxed) {
+        const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
+        text = `${row.label}:  limit reached · resets ${resetIn}`;
+      } else {
+        const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
+        text = `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
+      }
+      lines.push(`${text} | font=Menlo`);
+    }
+    if (tv.diag) diagBlock.push(`${tv.diag} | size=11 color=${COLOR_STALE}`);
+  }
+  for (const dl of diagBlock) lines.push(dl);
+  return lines;
+}
+
+// The Add / Remove / List actions (FR-14). Each shells to the tracked helper
+// under $ABS_NODE (terminal=false windowless, refresh=true so the dropdown
+// reflects the new list). Remove is a submenu of the REMOVABLE (non-self) hosts —
+// the local host is never offered. `remotes` = [{label, key, addr}] from listHosts.
+function actionLines(remotes) {
+  const lines = ['---'];
+  lines.push(`＋ Add host… | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=add terminal=false refresh=true`);
+  // Remove submenu: SwiftBar renders a nested item with a leading `--`. One item
+  // per removable host; each passes the host KEY on ARGV (param3). The key is a
+  // sanitized host:port identity — never a free-form label.
+  lines.push('－ Remove host…');
+  for (const r of remotes) {
+    const label = sanitize(r.label);
+    const key = sanitizeHostPort(r.key);
+    lines.push(`--Stop watching ${label} (${r.addr}) | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`);
+  }
+  if (!remotes.length) lines.push('--No removable hosts | color=#999999');
+  // A live listing of the current remote set (a real affordance, not a dead item).
+  lines.push(`☰ Watching: ${remotes.length} host${remotes.length === 1 ? '' : 's'} | color=#999999`);
+  return lines;
+}
+
+// The multi-host dropdown: title echo (binding host · tool · window) + scope line,
+// one section per host (binding first), then the actions, then the shipped
+// Open-dashboard / Refresh. host/port drive the Open-dashboard href (THIS machine's
+// loopback, never a peer's).
+function multiDropdownLines(multi, host, port, remotes) {
+  const lines = [];
+  const reachableCount = multi.hostViews.length;
+  const unreachable = multi.hostViews.filter((v) => !v.reachable || (!v.badge && !v.self)).length;
+
+  if (multi.state === 'no-reading') {
+    lines.push(`${MARK} no reading yet`);
+  } else {
+    const b = multi.binding;
+    const bindingCue = `${b.hostLabel} · ${b.toolLabel} · ${b.windowLabel}`
+      + (b.band === 'aging' || b.band === 'stale' ? ` · ${b.band}` : '');
+    lines.push(`${MARK} ${multi.pct}% remaining — ${bindingCue}`);
+  }
+  const scope = `Watching ${reachableCount} machine${reachableCount === 1 ? '' : 's'}`
+    + (unreachable ? ` · ${unreachable} not reachable` : '');
+  lines.push(`${scope} | size=12 color=#999999`);
+
+  const bindingView = multi.binding ? multi.hostViews[0] : null;
+  for (const view of multi.hostViews) {
+    for (const l of hostSectionLines(view, { isBinding: view === bindingView && !!multi.binding })) lines.push(l);
+  }
+
+  for (const l of actionLines(remotes)) lines.push(l);
+
+  lines.push('---');
+  lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
+  lines.push('Refresh | refresh=true');
+  return lines;
+}
+
+// emitMulti — the multi-host title glyph + the multi-host dropdown. The glyph
+// carries the host cue: `▪ <host>·<C|X> <pct>` in fresh/aging/stale; no-reading is
+// `▪ —` (no host cue). Single-host mode is handled by the caller delegating to the
+// shipped emit() — this is only ever called with mode:'multi'.
+export function emitMulti(multi, { host = HOST, port = PORT, remotes = [] } = {}) {
+  let title;
+  const hc = multi.hostCue; // already truncated + sanitized
+  switch (multi.state) {
+    case 'no-reading':
+      title = `${MARK} ${DASH} | color=${COLOR_MUTED}`;
+      break;
+    case 'stale':
+      title = `${MARK} ${hc}${AGE_DOT}${multi.cue} ${multi.pct}% ${WARN_TRIANGLE} | color=${COLOR_STALE}`;
+      break;
+    case 'aging':
+      title = `${MARK} ${hc}${AGE_DOT}${multi.cue} ${multi.pct}%${AGE_DOT} | color=${COLOR_AGING}`;
+      break;
+    case 'fresh':
+    default: {
+      const color = BAR_COLOR[statusClass(multi.pct)];
+      title = `${MARK} ${hc}${AGE_DOT}${multi.cue} ${multi.pct}% | color=${color}`;
+      break;
+    }
+  }
+  return [title, ...multiDropdownLines(multi, host, port, remotes)].join('\n');
+}
+
 // ── fetchState — one loopback GET, bounded by FETCH_TIMEOUT_MS ───────────────
 // A function of (host, port) so a future multi-host build can map over a list.
 // Any failure (non-200, timeout, connection error, bad JSON) rejects; main()
@@ -320,22 +641,90 @@ export function fetchState(host, port) {
   });
 }
 
+// ── fetchHosts — one loopback GET /api/hosts, bounded by FETCH_TIMEOUT_MS ─────
+// The badge reads its LOCAL instance's combined multi-host view (the local machine
+// already fanned out to the peers). Same hardened loopback shape as fetchState,
+// path /api/hosts. Any failure → reject → main() maps it to the OFFLINE glyph (the
+// local llmdash instance being unreachable — distinct from a single remote being
+// down, which is a per-host dropdown line, never the glyph).
+export function fetchHosts(host, port) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ host, port, path: '/api/hosts', timeout: FETCH_TIMEOUT_MS }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`status ${res.statusCode}`));
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
+// The remote (non-self) host set for the Remove submenu + the Watching count,
+// derived from the SAME /api/hosts combined view the badge already fetched — no
+// second data path, no config-file read on the badge's render path. Each entry:
+// { label, key (host:port identity), addr }. The local host is never included.
+export function remotesFromCombined(combined) {
+  const hostsIn = (combined && Array.isArray(combined.hosts)) ? combined.hosts : [];
+  return hostsIn
+    .filter((h) => !h.self)
+    .map((h) => ({
+      label: sanitize(h.label != null ? h.label : (h.host || '')),
+      key: `${sanitizeHostPort(h.host)}:${sanitizeHostPort(h.port)}`,
+      addr: `${sanitizeHostPort(h.host)}:${sanitizeHostPort(h.port)}`,
+    }));
+}
+
+// The monitoring-station override echoed on the local HostReading, if the server
+// ever surfaces it. It is a CLIENT-side derivation otherwise: default 'auto'. The
+// badge reads a `localMode` field on the self host when present (a real knob wired
+// through the file), else 'auto'. No fabricated field — absent → 'auto'.
+export function localModeFromCombined(combined) {
+  const hostsIn = (combined && Array.isArray(combined.hosts)) ? combined.hosts : [];
+  const self = hostsIn.find((h) => h.self);
+  const m = self && self.localMode;
+  return (m === 'include' || m === 'exclude' || m === 'auto') ? m : 'auto';
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
+// Reads the LOCAL instance's combined /api/hosts view (the machine already fanned
+// out to the peers) and renders the multi-host badge. When only the local host is
+// effectively watched, computeMultiBadge returns mode:'single' and we delegate to
+// the SHIPPED single-host emit() path byte-for-byte (FR-13). A failed /api/hosts
+// fetch (local llmdash down) → the shipped offline glyph.
 export async function main() {
-  let state;
+  let combined;
   try {
-    state = await fetchState(HOST, PORT);
+    combined = await fetchHosts(HOST, PORT);
   } catch {
-    // Fetch failed / timed out / non-200 / bad JSON → offline. Never a crash,
-    // never a fabricated number.
+    // Local /api/hosts fetch failed / timed out / non-200 / bad JSON → offline.
+    // Never a crash, never a fabricated number.
     process.stdout.write(emit(null, { host: HOST, port: PORT, offline: true }) + '\n');
     return;
   }
   try {
-    process.stdout.write(emit(computeBadge(state), { host: HOST, port: PORT }) + '\n');
+    const localMode = localModeFromCombined(combined);
+    const multi = computeMultiBadge(combined, { localMode });
+    if (multi.mode === 'single') {
+      // Single-host / unconfigured → byte-for-byte the shipped badge. Unwrap the
+      // one host's state and run the EXISTING computeBadge/emit path unchanged.
+      const only = (combined.hosts || []).find((h) => h && h.self) || (combined.hosts || [])[0];
+      const state = only && only.state ? only.state : null;
+      process.stdout.write(emit(computeBadge(state || { tools: [] }), { host: HOST, port: PORT }) + '\n');
+    } else {
+      const remotes = remotesFromCombined(combined);
+      process.stdout.write(emitMulti(multi, { host: HOST, port: PORT, remotes }) + '\n');
+    }
   } catch {
-    // Last-resort guard: a thrown computeBadge/emit still lands on offline
-    // rather than crashing the plugin (which would show the host's own error).
+    // Last-resort guard: a thrown compute/emit still lands on offline rather than
+    // crashing the plugin (which would show the host's own error).
     process.stdout.write(emit(null, { host: HOST, port: PORT, offline: true }) + '\n');
   }
 }

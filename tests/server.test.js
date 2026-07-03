@@ -44,6 +44,43 @@ test('/api/hosts returns the combined shape (hosts[] + generatedAt), a pure cach
   assert.equal(typeof body.generatedAt, 'string');
 });
 
+// ── HTTP stays read-only: NO config-write endpoint (NFR-01 / QA-22) ───────────
+// multi-host-badge edits the host list via a LOCAL FILE the badge writes and the
+// poller re-reads — never over HTTP. The tailnet-exposed bind must gain NO write
+// surface: every mutating method on the plausible config paths is 405, and no
+// write/mutation route exists.
+test('no HTTP config-mutation endpoint: mutating methods on host paths are 405 (QA-22)', async () => {
+  for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+    for (const p of ['/api/hosts', '/api/hosts/add', '/api/hosts/remove', '/api/config', '/api/state']) {
+      const r = await hit(p, method);
+      assert.equal(r.status, 405, `${method} ${p} must be 405 (read-only)`);
+      assert.equal(r.headers['allow'], 'GET, HEAD');
+    }
+  }
+});
+
+test('the would-be write routes are not even GET-served (no write surface exists, QA-22)', async () => {
+  // A GET to a made-up write route is a plain 404 — there is no add/remove handler
+  // hiding behind a different method; the server never mutates config.
+  for (const p of ['/api/hosts/add', '/api/hosts/remove', '/api/config']) {
+    const r = await hit(p, 'GET');
+    assert.equal(r.status, 404, `${p} must not exist as any handler`);
+  }
+});
+
+// Static source guard: the server source references no fs write of the host
+// config — the only host-config writer is the badge process (host-config.js
+// atomic write), never an HTTP handler (QA-22 / NFR-04).
+test('server.js source contains no host-config write path (write lives in the badge, QA-22)', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.join(here, '..', 'src', 'server.js'), 'utf8');
+  assert.doesNotMatch(src, /writeHostsConfig|addHost|removeHost|writeFileSync/,
+    'the server must not write the host config; that is the badge process only');
+});
+
 test('toolWrap exposes a per-window projection (five_hour + seven_day shown at once)', () => {
   const now = Date.UTC(2026, 0, 4, 0, 0, 0);
   const live = {

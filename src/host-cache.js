@@ -41,9 +41,12 @@ export function seedOrder(entries) {
   }
 }
 
-// Drop cache entries whose key is no longer in the effective host set (e.g. the
-// operator removed a peer from LLMDASH_HOSTS and restarted — belt-and-braces;
-// normally the process restarts). Keeps the view from showing a ghost host.
+// Drop cache entries whose key is no longer in the effective host set. Since
+// multi-host-badge, the effective set is re-read from the hosts.conf FILE each
+// poller tick, so this fires on a LIVE file edit (the badge's Remove, or a hand
+// edit): a peer dropped from the file has its cache entry cleaned on the next tick
+// — the same observable outcome as a restart, but without one. Keeps the view
+// from showing a ghost host. (It also still covers the restart case.)
 export function retainHosts(keys) {
   const keep = new Set(keys);
   for (const k of [...cache.keys()]) {

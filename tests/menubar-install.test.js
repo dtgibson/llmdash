@@ -38,6 +38,11 @@ function fakeCheckout() {
   fs.mkdirSync(menubar, { recursive: true });
   fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'llmdash.5s.js'),
     path.join(menubar, 'llmdash.5s.js'));
+  // The Add/Remove helper is a TRACKED sibling of the plugin, delivered by the
+  // same model (the plugin's actions exec $ABS_NODE against it). Copy it too so
+  // the delivery-model tests see the real repo layout.
+  fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'host-config-action.mjs'),
+    path.join(menubar, 'host-config-action.mjs'));
   return dir;
 }
 const DEV_SHEBANG = '#!/usr/bin/env node';
@@ -146,10 +151,19 @@ test('--setup-badge: the generated wrapper actually launches the plugin end-to-e
   assert.equal(setup.status, 0, setup.stderr);
   const wrapper = path.join(sbDir, 'llmdash.5s.js');
 
-  // A scratch dashboard serving a fresh fixture.
+  // A scratch dashboard serving a single-host /api/hosts payload (the badge reads
+  // /api/hosts now, FR-06): the shipped /api/state fixture wrapped as the ONE self
+  // host → the badge renders byte-for-byte the shipped single-host glyph (FR-13).
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(loadFixture('state-fresh')));
+    res.end(JSON.stringify({
+      hosts: [{
+        host: 'local', label: 'This machine', port: 8787, self: true,
+        reachable: true, hostDiagnostic: null,
+        fetchedAt: new Date().toISOString(), state: loadFixture('state-fresh'),
+      }],
+      generatedAt: new Date().toISOString(),
+    }));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
@@ -346,6 +360,70 @@ test('setup then remove is symmetric: setup writes the wrapper, remove deletes i
   assert.ok(fs.existsSync(src), 'the plugin source survived the round trip');
   // The tracked source is byte-identical across the whole round trip.
   assert.equal(fs.readFileSync(src, 'utf8'), trackedBefore, 'tracked plugin unchanged across setup+remove');
+});
+
+// ── The Add/Remove helper rides the tracked wrapper/absolute-node model (NFR-06) ─
+// The helper (host-config-action.mjs) is a TRACKED sibling of the plugin. The
+// installer never rewrites it (only the SwiftBar-dir wrapper is generated); the
+// plugin's dropdown actions exec $ABS_NODE against the helper at its tracked path.
+// --remove-badge removes only the wrapper — the tracked helper (repo source) is
+// untouched. (QA-14/QA-27.)
+
+test('--setup-badge: the tracked helper is NOT modified and stays alongside the plugin (QA-27)', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-helper');
+  fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-helper');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const helper = path.join(checkout, 'scripts', 'menubar', 'host-config-action.mjs');
+  const before = fs.readFileSync(helper, 'utf8');
+
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  // The helper is byte-for-byte unchanged (tracked source is never rewritten).
+  assert.equal(fs.readFileSync(helper, 'utf8'), before, 'the tracked helper must be unchanged');
+  // It still lives in the checkout beside the plugin (the delivery layout).
+  assert.ok(fs.existsSync(helper), 'the helper stays alongside the plugin in the checkout');
+});
+
+test('the plugin wires its Add/Remove actions to $ABS_NODE against the tracked helper (NFR-06)', () => {
+  // A static check on the plugin SOURCE: the action lines exec ABS_NODE (the same
+  // absolute node the wrapper bakes, = process.execPath) against the sibling
+  // host-config-action.mjs — never a bare "node", never an HTTP mutation.
+  const pluginSrc = fs.readFileSync(path.join(repoRoot, 'scripts', 'menubar', 'llmdash.5s.js'), 'utf8');
+  assert.match(pluginSrc, /host-config-action\.mjs/);
+  assert.match(pluginSrc, /ABS_NODE = process\.execPath/);
+  // The action lines shell to ABS_NODE with param2=add / param2=remove.
+  assert.match(pluginSrc, /shell="\$\{ABS_NODE\}".*param2=add/);
+  assert.match(pluginSrc, /shell="\$\{ABS_NODE\}".*param2=remove/);
+  // No HTTP mutation anywhere in the plugin (the actions write a local file only).
+  assert.doesNotMatch(pluginSrc, /method:\s*['"]POST['"]|POST \/api|\.post\(/i);
+});
+
+test('--remove-badge: leaves the tracked helper intact (symmetric uninstall, QA-27)', () => {
+  const { home, sbDir, checkout } = fakeSwiftBarHome('wrapper');
+  const helper = path.join(checkout, 'scripts', 'menubar', 'host-config-action.mjs');
+  assert.ok(fs.existsSync(helper));
+  const before = fs.readFileSync(helper, 'utf8');
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  // The tracked helper is the repo source — never removed by --remove-badge.
+  assert.ok(fs.existsSync(helper), 'the tracked helper survives --remove-badge');
+  assert.equal(fs.readFileSync(helper, 'utf8'), before);
+});
+
+test('--setup-badge: the badge-setup message names the hosts.conf location (FR-21)', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-conf-note');
+  fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-conf-note');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /hosts\.conf/);
+  assert.match(r.stdout, /no HTTP write/);
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });
