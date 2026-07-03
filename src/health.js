@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { config } from '../config.js';
 import { parseHosts, remoteHosts } from './hosts.js';
 import { _peek } from './host-cache.js';
@@ -156,6 +157,29 @@ export function hostsConfigLine(health = configFileHealth()) {
   return line;
 }
 
+// Service-state disclosure line (menubar-service-controls, FR-22 / OQ-05): names
+// the launchd agent's on-disk presence and what a complete uninstall would touch,
+// stating that llmdash.db is PRESERVED by default. A cheap fs check (plist present?
+// + the resolved checkout), off the request path — consistent with the other
+// disclosure lines. `probe` is injectable for tests (avoids reading the real
+// LaunchAgents dir / homedir). macOS-only surface; on Linux the plist is simply
+// absent, which reads honestly as "no launchd agent on this machine".
+export function serviceStateLine(probe = null) {
+  const label = process.env.LLMDASH_SERVICE_LABEL || 'com.llmdash.dashboard';
+  const home = os.homedir();
+  const laDir = process.env.LLMDASH_LAUNCH_AGENTS_DIR
+    || path.join(home, 'Library', 'LaunchAgents');
+  const plist = path.join(laDir, `${label}.plist`);
+  const checkout = process.env.LLMDASH_DIR || path.join(home, 'llmdash');
+  let present;
+  if (probe && typeof probe.plistPresent === 'boolean') present = probe.plistPresent;
+  else { try { present = fs.existsSync(plist); } catch { present = false; } }
+  const scope = `a complete uninstall (from the menu-bar badge) would remove this checkout (${probe && probe.checkout ? probe.checkout : checkout}), the badge wrapper, the statusline wiring, and the auto-refresh trust folder — preserving llmdash.db by default (deleting it is a separate, explicit opt-in).`;
+  return present
+    ? `  Service: launchd agent present (${label}, plist at ${plist}) — the menu-bar badge can install/remove or uninstall it; ${scope}`
+    : `  Service: no launchd agent plist on disk (${plist}) — the menu-bar badge's "Install the local service" can (re)create it; ${scope}`;
+}
+
 // Startup-log lines describing data-source health. Honest and actionable:
 // each "missing" line says what is missing, why it matters, and how to fix it.
 export function healthLines(h = dataSourceHealth()) {
@@ -177,6 +201,9 @@ export function healthLines(h = dataSourceHealth()) {
   // Host-config-file state (multi-host-badge): which source is in effect and the
   // fix for an unreadable/misconfigured file. A cheap fs check, off the request path.
   lines.push(`  ${hostsConfigLine()}`);
+  // Service-state disclosure (menubar-service-controls): the launchd agent's
+  // presence + what a complete uninstall would touch, DB-preserved-by-default.
+  lines.push(serviceStateLine());
   // Per-configured-peer reachability (multi-host). Cheap in-memory cache read;
   // empty when no peers are configured (single-host).
   for (const line of peerHealthLines()) lines.push(line);

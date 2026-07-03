@@ -10,7 +10,14 @@ set -euo pipefail
 REPO="https://github.com/dtgibson/llmdash.git"
 DIR="${LLMDASH_DIR:-$HOME/llmdash}"
 PORT="${LLMDASH_PORT:-8787}"
-PLIST="$HOME/Library/LaunchAgents/com.llmdash.dashboard.plist"
+
+# The launchd label and the LaunchAgents dir are INJECTABLE (tests point them at a
+# scratch label like com.llmdash.spike-* and a scratch dir so no test ever touches
+# the real com.llmdash.dashboard agent or ~/Library/LaunchAgents). Production omits
+# both env vars → the real label + the standard user LaunchAgents dir.
+SERVICE_LABEL="${LLMDASH_SERVICE_LABEL:-com.llmdash.dashboard}"
+LAUNCH_AGENTS_DIR="${LLMDASH_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
+PLIST="$LAUNCH_AGENTS_DIR/$SERVICE_LABEL.plist"
 
 # Resolve codex to an ABSOLUTE path. launchd runs agents with a minimal PATH
 # (/usr/bin:/bin:/usr/sbin:/sbin), so a bare "codex" baked into the plist can
@@ -70,6 +77,112 @@ resolve_node() {
     fi
   done
   return 1
+}
+
+# ── Service (launchd) generation + load — the SINGLE source of truth ──────────
+# Both the main install flow (steps 4/5) and the `--service install` hook call
+# generate_plist + load_service, so the sed template substitution and the
+# launchctl verbs live in ONE place (no duplicated sed/launchctl copy — FR-17).
+
+# Resolve the current user's launchd GUI domain uid (id -u). All launchctl work is
+# in the USER domain gui/<uid> — never sudo, never a system domain (NFR-03).
+service_uid() { id -u; }
+
+# (Re)generate the plist from the tracked template with ABSOLUTE node/codex/claude
+# paths + the resolved checkout dir + the port (never a stale cached plist — FR-02).
+# $1 = project dir, $2 = node path, $3 = codex path, $4 = claude path.
+# Uses the SAME sed substitution the main flow uses (strip the XML comment, fill
+# NODE_PATH/PROJECT_DIR/CODEX_PATH/CLAUDE_PATH/port). The label is substituted too
+# so a scratch label lands in the generated plist (tests inject it).
+generate_plist() {
+  local dir="$1" node_bin="$2" codex_bin="$3" claude_bin="$4"
+  mkdir -p "$LAUNCH_AGENTS_DIR"
+  sed -e '/<!--/,/-->/d' \
+      -e "s#NODE_PATH#${node_bin}#g" \
+      -e "s#PROJECT_DIR#${dir}#g" \
+      -e "s#CODEX_PATH#${codex_bin}#g" \
+      -e "s#CLAUDE_PATH#${claude_bin}#g" \
+      -e "s#>8787<#>${PORT}<#g" \
+      -e "s#com.llmdash.dashboard#${SERVICE_LABEL}#g" \
+      "$dir/macos/com.llmdash.dashboard.plist.example" > "$PLIST"
+}
+
+# Load the generated plist with the MODERN per-domain verbs: bootout (idempotent
+# unregister of any prior instance) then bootstrap into gui/<uid>. RunAtLoad +
+# KeepAlive live in the template, so bootstrap starts it and keeps it alive. The
+# leading bootout makes install-when-installed a friendly reload (FR-07).
+load_service() {
+  local uid
+  uid="$(service_uid)"
+  launchctl bootout "gui/$uid/$SERVICE_LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$uid" "$PLIST"
+}
+
+# Unregister + delete the plist — a TRUE remove (OQ-01 default), not a transient
+# stop a KeepAlive:true agent would relaunch. bootout of an absent label is a
+# no-op; rm -f of an absent plist is a no-op — so this is idempotent (FR-07).
+# The plist delete is marker-gated by construction: $PLIST is always
+# "$LAUNCH_AGENTS_DIR/$SERVICE_LABEL.plist" — only THIS label's file (NFR-05).
+remove_service() {
+  local uid
+  uid="$(service_uid)"
+  launchctl bootout "gui/$uid/$SERVICE_LABEL" 2>/dev/null || true
+  rm -f "$PLIST"
+}
+
+# The LIVE launchd-state read (FR-04) → exactly one of running|stopped|not-installed
+# on stdout. Derived from the plist's on-disk presence + launchctl print's exit
+# code — cheap, honest, never faked. `print` succeeding = bootstrapped (loaded).
+service_state() {
+  local uid
+  uid="$(service_uid)"
+  if [ ! -f "$PLIST" ]; then
+    echo "not-installed"
+  elif launchctl print "gui/$uid/$SERVICE_LABEL" >/dev/null 2>&1; then
+    echo "running"
+  else
+    echo "stopped"
+  fi
+}
+
+# `--service install [project-dir]`: resolve the three binaries, regenerate the
+# plist with fresh absolute paths, and (re)load it. Prints the resulting live
+# state. Idempotent (install-when-installed = a friendly reload). Honest if node
+# can't be resolved (the plist can't run without it) — loud, non-zero, no dead
+# service silently written.
+service_install() {
+  local dir="$1"
+  if [ ! -f "$dir/macos/com.llmdash.dashboard.plist.example" ]; then
+    echo "  Service: plist template not found under $dir — is this a llmdash checkout?" >&2
+    return 1
+  fi
+  local node_bin
+  if ! node_bin="$(resolve_node)"; then
+    echo "  Service: node not found (checked PATH, ~/.local/bin, /opt/homebrew/bin, /usr/local/bin)." >&2
+    echo "  The launchd agent needs an ABSOLUTE node path: it runs under a minimal PATH" >&2
+    echo "  where a bare 'node' can't resolve. Fix: install Node 24+, then re-run." >&2
+    return 1
+  fi
+  # codex/claude are optional at service level — an unresolved one bakes the bare
+  # name (the dashboard's own health readout names it), matching the main flow.
+  local codex_bin claude_bin
+  codex_bin="$(resolve_codex || echo codex)"
+  claude_bin="$(resolve_claude || echo claude)"
+  generate_plist "$dir" "$node_bin" "$codex_bin" "$claude_bin"
+  load_service
+  echo "- Service: (re)generated the plist ($PLIST) with absolute paths and loaded it (label $SERVICE_LABEL)."
+  echo "  State: $(service_state)"
+}
+
+# `--service remove`: unregister the agent and delete its plist. Idempotent:
+# "nothing to remove" when already absent, exit 0 (FR-07).
+service_remove() {
+  if [ ! -f "$PLIST" ]; then
+    echo "- Service: nothing to remove — no plist at $PLIST (label $SERVICE_LABEL)."
+    return 0
+  fi
+  remove_service
+  echo "- Service: unloaded and deleted the plist ($PLIST). State: $(service_state)."
 }
 
 # Detect the SwiftBar plugin directory (empty string if none found). SwiftBar
@@ -246,6 +359,34 @@ remove_badge() {
   return 0
 }
 
+# ── Uninstall: the enumeration text + the ordered teardown STEP functions ─────
+# install-macos.sh is the SINGLE source of truth for WHAT is torn down and in what
+# ORDER (FR-13/FR-17). But because THIS script lives inside the checkout being
+# deleted, the destructive checkout-delete-LAST is driven by the DETACHED node
+# helper (scripts/menubar/service-control-action.mjs), not run inline here — the
+# helper reads everything up front, then deletes the checkout as a leaf so nothing
+# loads after it (spike-report Hazard E). This hook exposes the enumeration string
+# and the individual step functions the helper (or a human) can call.
+
+# The enumeration copy — printed BEFORE anything is removed (mirrors the design
+# spec's dialog body). Lists every artifact by name/path so the scope is explicit.
+# $1 = resolved checkout dir.
+uninstall_enumeration() {
+  local dir="$1"
+  cat <<EOF
+Uninstall llmdash from this Mac. This will remove:
+  • the launchd service ($SERVICE_LABEL) and its plist
+  • the menu-bar badge wrapper (in SwiftBar's plugin folder)
+  • the app checkout at $dir
+  • the Claude Code statusline wiring (restoring your settings.json.bak if present)
+  • the auto-refresh trust folder (~/.llmdash/claude-refresh-cwd) and its ~/.claude.json entry
+
+Your usage-history database (llmdash.db) is PRESERVED by default — it's the only
+thing here that can't be rebuilt. SwiftBar is NOT removed (uninstall it yourself
+with: brew uninstall --cask swiftbar).
+EOF
+}
+
 # Test/maintenance hooks: print the resolved codex/claude/node path (exit 1 if
 # none) without running the installer. Used by tests/install-macos.test.js and
 # tests/menubar-install.test.js.
@@ -270,6 +411,32 @@ fi
 if [ "${1:-}" = "--remove-badge" ]; then
   remove_badge "${2:-$DIR}"
   exit $?
+fi
+# Service control: `install-macos.sh --service install|remove|status [project-dir]`.
+# The SINGLE source of truth for the launchctl/plist logic the menu-bar badge
+# invokes (never a duplicated launchctl/sed copy). USER domain gui/<uid> only —
+# no sudo. Idempotent. The label/LaunchAgents dir are injectable for tests.
+if [ "${1:-}" = "--service" ]; then
+  case "${2:-}" in
+    install) service_install "${3:-$DIR}"; exit $? ;;
+    remove)  service_remove; exit $? ;;
+    status)  service_state; exit 0 ;;
+    *) echo "usage: install-macos.sh --service install|remove|status [project-dir]" >&2; exit 2 ;;
+  esac
+fi
+# Uninstall enumeration + step functions: `install-macos.sh --uninstall …`. The
+# single source of truth for WHAT is torn down and the order; the DETACHED node
+# helper owns the checkout-delete-LAST (this script lives in the checkout). The
+# `--enumerate` sub-hook prints the artifact list; the step sub-hooks run one
+# reversible install step each. The full destructive teardown is driven by
+# scripts/menubar/service-control-action.mjs (detached, read-up-front).
+if [ "${1:-}" = "--uninstall" ]; then
+  case "${2:-}" in
+    --enumerate) uninstall_enumeration "${3:-$DIR}"; exit 0 ;;
+    --step=service-remove) remove_service; echo "- Service: unregistered ($SERVICE_LABEL) and deleted $PLIST."; exit 0 ;;
+    --step=badge-remove)   remove_badge "${3:-$DIR}"; exit $? ;;
+    *) echo "usage: install-macos.sh --uninstall --enumerate|--step=<name> [project-dir]" >&2; exit 2 ;;
+  esac
 fi
 
 echo "llmdash installer (macOS)"
@@ -329,20 +496,13 @@ else
   echo "  it bakes the absolute claude path into the service." >&2
 fi
 
-# 4. Generate the LaunchAgent from the template (strip comments, fill in paths)
-mkdir -p "$HOME/Library/LaunchAgents"
-sed -e '/<!--/,/-->/d' \
-    -e "s#NODE_PATH#${NODE_BIN}#g" \
-    -e "s#PROJECT_DIR#${DIR}#g" \
-    -e "s#CODEX_PATH#${CODEX_BIN}#g" \
-    -e "s#CLAUDE_PATH#${CLAUDE_BIN}#g" \
-    -e "s#>8787<#>${PORT}<#g" \
-    "$DIR/macos/com.llmdash.dashboard.plist.example" > "$PLIST"
+# 4/5. Generate the LaunchAgent from the template and (re)load it — via the SAME
+# shared generate_plist + load_service the `--service install` hook calls, so the
+# sed substitution and the launchctl verbs live in ONE place (FR-17/QA-17). No
+# second sed/launchctl copy: change the template or the verbs once, everywhere.
+generate_plist "$DIR" "$NODE_BIN" "$CODEX_BIN" "$CLAUDE_BIN"
 echo "- Wrote LaunchAgent to $PLIST"
-
-# 5. (Re)load the service
-launchctl unload "$PLIST" 2>/dev/null || true
-launchctl load -w "$PLIST"
+load_service
 echo "- Service loaded (starts at login, restarts on crash)"
 
 # 6. Wire the Claude Code statusline — only if not already set; backs up first
@@ -373,7 +533,8 @@ if [ -n "$TS_IP" ]; then
 else
   echo "  Over Tailscale: http://<your-tailscale-ip>:${PORT}  (find the IP with 'tailscale ip -4'; use http, not https)"
 fi
-echo "  To uninstall:   launchctl unload -w \"$PLIST\""
+echo "  Service state:  $DIR/scripts/install-macos.sh --service status  (running|stopped|not-installed)"
+echo "  To uninstall:   $DIR/scripts/install-macos.sh --uninstall  (or use the menu-bar badge)"
 echo
 echo "What to expect on first run:"
 echo "  - Claude limit gauges stay empty until a reading arrives — a Claude Code"
@@ -399,3 +560,15 @@ echo "    modified, so re-running the installer stays clean):"
 echo "      \"$DIR/scripts/install-macos.sh\" --setup-badge"
 echo "  - Remove it later with --remove-badge. Details, host/port config, and the C/X"
 echo "    tool cue are in the README."
+echo
+echo "Menu-bar service controls (from the badge dropdown, both single- and multi-host):"
+echo "  - The badge can INSTALL / REMOVE this Mac's local llmdash service (a launchd"
+echo "    toggle showing the live running|stopped|not-installed state — no terminal)."
+echo "  - It can also UNINSTALL llmdash in two tiers: 'Remove the menu-bar badge only'"
+echo "    (the wrapper, marker-gated) or 'Uninstall llmdash completely…' (service +"
+echo "    plist, wrapper, checkout, statusline wiring, and the auto-refresh trust"
+echo "    folder), each behind an OS confirmation that lists every artifact first."
+echo "  - Your usage-history database (llmdash.db) is PRESERVED by default — deleting"
+echo "    it is a separate, explicit opt-in warned as permanent."
+echo "  - SwiftBar is NEVER removed by llmdash (uninstall it yourself with:"
+echo "    brew uninstall --cask swiftbar)."

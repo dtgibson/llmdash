@@ -28,6 +28,9 @@ test('the multi-host modules import only Node builtins (node: or relative)', () 
     // the badge plugin + its Add/Remove helper (multi-host-badge)
     path.join(root, 'scripts', 'menubar', 'llmdash.5s.js'),
     path.join(root, 'scripts', 'menubar', 'host-config-action.mjs'),
+    // the service/uninstall helper (menubar-service-controls) — self-contained,
+    // node: builtins only (so its detached temp copy needs nothing from the checkout).
+    path.join(root, 'scripts', 'menubar', 'service-control-action.mjs'),
   ];
   for (const fp of files) {
     const src = fs.readFileSync(fp, 'utf8');
@@ -42,4 +45,21 @@ test('the multi-host modules import only Node builtins (node: or relative)', () 
 test('the fan-out uses node:http (not an npm http client)', () => {
   const src = fs.readFileSync(path.join(root, 'src', 'hosts.js'), 'utf8');
   assert.match(src, /import http from 'node:http'/);
+});
+
+// menubar-service-controls: the detached teardown copies the helper to a temp dir
+// and runs it AFTER the checkout is deleted — so it must import NOTHING from the
+// checkout (../../src, ../../config). A lazy checkout import would throw
+// ERR_MODULE_NOT_FOUND (spike Hazard E). Lock it: node: builtins only.
+test('the service-control helper imports only node: builtins — nothing from the checkout (Hazard E)', () => {
+  const fp = path.join(root, 'scripts', 'menubar', 'service-control-action.mjs');
+  const src = fs.readFileSync(fp, 'utf8');
+  // Every static import specifier is a node: builtin (no ../../src, no ../../config).
+  const specs = [...src.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+  for (const spec of specs) {
+    assert.ok(spec.startsWith('node:'), `service-control-action imports a non-builtin: ${spec}`);
+  }
+  // No dynamic import() from the checkout either.
+  assert.doesNotMatch(src, /import\(\s*['"]\.\.?\//, 'no dynamic import from the checkout');
+  assert.doesNotMatch(src, /require\(/, 'no require of a checkout module');
 });

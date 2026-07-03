@@ -1,0 +1,955 @@
+<meta charset="utf-8" />
+<style>
+  /* ============================================================
+     llmdash — menubar-service-controls design mockup (DRAFT, pre-iteration)
+     A macOS menu-bar surface + osascript dialogs, NOT a web page.
+     EXTENDS the shipped multi-host badge (pipeline/multi-host-badge/
+     design.html): the same design-system tokens, the same SwiftBar
+     dropdown chrome, the same ＋/－/☰ action grammar, the same
+     .osa-dialog macOS-dialog styling. The ONLY additions are:
+       (1) a state-aware "Install / Remove the local service" item,
+       (2) an "Uninstall llmdash…" submenu (two tiers),
+       (3) three OS-native dialogs (enumerated confirm, data opt-in,
+           service-remove confirm) — matched to macOS `display dialog`
+           conventions, safe choice as the default button.
+     Nothing here invents a new color semantic. Self-contained: all
+     CSS/JS inline, no external deps.
+     ============================================================ */
+
+  :root {
+    /* ---- llmdash design-system tokens (verbatim from styles.css) ---- */
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e6e6e6;
+    --text: #15171a;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --good: #16a34a;
+    --warn: #d97706;
+    --crit: #dc2626;
+    --accent: #2563eb;
+    --accent-bg: #eef2ff;
+    --warn-bg: #fef3e7;
+    --good-bg: #e7f6ec;
+    --crit-bg: #fdeaea;
+    --track: #eceef0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    /* ---- stage surfaces (the page these mockups sit on) ---- */
+    --stage-bg: #eef1f4;
+    --stage-panel: #ffffff;
+
+    /* ---- macOS menu bar + SwiftBar dropdown chrome (the OS's colors,
+       reused verbatim from the shipped badge mockups) ---- */
+    --menubar-bg: #2b2d31;
+    --menubar-text: #f4f5f7;
+    --menubar-text-dim: #9b9ea6;
+    --dropdown-bg: #f6f6f7;
+    --dropdown-panel: #ffffff;
+    --dropdown-text: #1d1d1f;
+    --dropdown-sep: #e2e2e5;
+    --dropdown-muted: #86868b;
+    --dropdown-highlight: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013;
+      --panel: #161a1f;
+      --border: #262b32;
+      --text: #e7eaee;
+      --muted: #9aa3ad;
+      --faint: #6b7480;
+      --accent: #6b9bff;
+      --accent-bg: #18203a;
+      --warn-bg: #2a1f12;
+      --good-bg: #122a1b;
+      --crit-bg: #2c1517;
+      --track: #232830;
+
+      --stage-bg: #0a0b0d;
+      --stage-panel: #14171b;
+
+      --menubar-bg: #1c1d20;
+      --menubar-text: #f4f5f7;
+      --menubar-text-dim: #7c7f87;
+      --dropdown-bg: #2a2b2e;
+      --dropdown-panel: #313236;
+      --dropdown-text: #ececee;
+      --dropdown-sep: #3a3b3f;
+      --dropdown-muted: #9295a0;
+      --dropdown-highlight: #4a7dff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--stage-bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 20px 72px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  /* ---------------- page masthead ---------------- */
+  .masthead { margin-bottom: 8px; }
+  .masthead .kicker {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .masthead h1 {
+    font-family: var(--sans);
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0 0 12px;
+    max-width: 24ch;
+  }
+  .masthead .lede {
+    font-size: 1.02rem;
+    color: var(--muted);
+    max-width: 68ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .masthead .lede b { color: var(--text); font-weight: 600; }
+  .masthead .lede .m, .masthead .lede code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .draft-flag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-radius: 999px;
+    padding: 3px 10px;
+    margin-top: 14px;
+  }
+
+  .rule { height: 1px; background: var(--border); border: 0; margin: 32px 0 30px; }
+
+  /* ---------------- section headers ---------------- */
+  .section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0 0 4px;
+    font-family: var(--mono);
+  }
+  .section-lede {
+    font-size: 0.9rem;
+    color: var(--faint);
+    margin: 0 0 22px;
+    max-width: 76ch;
+    line-height: 1.5;
+  }
+  .section-lede b { color: var(--muted); font-weight: 600; }
+  .section-lede code, .section-lede .m {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .section { margin-bottom: 54px; }
+
+  /* =========================================================
+     THE menu-bar strip + SwiftBar dropdown (reused verbatim)
+     ========================================================= */
+  .anchor-bar {
+    background: linear-gradient(var(--menubar-bg), color-mix(in srgb, var(--menubar-bg) 92%, #000));
+    height: 30px;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 10px;
+    gap: 14px;
+    position: relative;
+    z-index: 2;
+  }
+  .anchor-bar .sys { color: var(--menubar-text); opacity: 0.82; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+
+  .glyph {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    padding: 3px 7px;
+    border-radius: 6px;
+    cursor: default;
+  }
+  .glyph.selected { background: rgba(255,255,255,0.16); }
+  .glyph .mark { opacity: 0.92; }
+  .glyph .host { color: var(--menubar-text); opacity: 0.92; font-weight: 500; margin-left: -1px; }
+  .glyph .hostsep { color: var(--menubar-text-dim); margin: 0 1px 0 2px; opacity: 0.85; }
+  .glyph .cue { color: var(--menubar-text-dim); font-weight: 600; margin-right: 1px; }
+  .glyph .num.good { color: #5bd88a; }
+  .glyph .num.warn { color: #f0a94b; }
+  .glyph .num.crit { color: #ff6b6b; }
+
+  .dropdown-demo {
+    display: grid;
+    grid-template-columns: minmax(0, 430px) 1fr;
+    gap: 30px;
+    align-items: start;
+  }
+  @media (max-width: 820px) { .dropdown-demo { grid-template-columns: 1fr; } }
+  .demo-col { min-width: 0; }
+
+  .dropdown {
+    background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-sep);
+    border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12);
+    padding: 6px;
+    margin-top: -2px;
+    width: 100%;
+    max-width: 430px;
+    font-family: var(--sans);
+    color: var(--dropdown-text);
+    position: relative;
+    z-index: 1;
+  }
+  .dd-title {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 7px 10px 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--dropdown-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .dd-title .num.crit { color: var(--crit); }
+  .dd-title .num.warn { color: var(--warn); }
+  .dd-title .num.good { color: var(--good); }
+  .dd-title .rem-word { color: var(--dropdown-muted); font-weight: 500; font-family: var(--sans); font-size: 0.76rem; }
+  .dd-title .binding {
+    margin-left: auto;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--dropdown-muted);
+    white-space: nowrap;
+  }
+  .dd-watching { font-family: var(--sans); font-size: 0.72rem; color: var(--dropdown-muted); padding: 0 10px 6px; }
+  .dd-sep { height: 1px; background: var(--dropdown-sep); margin: 5px 4px; border: 0; }
+
+  /* ---- host header (from shipped multi-host chrome) ---- */
+  .dd-host-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 3px; flex-wrap: wrap; }
+  .dd-host-name { font-family: var(--mono); font-size: 0.82rem; font-weight: 700; color: var(--dropdown-text); letter-spacing: 0.01em; }
+  .dd-host-you {
+    font-family: var(--sans); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; color: var(--dropdown-muted);
+    background: color-mix(in srgb, var(--dropdown-muted) 16%, transparent);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .dd-host-state {
+    margin-left: auto; font-size: 0.72rem; color: var(--dropdown-muted); font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .dd-host-state .pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--good); vertical-align: middle; }
+  .dd-host-pill {
+    font-family: var(--mono); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .pill-idle { color: var(--dropdown-muted); background: color-mix(in srgb, var(--dropdown-muted) 15%, transparent); }
+  .pill-offline { color: var(--crit); background: var(--crit-bg); }
+
+  .dd-tool-head { display: flex; align-items: center; gap: 8px; padding: 5px 10px 2px 18px; }
+  .dd-tool-name { font-family: var(--mono); font-size: 0.74rem; font-weight: 600; color: var(--dropdown-muted); }
+  .dd-row {
+    display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 10px;
+    padding: 4px 10px 4px 18px; border-radius: 6px; font-size: 0.82rem;
+  }
+  .dd-row:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-row:hover .dd-win, .dd-row:hover .dd-reset, .dd-row:hover .dd-rem { color: #fff; }
+  .dd-win { color: var(--dropdown-muted); font-size: 0.78rem; }
+  .dd-metrics { display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dd-rem { font-weight: 600; }
+  .dd-rem.good { color: var(--good); }
+  .dd-rem.warn { color: var(--warn); }
+  .dd-rem.crit { color: var(--crit); }
+  .dd-rem.na { color: var(--dropdown-muted); font-weight: 500; }
+  .dd-reset { color: var(--dropdown-muted); font-size: 0.76rem; }
+
+  .dd-hostnote {
+    margin: 3px 8px 4px 18px; padding: 7px 11px; border-radius: 8px;
+    font-size: 0.74rem; line-height: 1.45;
+    background: color-mix(in srgb, var(--dropdown-muted) 12%, transparent);
+    border-left: 3px solid var(--dropdown-muted); color: var(--dropdown-muted);
+  }
+
+  /* =========================================================
+     ACTIONS — the ＋/－/☰ grammar (reused) + the NEW service item.
+     ========================================================= */
+  .dd-action {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px;
+    font-size: 0.82rem; cursor: default; color: var(--dropdown-text); position: relative;
+  }
+  .dd-action:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-action:hover .kbd, .dd-action:hover .ic, .dd-action:hover .caret, .dd-action:hover .suffix { color: #fff; opacity: 0.9; }
+  .dd-action .ic { color: var(--dropdown-muted); width: 15px; text-align: center; flex: none; font-family: var(--mono); }
+  .dd-action .kbd { margin-left: auto; color: var(--dropdown-muted); font-family: var(--mono); font-size: 0.72rem; }
+  .dd-action .caret { margin-left: auto; color: var(--dropdown-muted); font-size: 0.8rem; }
+  /* the state suffix on the service item: "· running" / "· stopped" — a dim,
+     mono, tabular locator, never a state color (honest state is the label word). */
+  .dd-action .suffix {
+    margin-left: 6px; color: var(--dropdown-muted); font-family: var(--mono);
+    font-size: 0.74rem; font-variant-numeric: tabular-nums;
+  }
+  .dd-action.listing { color: var(--dropdown-muted); font-size: 0.78rem; cursor: default; }
+  .dd-action.listing:hover { background: transparent; color: var(--dropdown-muted); }
+  /* the highlighted (open) state used to show a submenu popped */
+  .dd-action.open { background: var(--dropdown-highlight); color: #fff; }
+  .dd-action.open .ic, .dd-action.open .caret { color: #fff; }
+
+  /* a rendered submenu popping to the right (reused from shipped chrome) */
+  .dd-submenu {
+    margin: 2px 8px 2px 26px; background: var(--dropdown-panel);
+    border: 1px solid var(--dropdown-sep); border-radius: 8px; padding: 5px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.20);
+  }
+  .dd-submenu .sub-label {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--dropdown-muted); padding: 4px 8px 5px; font-family: var(--mono);
+  }
+  .dd-subitem {
+    display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 6px;
+    font-size: 0.8rem; color: var(--dropdown-text); line-height: 1.3;
+  }
+  .dd-subitem:hover { background: var(--dropdown-highlight); color: #fff; }
+  .dd-subitem:hover .sub-sub { color: rgba(255,255,255,0.82); }
+  .dd-subitem .ic { color: var(--dropdown-muted); width: 14px; text-align: center; flex: none; font-family: var(--mono); }
+  .dd-subitem:hover .ic { color: #fff; }
+  .dd-subitem .sub-txt { display: flex; flex-direction: column; }
+  .dd-subitem .sub-sub { font-size: 0.68rem; color: var(--dropdown-muted); margin-top: 1px; }
+
+  /* callout / notes column under a dropdown (reused) */
+  .demo-notes {
+    margin-top: 14px; background: var(--stage-panel); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 15px;
+    font-size: 0.79rem; color: var(--muted); line-height: 1.55;
+  }
+  .demo-notes b { color: var(--text); font-weight: 600; }
+  .demo-notes code, .demo-notes .m {
+    font-family: var(--mono); font-size: 0.86em; background: var(--track);
+    padding: 1px 4px; border-radius: 4px; color: var(--text);
+  }
+  .demo-notes.warn { border-left-color: var(--warn); }
+  .demo-notes.crit { border-left-color: var(--crit); }
+  .demo-notes.good { border-left-color: var(--good); }
+  .demo-notes ul { margin: 8px 0 0; padding-left: 18px; }
+  .demo-notes li { margin-bottom: 5px; }
+  .demo-caption { font-size: 0.82rem; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+  .demo-caption b { color: var(--text); font-weight: 600; }
+  .demo-caption code, .demo-caption .m {
+    font-family: var(--mono); font-size: 0.86em; background: var(--track);
+    padding: 1px 4px; border-radius: 4px; color: var(--text);
+  }
+
+  /* the two-up dropdown gallery (both modes side by side) */
+  .modes-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start;
+  }
+  @media (max-width: 940px) { .modes-grid { grid-template-columns: 1fr; } }
+  .mode-cap {
+    font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; color: var(--dropdown-text); margin: 0 0 3px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .mode-cap .tag {
+    font-family: var(--sans); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  }
+  .tag-running { color: var(--good); background: var(--good-bg); }
+  .tag-removed { color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); }
+  .mode-sub { font-size: 0.78rem; color: var(--faint); margin: 0 0 12px; line-height: 1.45; max-width: 44ch; }
+  .mode-sub .m { font-family: var(--mono); font-size: 0.86em; background: var(--track); padding: 1px 4px; border-radius: 4px; color: var(--text); }
+
+  /* =========================================================
+     THE osascript DIALOGS — rendered macOS `display dialog`s.
+     Matched to macOS conventions: app icon, title, body, two
+     buttons bottom-right, DEFAULT button (blue) on the SAFE choice.
+     ========================================================= */
+  .dialog-cap { font-size: 0.78rem; color: var(--muted); margin: 12px 2px 0; line-height: 1.5; }
+  .dialog-cap b { color: var(--text); font-weight: 600; }
+  .badge-pill {
+    display: inline-block; font-family: var(--mono); font-size: 0.64rem; text-transform: uppercase;
+    letter-spacing: 0.05em; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-bottom: 8px;
+  }
+  .bp-confirm { color: var(--crit); background: var(--crit-bg); }
+  .bp-optin { color: var(--warn); background: var(--warn-bg); }
+  .bp-service { color: var(--accent); background: var(--accent-bg); }
+
+  .osa-dialog {
+    background: var(--dropdown-panel);
+    border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.32), 0 2px 6px rgba(0,0,0,0.14);
+    width: 100%; max-width: 440px;
+    padding: 20px 22px 16px;
+    font-family: var(--sans); color: var(--dropdown-text);
+    border: 1px solid var(--dropdown-sep);
+  }
+  .osa-head { display: flex; gap: 15px; align-items: flex-start; margin-bottom: 12px; }
+  .osa-icon {
+    width: 52px; height: 52px; border-radius: 12px; flex: none;
+    background: linear-gradient(150deg, #3a3c40, #26282b);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-weight: 700; font-size: 1.2rem; color: var(--menubar-text);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .osa-body { min-width: 0; }
+  .osa-title { font-size: 0.92rem; font-weight: 700; line-height: 1.35; margin: 2px 0 8px; }
+  .osa-prompt { font-size: 0.84rem; line-height: 1.5; color: var(--dropdown-text); }
+  .osa-prompt .lead-list { margin: 9px 0 4px; font-size: 0.8rem; color: var(--dropdown-muted); font-weight: 600; }
+  .osa-list { list-style: none; margin: 0 0 4px; padding: 0; }
+  .osa-list li {
+    display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start;
+    font-size: 0.8rem; line-height: 1.42; padding: 2px 0; color: var(--dropdown-text);
+  }
+  .osa-list li .b { color: var(--dropdown-muted); }
+  .osa-list li code, .osa-list li .m {
+    font-family: var(--mono); font-size: 0.9em;
+    background: color-mix(in srgb, var(--dropdown-text) 8%, transparent);
+    padding: 1px 4px; border-radius: 4px;
+  }
+  /* the honesty note block inside a dialog — preserve-by-default kindness */
+  .osa-note {
+    margin: 12px 0 4px; padding: 10px 12px; border-radius: 8px;
+    background: var(--good-bg); border-left: 3px solid var(--good);
+    font-size: 0.79rem; line-height: 1.5; color: var(--dropdown-text);
+  }
+  .osa-note.warn { background: var(--warn-bg); border-left-color: var(--warn); }
+  .osa-note .strong { font-weight: 700; }
+  .osa-note code, .osa-note .m {
+    font-family: var(--mono); font-size: 0.9em;
+    background: color-mix(in srgb, var(--dropdown-text) 8%, transparent);
+    padding: 1px 4px; border-radius: 4px;
+  }
+  .osa-note .keep { color: var(--good); font-weight: 700; }
+  .osa-warnline {
+    font-size: 0.84rem; line-height: 1.5; color: var(--dropdown-text); margin: 4px 0 0;
+  }
+  .osa-warnline .strong { font-weight: 700; }
+  .osa-irrev { color: var(--crit); font-weight: 700; }
+
+  .osa-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; align-items: center; }
+  .osa-btn {
+    font-size: 0.83rem; font-weight: 500; padding: 6px 16px; border-radius: 7px;
+    border: 1px solid var(--dropdown-sep); background: var(--dropdown-panel);
+    color: var(--dropdown-text); cursor: default; white-space: nowrap;
+  }
+  /* the DEFAULT (macOS-blue) button — always the SAFE choice here */
+  .osa-btn.default {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  /* the destructive, non-default button — plain, must be clicked deliberately */
+  .osa-btn.destructive { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 40%, var(--dropdown-sep)); }
+  .btn-note {
+    margin-right: auto; font-size: 0.68rem; color: var(--faint); font-style: italic; line-height: 1.3; max-width: 20ch;
+  }
+
+  .dialog-row { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start; }
+  @media (max-width: 900px) { .dialog-row { grid-template-columns: 1fr; } }
+
+  /* ---------------- copy / legend table ---------------- */
+  .legend-table {
+    width: 100%; border-collapse: collapse; font-size: 0.83rem;
+    background: var(--stage-panel); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .table-scroll { overflow-x: auto; }
+  .legend-table th, .legend-table td {
+    text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top;
+  }
+  .legend-table thead th {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+    font-weight: 600; background: color-mix(in srgb, var(--stage-panel) 88%, var(--track)); white-space: nowrap;
+  }
+  .legend-table tbody tr:last-child td { border-bottom: 0; }
+  .legend-table .st { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+  .legend-table td.rule-cell { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .legend-table code, .legend-table .m {
+    font-family: var(--mono); background: var(--track); padding: 1px 4px; border-radius: 4px;
+    color: var(--text); font-size: 0.86em;
+  }
+  .legend-table .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--dropdown-panel); border: 1px solid var(--dropdown-sep);
+    color: var(--dropdown-text); font-family: var(--mono); font-size: 0.8rem;
+    padding: 4px 9px; border-radius: 6px; white-space: nowrap;
+  }
+  .chip .ic { color: var(--dropdown-muted); }
+  .chip .suffix { color: var(--dropdown-muted); font-size: 0.86em; }
+  .copy-table td.str { font-family: var(--mono); font-size: 0.77rem; color: var(--text); line-height: 1.5; white-space: pre-line; }
+  .copy-table td.when { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+
+  .footnote {
+    margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border);
+    font-size: 0.8rem; color: var(--faint); line-height: 1.6;
+  }
+  .footnote b { color: var(--muted); font-weight: 600; }
+  .footnote code {
+    font-family: var(--mono); background: var(--track); padding: 1px 5px; border-radius: 4px;
+    color: var(--text); font-size: 0.86em;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">llmdash · menu-bar service controls · design draft</div>
+    <h1>Install, remove, and uninstall — all from the badge, never the terminal.</h1>
+    <p class="lede">
+      Two lifecycle controls join the dropdown, riding the same
+      <span class="m">＋ / － / ☰</span> action grammar the shipped badge already uses.
+      A <b>state-aware service toggle</b> reflects the <b>real launchd state</b> —
+      <span class="m">－ Remove the local service · running</span> when it's up,
+      <span class="m">＋ Install the local service</span> when it isn't. An
+      <b>Uninstall llmdash…</b> submenu offers two tiers, and a complete uninstall
+      <b>enumerates every artifact before it touches anything</b>. Your usage-history
+      database is <b>preserved by default</b> — the one thing here that can't be rebuilt.
+    </p>
+    <span class="draft-flag">Draft · first direction · react and iterate</span>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       1 — THE STATE-AWARE SERVICE ITEM, IN BOTH MODES
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The dropdown additions — both badge modes, side by side</p>
+    <p class="section-lede">
+      Both controls ride the <b>shared action-lines helper</b>, so they appear in the
+      single-host dropdown <b>and</b> the multi-host (monitoring-station) dropdown alike.
+      The service item is <b>state-aware</b>: it reads the live launchd state at render and
+      labels itself accordingly. On the left, a single-host Mac with the service
+      <b>running</b>; on the right, a monitoring-station Mac whose local service has been
+      <b>removed</b>. Same two items, opposite states.
+    </p>
+
+    <div class="modes-grid">
+
+      <!-- ============ MODE A — single-host, service RUNNING ============ -->
+      <div class="demo-col">
+        <p class="mode-cap">Single-host machine <span class="tag tag-running">service running</span></p>
+        <p class="mode-sub">This Mac runs its own Claude/Codex work. The glyph is today's single-host badge — <span class="m">▪ C 46%</span>, no host cue.</p>
+        <div class="anchor-bar">
+          <span class="glyph selected"><span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num warn">46%</span>
+            <span class="rem-word">remaining</span>
+            <span class="binding">Claude · 5-hour</span>
+          </div>
+          <hr class="dd-sep" />
+
+          <!-- the shipped single-host tool rows (unchanged) -->
+          <div class="dd-tool-head"><span class="dd-tool-name">Claude Code</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem warn">46%</span><span class="dd-reset">resets 1h 55m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem good">72%</span><span class="dd-reset">resets 4d 3h</span></span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Codex</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem good">83%</span><span class="dd-reset">resets 3h 40m</span></span>
+          </div>
+          <div class="dd-row">
+            <span class="dd-win">Weekly</span>
+            <span class="dd-metrics"><span class="dd-rem good">67%</span><span class="dd-reset">resets 5d 9h</span></span>
+          </div>
+
+          <hr class="dd-sep" />
+          <!-- ▼ the NEW service item (state = running) + host action + uninstall submenu -->
+          <div class="dd-action" style="background:color-mix(in srgb, var(--good) 10%, transparent);">
+            <span class="ic">－</span>Remove the local service<span class="suffix">· running</span>
+          </div>
+          <div class="dd-action"><span class="ic">＋</span>Add host…</div>
+          <div class="dd-action listing"><span class="ic">☰</span>Watching: 0 other machines</div>
+          <div class="dd-action"><span class="ic">⊘</span>Uninstall llmdash…<span class="caret">▸</span></div>
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+      <!-- ============ MODE B — monitoring station, service REMOVED ============ -->
+      <div class="demo-col">
+        <p class="mode-cap">Monitoring station <span class="tag tag-removed">service removed</span></p>
+        <p class="mode-sub">This Mac watches remote machines and runs no local monitor. Its own service is gone — so the item flips to <span class="m">＋ Install</span>.</p>
+        <div class="anchor-bar">
+          <span class="glyph selected"><span class="mark">▪</span><span class="host">Desktop</span><span class="hostsep">·</span><span class="cue">C</span><span class="num crit">12%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-title">
+            <span class="mark" style="opacity:.6">▪</span>
+            <span class="num crit">12%</span>
+            <span class="rem-word">remaining</span>
+            <span class="binding">Desktop · Claude · 5-hour</span>
+          </div>
+          <div class="dd-watching">Watching 3 machines · 1 not reachable</div>
+          <hr class="dd-sep" />
+
+          <!-- one binding host section (condensed; full treatment is the shipped multi-host spec) -->
+          <div class="dd-host-head">
+            <span class="dd-host-name">Desktop</span>
+            <span class="dd-host-state"><span class="pulse"></span>updated 18s ago</span>
+          </div>
+          <div class="dd-tool-head"><span class="dd-tool-name">Claude Code</span></div>
+          <div class="dd-row">
+            <span class="dd-win">5-hour</span>
+            <span class="dd-metrics"><span class="dd-rem crit">12%</span><span class="dd-reset">resets 2h 40m</span></span>
+          </div>
+
+          <hr class="dd-sep" />
+          <!-- the de-emphasized local host (shipped monitoring-station treatment) -->
+          <div class="dd-host-head">
+            <span class="dd-host-name">This machine</span>
+            <span class="dd-host-you">you</span>
+            <span class="dd-host-state"><span class="dd-host-pill pill-idle">no local activity</span></span>
+          </div>
+          <div class="dd-hostnote">
+            This Mac isn't running Claude or Codex — it's watching the machines above. No reading is fabricated.
+          </div>
+
+          <hr class="dd-sep" />
+          <!-- ▼ the NEW service item (state = not-installed) + host action + uninstall submenu -->
+          <div class="dd-action" style="background:color-mix(in srgb, var(--accent) 9%, transparent);">
+            <span class="ic">＋</span>Install the local service
+          </div>
+          <div class="dd-action"><span class="ic">＋</span>Add host…</div>
+          <div class="dd-action"><span class="ic">－</span>Remove host…<span class="caret">▸</span></div>
+          <div class="dd-action listing"><span class="ic">☰</span>Watching: 3 other machines</div>
+          <div class="dd-action"><span class="ic">⊘</span>Uninstall llmdash…<span class="caret">▸</span></div>
+          <hr class="dd-sep" />
+          <div class="dd-action"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="demo-notes" style="margin-top:22px;">
+      <b>The state-aware label, verbatim.</b> The service item reads the real launchd state
+      each render — never a faked checkmark — and there are three states:
+      <ul>
+        <li><span class="m">＋ Install the local service</span> — when <b>not installed</b> (no plist on disk). A light confirm; it regenerates the plist with fresh absolute paths and loads it.</li>
+        <li><span class="m">－ Remove the local service · running</span> — when <b>running</b> (loaded into the user domain). The <span class="m">· running</span> suffix is a dim mono locator, not a color.</li>
+        <li><span class="m">－ Remove the local service · stopped</span> — when the <b>plist is present but unloaded</b>. Honest "stopped," not "not installed"; Remove still deletes the plist.</li>
+      </ul>
+      Both items sit in the <b>same slot in both modes</b> — a fresh single-host or a
+      monitoring-station Mac reaches them identically.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       2 — THE UNINSTALL SUBMENU (two tiers)
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">Uninstall llmdash… — two tiers, one submenu</p>
+    <p class="section-lede">
+      <b>Uninstall llmdash…</b> opens a submenu with two clearly-separated tiers: a light
+      one that only takes the badge off the bar, and a heavy one that tears the whole
+      install down (behind an enumerated confirm). The two are never one click apart by
+      accident — the complete one carries its own <span class="m">…</span> and its own gate.
+    </p>
+
+    <div class="dropdown-demo">
+      <div class="demo-col">
+        <div class="anchor-bar">
+          <span class="glyph selected"><span class="mark">▪</span><span class="cue">C</span><span class="num warn">46%</span></span>
+          <span class="sys">Thu&nbsp;11:52</span>
+        </div>
+        <div class="dropdown">
+          <div class="dd-action" style="opacity:.5;"><span class="ic">－</span>Remove the local service<span class="suffix">· running</span></div>
+          <div class="dd-action" style="opacity:.5;"><span class="ic">＋</span>Add host…</div>
+          <!-- Uninstall… open, submenu popped -->
+          <div class="dd-action open"><span class="ic">⊘</span>Uninstall llmdash…<span class="caret">▸</span></div>
+          <div class="dd-submenu">
+            <div class="sub-label">Uninstall…</div>
+            <div class="dd-subitem">
+              <span class="ic">▬</span>
+              <span class="sub-txt">
+                <span>Remove the menu-bar badge only</span>
+                <span class="sub-sub">Takes the badge off the bar. Service, checkout, and data stay.</span>
+              </span>
+            </div>
+            <div class="dd-subitem">
+              <span class="ic">⊘</span>
+              <span class="sub-txt">
+                <span>Uninstall llmdash completely…</span>
+                <span class="sub-sub">Lists everything it will remove, then asks. Your history is kept by default.</span>
+              </span>
+            </div>
+          </div>
+          <div class="dd-action" style="opacity:.5;"><span class="ic">◱</span>Open dashboard</div>
+          <div class="dd-action" style="opacity:.5;"><span class="ic">⟳</span>Refresh<span class="kbd">⌘R</span></div>
+        </div>
+      </div>
+
+      <div class="demo-col">
+        <div class="demo-notes">
+          <b>Two tiers, two very different stakes:</b>
+          <ul>
+            <li><b>Remove the menu-bar badge only</b> — reverses <span class="m">--setup-badge</span> and nothing more. The marker-gated SwiftBar wrapper is removed; the service keeps running, the checkout and your data are untouched. The badge just disappears from the bar on the next refresh. A file in SwiftBar's dir <b>without</b> our marker is a file of yours — it's left alone with an honest message.</li>
+            <li><b>Uninstall llmdash completely…</b> — the trailing <span class="m">…</span> signals it opens a dialog first. It <b>enumerates every artifact</b> (next section) and only acts on confirm, then asks separately about your history.</li>
+          </ul>
+        </div>
+        <div class="demo-notes good" style="margin-top:14px;">
+          <b>SwiftBar is never removed.</b> llmdash never runs
+          <span class="m">brew uninstall --cask swiftbar</span> — SwiftBar is your app, a
+          prerequisite we don't manage. Both the enumeration and the post-uninstall message
+          <b>point you to</b> that command if you want it gone; the action itself never touches it.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       3 — THE ENUMERATED UNINSTALL CONFIRMATION (the load-bearing dialog)
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The enumerated confirmation — everything named before anything is touched</p>
+    <p class="section-lede">
+      Choosing <b>Uninstall llmdash completely…</b> pops a fixed-literal
+      <span class="m">osascript display dialog</span> that <b>lists every artifact it will
+      remove, by name and path</b>, before it removes a single one. The resolved checkout
+      path is embedded (escaped, never re-fed as script). The one thing that <b>can't</b> be
+      rebuilt — your snapshot history — is called out as <b>preserved by default</b>. The
+      default button is <b>Cancel</b>; <b>Uninstall</b> must be chosen deliberately.
+    </p>
+
+    <div style="max-width:480px; margin: 0 auto;">
+      <span class="badge-pill bp-confirm">step 1 · the enumerated confirm</span>
+      <div class="osa-dialog">
+        <div class="osa-head">
+          <div class="osa-icon">▪</div>
+          <div class="osa-body">
+            <div class="osa-title">Uninstall llmdash from this Mac?</div>
+            <div class="osa-prompt">
+              <div class="lead-list">This will remove:</div>
+              <ul class="osa-list">
+                <li><span class="b">•</span><span>the launchd service <code>com.llmdash.dashboard</code> and its plist</span></li>
+                <li><span class="b">•</span><span>the menu-bar badge wrapper (in SwiftBar's plugin folder)</span></li>
+                <li><span class="b">•</span><span>the app checkout at <code>~/llmdash</code></span></li>
+                <li><span class="b">•</span><span>the Claude Code statusline wiring <span class="b">(restoring your <code>settings.json.bak</code> if present)</span></span></li>
+                <li><span class="b">•</span><span>the auto-refresh trust folder <code>~/.llmdash/claude-refresh-cwd</code> and its <code>~/.claude.json</code> entry</span></li>
+              </ul>
+            </div>
+            <div class="osa-note">
+              Your usage-history database <span class="m">llmdash.db</span> is
+              <span class="keep">PRESERVED</span> — it's the only thing here that can't be
+              rebuilt, so it's kept unless you say otherwise on the next step.
+              <span class="strong">SwiftBar is not removed</span> — uninstall it yourself with
+              <code>brew uninstall --cask swiftbar</code>.
+            </div>
+          </div>
+        </div>
+        <div class="osa-buttons">
+          <span class="btn-note">Cancel is the default — nothing happens until you choose Uninstall.</span>
+          <span class="osa-btn destructive">Uninstall</span>
+          <span class="osa-btn default">Cancel</span>
+        </div>
+      </div>
+      <p class="dialog-cap"><b>Cancel changes nothing</b> — no service touched, no file removed. Only <b>Uninstall</b> proceeds, and only to step 2 (your history question) before anything is deleted.</p>
+    </div>
+
+    <div class="demo-notes crit" style="max-width:640px; margin: 24px auto 0;">
+      <b>Why enumerate first?</b> A complete uninstall is irreversible for everything but the
+      database. Listing each artifact — <b>by name and real path</b> — before acting means you
+      approve the exact scope, never a vague "are you sure?". Every path here is
+      <b>marker-gated</b>: the plist only if it's the <span class="m">com.llmdash.dashboard</span>
+      label; the statusline only if it points at <b>this</b> checkout; the wrapper only if it
+      carries our marker; the checkout only the resolved <span class="m">~/llmdash</span>. A
+      second llmdash install, or a file of yours, is left untouched — and if any step can't
+      complete, the result says <b>exactly what did not happen</b>, never claims a removal that didn't occur.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       4 — THE DATA OPT-IN (second step) + SERVICE-REMOVE CONFIRM
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">The two remaining dialogs — your history, and removing the service</p>
+    <p class="section-lede">
+      Two more dialogs complete the picture. <b>Left:</b> the data opt-in, which only appears
+      <b>after</b> you've confirmed the uninstall — the safe choice (<b>Keep my history</b>) is
+      the default button, and the destructive one names its irreversibility. <b>Right:</b> the
+      standalone <b>Remove the local service</b> confirm, which names the consequence — this Mac
+      stops monitoring locally, but the badge keeps working off remote hosts.
+    </p>
+
+    <div class="dialog-row">
+
+      <!-- ============ THE DATA OPT-IN (step 2) ============ -->
+      <div>
+        <span class="badge-pill bp-optin">step 2 · your history (only after Uninstall)</span>
+        <div class="osa-dialog">
+          <div class="osa-head">
+            <div class="osa-icon" style="background:linear-gradient(150deg,#5a4620,#3a2f16);">▪</div>
+            <div class="osa-body">
+              <div class="osa-title">Also delete your usage history?</div>
+              <div class="osa-warnline">
+                Your snapshot database <span class="m">llmdash.db</span> holds every limit
+                reading llmdash has ever recorded. Removing llmdash doesn't need to delete it —
+                and <span class="osa-irrev">this can't be undone.</span>
+              </div>
+              <div class="osa-note warn">
+                <span class="strong">Keep it</span> unless you're sure. It's the only data here
+                that can't be rebuilt by reinstalling — a fresh install starts collecting from empty.
+              </div>
+            </div>
+          </div>
+          <div class="osa-buttons">
+            <span class="osa-btn destructive">Delete history too</span>
+            <span class="osa-btn default">Keep my history</span>
+          </div>
+        </div>
+        <p class="dialog-cap"><b>Keep my history</b> is the default button (highlighted, the safe choice). <b>Delete history too</b> is the only path that removes <span class="m">llmdash.db</span> — a deliberate second click, clearly warned.</p>
+      </div>
+
+      <!-- ============ THE SERVICE-REMOVE CONFIRM ============ -->
+      <div>
+        <span class="badge-pill bp-service">the service-remove confirm</span>
+        <div class="osa-dialog">
+          <div class="osa-head">
+            <div class="osa-icon">▪</div>
+            <div class="osa-body">
+              <div class="osa-title">Remove the local llmdash service?</div>
+              <div class="osa-warnline">
+                This Mac will <span class="strong">stop running its own local monitor</span> —
+                the launchd agent is unloaded and its plist deleted. If this badge watches
+                remote machines, it <span class="strong">keeps working off those</span>; only the
+                local reading stops. You can re-install the service from this menu any time.
+              </div>
+            </div>
+          </div>
+          <div class="osa-buttons">
+            <span class="osa-btn destructive">Remove the service</span>
+            <span class="osa-btn default">Cancel</span>
+          </div>
+        </div>
+        <p class="dialog-cap"><b>Cancel</b> is the default. <b>Install</b> gets a lighter confirm of the same shape ("Install the local llmdash service on this Mac?") — every mutation is confirmed, but a non-destructive one reads lighter.</p>
+      </div>
+
+    </div>
+
+    <div class="demo-notes" style="max-width:900px; margin: 24px auto 0;">
+      <b>One consistent discipline across all three dialogs:</b> the <b>default button is always
+      the safe choice</b> (Cancel, or Keep my history) — so a reflexive Return key never destroys
+      anything. The destructive button is always plainly labeled with the consequence
+      (<b>Uninstall</b>, <b>Delete history too</b>, <b>Remove the service</b>), never a bare "OK."
+      Every dialog is a fixed literal invoked with no shell; the only dynamic value — the resolved
+      checkout path — is escaped into the string, never re-run as script.
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ================================================================
+       5 — THE COPY TABLE (binding, verbatim)
+       ================================================================ -->
+  <section class="section">
+    <p class="section-label">Every new string — the binding copy the Engineer implements</p>
+    <p class="section-lede">
+      The behavior is pinned by the PRD and system design; the <b>wording below is the draft to
+      react to</b>. Honest, consequence-naming, irreversibility marked, safe choice defaulted.
+      <span class="m">&lt;dir&gt;</span> = the resolved checkout path (default <span class="m">~/llmdash</span>).
+    </p>
+    <div class="table-scroll">
+    <table class="legend-table copy-table">
+      <thead>
+        <tr><th style="width:34%;">String</th><th>Where it appears</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="str">＋ Install the local service</td><td class="when">Service item, state = <b>not installed</b> (no plist). Light confirm → regenerate plist + load.</td></tr>
+        <tr><td class="str">－ Remove the local service · running</td><td class="when">Service item, state = <b>running</b> (loaded). The <span class="m">· running</span> suffix is a dim mono locator.</td></tr>
+        <tr><td class="str">－ Remove the local service · stopped</td><td class="when">Service item, state = <b>plist present but unloaded</b>. Honest "stopped," not "not installed."</td></tr>
+        <tr><td class="str">⊘ Uninstall llmdash…</td><td class="when">Submenu parent, both modes. The trailing <span class="m">…</span> signals a submenu.</td></tr>
+        <tr><td class="str">Remove the menu-bar badge only</td><td class="when">Uninstall submenu, tier 1. Removes the marker-gated wrapper; service/checkout/data untouched.</td></tr>
+        <tr><td class="str">Uninstall llmdash completely…</td><td class="when">Uninstall submenu, tier 2. Opens the enumerated confirm dialog.</td></tr>
+        <tr><td class="str">Uninstall llmdash from this Mac?</td><td class="when">Enumerated confirm — dialog title.</td></tr>
+        <tr><td class="str">This will remove:
+  • the launchd service (com.llmdash.dashboard) and its plist
+  • the menu-bar badge wrapper (in SwiftBar's plugin folder)
+  • the app checkout at &lt;dir&gt;
+  • the Claude Code statusline wiring (restoring your settings.json.bak if present)
+  • the auto-refresh trust folder (~/.llmdash/claude-refresh-cwd) and its ~/.claude.json entry</td><td class="when">Enumerated confirm — the artifact list, by name and path, before anything is touched.</td></tr>
+        <tr><td class="str">Your usage-history database (llmdash.db) is PRESERVED — it's the only thing here that can't be rebuilt, so it's kept unless you say otherwise on the next step. SwiftBar is not removed — uninstall it yourself with: brew uninstall --cask swiftbar</td><td class="when">Enumerated confirm — the honesty note (preserve-by-default kindness + SwiftBar-never-removed).</td></tr>
+        <tr><td class="str">[ Cancel ]  [ Uninstall ]  — Cancel is the default button</td><td class="when">Enumerated confirm — buttons. Safe choice (Cancel) defaulted; a cancel changes nothing.</td></tr>
+        <tr><td class="str">Also delete your usage history?</td><td class="when">Data opt-in (step 2, only after Uninstall) — dialog title.</td></tr>
+        <tr><td class="str">Your snapshot database (llmdash.db) holds every limit reading llmdash has ever recorded. Removing llmdash doesn't need to delete it — and this can't be undone. Keep it unless you're sure; it's the only data here that can't be rebuilt by reinstalling.</td><td class="when">Data opt-in — body. Names irreversibility; steers to Keep.</td></tr>
+        <tr><td class="str">[ Delete history too ]  [ Keep my history ]  — Keep my history is the default button</td><td class="when">Data opt-in — buttons. Safe choice (Keep) defaulted; deletion is the deliberate second click.</td></tr>
+        <tr><td class="str">Remove the local llmdash service?</td><td class="when">Service-remove confirm — dialog title.</td></tr>
+        <tr><td class="str">This Mac will stop running its own local monitor — the launchd agent is unloaded and its plist deleted. If this badge watches remote machines, it keeps working off those; only the local reading stops. You can re-install the service from this menu any time.</td><td class="when">Service-remove confirm — body. Names the consequence; reassures remote watching survives.</td></tr>
+        <tr><td class="str">[ Remove the service ]  [ Cancel ]  — Cancel is the default button</td><td class="when">Service-remove confirm — buttons. Safe choice (Cancel) defaulted.</td></tr>
+        <tr><td class="str">Install the local llmdash service on this Mac?</td><td class="when">Service-install confirm (lighter) — every mutation confirmed, but non-destructive reads lighter.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="footnote">
+    <b>Reuse over reinvention.</b> The dropdown chrome, the <code>＋ / － / ☰</code> action
+    grammar, the submenu affordance, and the <code>.osa-dialog</code> macOS-dialog styling are
+    all lifted from the shipped multi-host badge — the service item and Uninstall submenu are new
+    <b>rows in an existing vocabulary</b>, not new chrome. &nbsp;·&nbsp; <b>No new color
+    semantics:</b> the enumerate dialog's preserve-by-default note reuses the <code>good</code>
+    tint, the data opt-in reuses <code>warn</code>, the destructive buttons carry the
+    <code>crit</code> hue — all existing design-system tokens. &nbsp;·&nbsp; <b>OS-native where it
+    belongs:</b> the dialogs match macOS <code>display dialog</code> conventions (icon, title,
+    body, two buttons, default on the safe choice) because they <b>are</b> real
+    <code>osascript</code> dialogs, not llmdash surfaces. &nbsp;·&nbsp; <b>Honesty floor:</b>
+    live state never faked, every artifact enumerated before acting, the irreplaceable database
+    preserved by default, SwiftBar never removed.
+  </div>
+
+</div>

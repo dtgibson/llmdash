@@ -15,7 +15,7 @@ process.env.LLMDASH_CODEX_CMD = path.join(tmp, 'missing', 'codex');
 process.env.LLMDASH_CLAUDE_CMD = path.join(tmp, 'missing', 'claude');
 delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
-const { resolveCommand, dataSourceHealth, healthLines, freshnessModeLine } = await import('../src/health.js');
+const { resolveCommand, dataSourceHealth, healthLines, freshnessModeLine, serviceStateLine } = await import('../src/health.js');
 const { config } = await import('../config.js');
 
 test('resolveCommand finds a bare name on the given PATH', () => {
@@ -139,6 +139,33 @@ test('freshnessModeLine states the disabled reality when the off-switch is set',
   assert.match(line, /unset the variable and restart to re-enable/);
   // Disabled means the manual path IS the only path — saying so is honest here.
   assert.match(line, /only when a real Claude Code session renders its status line/);
+});
+
+// ── serviceStateLine — the menu-bar service/uninstall disclosure (FR-22/QA-22) ─
+
+test('serviceStateLine names the service state + uninstall scope, DB-preserved-by-default (QA-22)', () => {
+  const present = serviceStateLine({ plistPresent: true, checkout: '/scratch/co' });
+  assert.match(present, /Service: launchd agent present/);
+  assert.match(present, /install\/remove or uninstall it/);
+  assert.match(present, /\/scratch\/co/);                // the checkout it would act on
+  assert.match(present, /preserving llmdash\.db by default/);
+  assert.match(present, /separate, explicit opt-in/);
+
+  const absent = serviceStateLine({ plistPresent: false, checkout: '/scratch/co' });
+  assert.match(absent, /no launchd agent plist on disk/);
+  assert.match(absent, /"Install the local service" can \(re\)create it/);
+  assert.match(absent, /preserving llmdash\.db by default/);
+});
+
+test('healthLines includes the service-state disclosure line (QA-22)', () => {
+  const out = healthLines({
+    claudeRatelimits: { file: '/x/claude-ratelimits.json', present: false, ageMs: null },
+    claudeCmd: { cmd: 'claude', resolved: null },
+    codexCmd: { cmd: 'codex', resolved: null },
+    codexSessions: { dir: '/x/sessions', present: false },
+  }).join('\n');
+  assert.match(out, /Service: (launchd agent present|no launchd agent plist on disk)/);
+  assert.match(out, /preserving llmdash\.db by default/);
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

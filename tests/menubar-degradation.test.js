@@ -71,6 +71,34 @@ test('the offline output still offers the actions against the configured host:po
   assert.match(out, /Open dashboard \| href=http:\/\/100\.64\.0\.9:9999\//);
 });
 
+// menubar-service-controls (FR-16): after the local service is removed the badge's
+// loopback /api/hosts read fails → the EXISTING offline glyph, unchanged. The
+// service/uninstall dropdown items ride the NORMAL dropdown, not the offline one —
+// so a service-removed (offline) badge shows the pure offline glyph with NO
+// service toggle / Uninstall item (the offline path can't reach the helper anyway).
+test('service removed → local read fails → existing offline glyph, no service/uninstall items (FR-16)', async () => {
+  const srv = await startServer((req, res) => res.end());
+  const deadPort = srv.port;
+  await srv.close(); // nothing listening → the local instance is down (as after a service remove)
+  const r = await runPlugin({ LLMDASH_BADGE_HOST: '127.0.0.1', LLMDASH_PORT: String(deadPort) });
+  assert.equal(r.status, 0);
+  assert.equal(firstLine(r.stdout), OFFLINE_TITLE);
+  assert.doesNotMatch(r.stdout, /\d+%/);
+  // The offline dropdown carries only the shipped offline actions — never the
+  // service toggle or the Uninstall submenu (those live on the live dropdown).
+  assert.doesNotMatch(r.stdout, /the local service/);
+  assert.doesNotMatch(r.stdout, /Uninstall llmdash/);
+});
+
+// The offline glyph is unaffected by the live service-state read: even with a
+// present-and-running service, an unreachable local dashboard is still pure offline.
+test('offline glyph is unchanged regardless of the live service state (FR-16)', () => {
+  const out = emit(null, { host: '127.0.0.1', port: '8787', offline: true, serviceState: 'running' });
+  assert.equal(out.split('\n')[0], OFFLINE_TITLE);
+  assert.doesNotMatch(out, /the local service/);
+  assert.doesNotMatch(out, /Uninstall llmdash/);
+});
+
 // Regression: SwiftBar invokes the plugin through a SYMLINK in its plugin dir
 // (setup-badge symlinks it in). Node de-symlinks import.meta.url but not
 // process.argv[1], so the run-guard must compare REAL paths or main() never

@@ -81,6 +81,36 @@ test('server.js source contains no host-config write path (write lives in the ba
     'the server must not write the host config; that is the badge process only');
 });
 
+// ── menubar-service-controls: HTTP stays read-only, NO service/uninstall endpoint
+// (NFR-04 / QA-24 / QA-28). Every mutation is a local launchctl/fs op in the badge
+// process — the server grows no endpoint and never runs launchctl/uninstall work.
+test('no HTTP service/uninstall endpoint: mutating methods on service paths are 405 (QA-24)', async () => {
+  for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+    for (const p of ['/api/service', '/api/uninstall', '/api/service/install', '/api/service/remove']) {
+      const r = await hit(p, method);
+      assert.equal(r.status, 405, `${method} ${p} must be 405 (read-only)`);
+      assert.equal(r.headers['allow'], 'GET, HEAD');
+    }
+  }
+});
+
+test('the would-be service/uninstall routes are not GET-served either (no such handler, QA-24)', async () => {
+  for (const p of ['/api/service', '/api/uninstall', '/api/service/status']) {
+    const r = await hit(p, 'GET');
+    assert.equal(r.status, 404, `${p} must not exist as any handler`);
+  }
+});
+
+test('server.js source runs no launchctl / uninstall work on the request path (QA-28)', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.join(here, '..', 'src', 'server.js'), 'utf8');
+  assert.doesNotMatch(src, /launchctl|bootout|bootstrap|service-control-action|--service|--uninstall/,
+    'the server never touches launchctl or the uninstall path; that is the badge process only');
+});
+
 test('toolWrap exposes a per-window projection (five_hour + seven_day shown at once)', () => {
   const now = Date.UTC(2026, 0, 4, 0, 0, 0);
   const live = {

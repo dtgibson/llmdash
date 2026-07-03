@@ -43,6 +43,10 @@ function fakeCheckout() {
   // the delivery-model tests see the real repo layout.
   fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'host-config-action.mjs'),
     path.join(menubar, 'host-config-action.mjs'));
+  // The service/uninstall helper (menubar-service-controls) is ALSO a tracked
+  // sibling delivered by the same model — copy it so the delivery-model tests see it.
+  fs.copyFileSync(path.join(repoRoot, 'scripts', 'menubar', 'service-control-action.mjs'),
+    path.join(menubar, 'service-control-action.mjs'));
   return dir;
 }
 const DEV_SHEBANG = '#!/usr/bin/env node';
@@ -424,6 +428,62 @@ test('--setup-badge: the badge-setup message names the hosts.conf location (FR-2
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /hosts\.conf/);
   assert.match(r.stdout, /no HTTP write/);
+});
+
+// ── The service/uninstall helper rides the same wrapper/absolute-node model ────
+// (menubar-service-controls, NFR-08 / QA-27.) The tracked service-control helper
+// is delivered beside the plugin; the installer never rewrites it, --setup-badge
+// leaves it untouched, and --remove-badge (badge only) never deletes it.
+
+test('--setup-badge: the service-control helper is NOT modified and stays beside the plugin (QA-27)', () => {
+  const checkout = fakeCheckout();
+  const bin = path.join(tmp, 'node-svc-helper');
+  fakeBin(bin, 'node');
+  const home = path.join(tmp, 'home-svc-helper');
+  const sbDir = path.join(home, 'Library', 'Application Support', 'SwiftBar', 'Plugins');
+  fs.mkdirSync(sbDir, { recursive: true });
+  const helper = path.join(checkout, 'scripts', 'menubar', 'service-control-action.mjs');
+  const before = fs.readFileSync(helper, 'utf8');
+
+  const r = run(['--setup-badge', checkout], { PATH: `${bin}:${SYS_PATH}`, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.readFileSync(helper, 'utf8'), before, 'the tracked service-control helper must be unchanged');
+  assert.ok(fs.existsSync(helper), 'it stays alongside the plugin in the checkout');
+});
+
+test('--remove-badge: leaves the service-control helper intact (badge-only removal, QA-27)', () => {
+  const { home, sbDir, checkout } = fakeSwiftBarHome('wrapper');
+  const helper = path.join(checkout, 'scripts', 'menubar', 'service-control-action.mjs');
+  const before = fs.readFileSync(helper, 'utf8');
+  const r = run(['--remove-badge', checkout], { PATH: SYS_PATH, HOME: home, LLMDASH_SWIFTBAR_DIR: sbDir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(fs.existsSync(helper), 'the tracked helper survives --remove-badge (badge-only)');
+  assert.equal(fs.readFileSync(helper, 'utf8'), before);
+});
+
+test('the plugin wires the service/uninstall actions to $ABS_NODE against the service-control helper (NFR-08)', () => {
+  const pluginSrc = fs.readFileSync(path.join(repoRoot, 'scripts', 'menubar', 'llmdash.5s.js'), 'utf8');
+  assert.match(pluginSrc, /service-control-action\.mjs/);
+  assert.match(pluginSrc, /SERVICE_CONTROL_ACTION = /);
+  assert.match(pluginSrc, /shell="\$\{ABS_NODE\}".*param2=install/);
+  assert.match(pluginSrc, /shell="\$\{ABS_NODE\}".*param2=uninstall/);
+  // No HTTP mutation added by these actions.
+  assert.doesNotMatch(pluginSrc, /method:\s*['"]POST['"]|POST \/api|\.post\(/i);
+});
+
+// SwiftBar is NEVER uninstalled by any llmdash path (QA-15) — extend the guard to
+// the service-control helper: it points to the manual brew step, never runs it.
+test('no code path uninstalls SwiftBar; the copy points to the manual brew step (QA-15)', () => {
+  const installer = fs.readFileSync(script, 'utf8');
+  const helper = fs.readFileSync(path.join(repoRoot, 'scripts', 'menubar', 'service-control-action.mjs'), 'utf8');
+  for (const [name, src] of [['installer', installer], ['service-control helper', helper]]) {
+    // Never RUNS `brew uninstall … swiftbar`.
+    assert.doesNotMatch(src, /execFileSync\([^)]*brew|spawn[^)]*brew|brew uninstall --cask swiftbar['"]\s*\]/,
+      `${name} must not run brew uninstall swiftbar`);
+  }
+  // Both surfaces DO point the user to the manual step in copy.
+  assert.match(installer, /brew uninstall --cask swiftbar/);
+  assert.match(helper, /brew uninstall --cask swiftbar/);
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

@@ -24,6 +24,12 @@
 // Node-builtins-only either way.
 
 import http from 'node:http';
+// Builtins for the live launchd-state read (menubar-service-controls). All
+// node: builtins — the zero-dep / no-build constitution is preserved.
+import { existsSync as _existsSync } from 'node:fs';
+import { execFileSync as _execFileSync } from 'node:child_process';
+import { userInfo as _userInfo } from 'node:os';
+const _userUid = () => String(_userInfo().uid);
 
 // ── CONFIG (the only config surface) ────────────────────────────────────────
 // HOST defaults to loopback (badge and dashboard on the same Mac) but is
@@ -370,7 +376,7 @@ export function baseUrl(host, port) {
 // Dropdown for a normal (non-offline) badge: title echo → per-tool groups →
 // diagnostics → actions. host/port drive the Open-dashboard href so the link
 // matches what the badge reads.
-function dropdownLines(badge, host, port) {
+function dropdownLines(badge, host, port, serviceState = 'not-installed') {
   const lines = [];
 
   // Title echo line — repeats the glyph with the binding tool·window (and band
@@ -410,12 +416,12 @@ function dropdownLines(badge, host, port) {
     for (const dl of diagBlock) lines.push(dl);
   }
 
-  // The host-config actions ride the single-host dropdown too, so the FIRST host
-  // is addable straight from the menu bar (there are no remotes in single mode, so
-  // this is just `＋ Add host…` + an honest "Watching: 0 other machines"; the
-  // Remove submenu is omitted — nothing to remove). The glyph and the per-tool
-  // rows above stay byte-for-byte today's badge; only this affordance is added.
-  for (const l of hostConfigActionLines({ remotes: [] })) lines.push(l);
+  // The service toggle + host-config + Uninstall action cluster rides the single-
+  // host dropdown too (menubar-service-controls): the service toggle and the
+  // Uninstall submenu are reachable on a fresh single-host machine, and the FIRST
+  // host is still addable here. Live service state is read in this render process,
+  // off the request path. The glyph + per-tool rows above stay today's badge.
+  for (const l of actionClusterLines({ serviceState, remotes: [] })) lines.push(l);
 
   lines.push('---');
   lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
@@ -434,7 +440,7 @@ function offlineLines(host, port) {
   ];
 }
 
-export function emit(badge, { host = HOST, port = PORT, offline = false } = {}) {
+export function emit(badge, { host = HOST, port = PORT, offline = false, serviceState = 'not-installed' } = {}) {
   if (offline) {
     // OFFLINE — never a number, no tool cue. Wordmark + slash marker, dimmed.
     const title = `${MARK} llmdash ${WARN_TRIANGLE} | color=${COLOR_OFFLINE}`;
@@ -465,7 +471,7 @@ export function emit(badge, { host = HOST, port = PORT, offline = false } = {}) 
       break;
     }
   }
-  return [title, ...dropdownLines(badge, host, port)].join('\n');
+  return [title, ...dropdownLines(badge, host, port, serviceState)].join('\n');
 }
 
 // ── Multi-host dropdown + glyph (FR-07–FR-13, FR-19/20) ──────────────────────
@@ -483,6 +489,39 @@ export const PLUGIN_DIR = (() => {
 // running this plugin — so the Add/Remove actions exec it against the helper.
 export const ABS_NODE = process.execPath;
 const HOST_CONFIG_ACTION = `${PLUGIN_DIR}/host-config-action.mjs`;
+// The service/uninstall helper (menubar-service-controls) — a tracked sibling of
+// this plugin, delivered by the SAME wrapper/absolute-node model. The service
+// toggle + the Uninstall submenu shell to it under $ABS_NODE.
+const SERVICE_CONTROL_ACTION = `${PLUGIN_DIR}/service-control-action.mjs`;
+
+// ── Live launchd-state read (FR-04) — in the BADGE RENDER process, off the ─────
+// request path (NFR-10). Cheap: fs.existsSync(plist) + one launchctl print. Never
+// faked — the label word + suffix carry the honest state. Returns one of
+// 'running' | 'stopped' | 'not-installed'. A read failure falls back to
+// 'not-installed' (the safe, non-destructive label — offers Install, never Remove).
+export const SERVICE_LABEL = process.env.LLMDASH_SERVICE_LABEL || 'com.llmdash.dashboard';
+export function readServiceState({
+  label = SERVICE_LABEL,
+  plistPath = null,
+  execFile = null,
+} = {}) {
+  const home = process.env.HOME || '';
+  const laDir = process.env.LLMDASH_LAUNCH_AGENTS_DIR
+    || (home ? `${home}/Library/LaunchAgents` : '');
+  const plist = plistPath || (laDir ? `${laDir}/${label}.plist` : '');
+  try {
+    if (!plist || !_existsSync(plist)) return 'not-installed';
+  } catch { return 'not-installed'; }
+  // Bootstrapped into the user domain? `launchctl print gui/<uid>/<label>` exit 0.
+  try {
+    const uid = _userUid();
+    const run = execFile || _execFileSync;
+    run('/bin/launchctl', ['print', `gui/${uid}/${label}`], { stdio: 'ignore' });
+    return 'running';
+  } catch {
+    return 'stopped'; // plist present but not bootstrapped
+  }
+}
 
 // A per-host section: header (escaped label + binding/you pill + freshness/offline
 // state) then the existing per-tool rows. Reuses dropdownLines' per-tool grammar
@@ -577,11 +616,63 @@ export function hostConfigActionLines({ remotes = [] } = {}) {
   return lines;
 }
 
+// The state-aware service toggle + the two-tier Uninstall submenu
+// (menubar-service-controls, FR-01/FR-04/FR-09) — the ONE source of truth for the
+// service/uninstall affordances, called from BOTH dropdownLines and
+// multiDropdownLines so they show in single-host AND multi-host mode (like
+// hostConfigActionLines). Each action shells to the tracked service-control helper
+// under $ABS_NODE (terminal=false windowless, refresh=true). NO HTTP mutation.
+//
+// Returns { serviceLine, uninstallLines } so callers place them in the design order
+// (service toggle FIRST, then the host-config actions, then the Uninstall submenu).
+// `state` is the LIVE launchd state (running|stopped|not-installed), read in the
+// badge render process off the request path (readServiceState). Injectable for tests.
+export function serviceControlActionLines({ state = 'not-installed' } = {}) {
+  // The state-aware service item. not-installed → Install (＋); running/stopped →
+  // Remove (－) with a dim mono state suffix. The label word + suffix carry the
+  // honest state (reads in a monochrome bar; xbar-safe) — never a status color.
+  let serviceLine;
+  if (state === 'not-installed') {
+    serviceLine = `＋ Install the local service | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=install terminal=false refresh=true`;
+  } else {
+    const suffix = state === 'running' ? ' · running' : ' · stopped';
+    serviceLine = `－ Remove the local service${suffix} | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=remove terminal=false refresh=true`;
+  }
+  // The Uninstall submenu (two tiers, SwiftBar nested items via leading `--`).
+  // Tier 1 (badge only) is light; tier 2 (complete) carries its own `…` and its
+  // own enumerated gate, so the two are never one accidental click apart.
+  const uninstallLines = [
+    '⊘ Uninstall llmdash…',
+    `--▬ Remove the menu-bar badge only | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=remove-badge terminal=false refresh=true`,
+    `--⊘ Uninstall llmdash completely… | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=uninstall terminal=false refresh=true`,
+  ];
+  return { serviceLine, uninstallLines };
+}
+
+// Emit the full service+host+uninstall action cluster in design order:
+//   ---                                   (group separator)
+//   ＋/－ <service toggle>                 (state-aware; leads the cluster)
+//   ＋ Add host… / － Remove host… / ☰ Watching  (hostConfigActionLines)
+//   ⊘ Uninstall llmdash…  ↳ two tiers     (the submenu, last)
+// Shared by BOTH single-host and multi-host dropdowns so the affordances are
+// structurally present in both. `serviceState` is injected by the caller from the
+// live read; `remotes` drive the host-config lines.
+export function actionClusterLines({ serviceState = 'not-installed', remotes = [] } = {}) {
+  const { serviceLine, uninstallLines } = serviceControlActionLines({ state: serviceState });
+  const lines = ['---', serviceLine];
+  // hostConfigActionLines opens with its own '---'; we've already started the
+  // group, so append its body without the leading separator (keep one group).
+  const hostLines = hostConfigActionLines({ remotes });
+  for (const l of hostLines) { if (l === '---') continue; lines.push(l); }
+  for (const l of uninstallLines) lines.push(l);
+  return lines;
+}
+
 // The multi-host dropdown: title echo (binding host · tool · window) + scope line,
 // one section per host (binding first), then the actions, then the shipped
 // Open-dashboard / Refresh. host/port drive the Open-dashboard href (THIS machine's
 // loopback, never a peer's).
-function multiDropdownLines(multi, host, port, remotes) {
+function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-installed') {
   const lines = [];
   const reachableCount = multi.hostViews.length;
   const unreachable = multi.hostViews.filter((v) => !v.reachable || (!v.badge && !v.self)).length;
@@ -603,7 +694,8 @@ function multiDropdownLines(multi, host, port, remotes) {
     for (const l of hostSectionLines(view, { isBinding: view === bindingView && !!multi.binding })) lines.push(l);
   }
 
-  for (const l of hostConfigActionLines({ remotes })) lines.push(l);
+  // The service toggle + host-config + Uninstall action cluster (both modes).
+  for (const l of actionClusterLines({ serviceState, remotes })) lines.push(l);
 
   lines.push('---');
   lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
@@ -615,7 +707,7 @@ function multiDropdownLines(multi, host, port, remotes) {
 // carries the host cue: `▪ <host>·<C|X> <pct>` in fresh/aging/stale; no-reading is
 // `▪ —` (no host cue). Single-host mode is handled by the caller delegating to the
 // shipped emit() — this is only ever called with mode:'multi'.
-export function emitMulti(multi, { host = HOST, port = PORT, remotes = [] } = {}) {
+export function emitMulti(multi, { host = HOST, port = PORT, remotes = [], serviceState = 'not-installed' } = {}) {
   let title;
   const hc = multi.hostCue; // already truncated + sanitized
   switch (multi.state) {
@@ -635,7 +727,7 @@ export function emitMulti(multi, { host = HOST, port = PORT, remotes = [] } = {}
       break;
     }
   }
-  return [title, ...multiDropdownLines(multi, host, port, remotes)].join('\n');
+  return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState)].join('\n');
 }
 
 // ── fetchState — one loopback GET, bounded by FETCH_TIMEOUT_MS ───────────────
@@ -731,6 +823,11 @@ export async function main() {
     return;
   }
   try {
+    // Live launchd state for THIS Mac's service, read once per render in this
+    // (badge) process — never on the server's request path or poller (NFR-10). A
+    // read failure falls back to 'not-installed' (the safe Install-offering label).
+    let serviceState = 'not-installed';
+    try { serviceState = readServiceState(); } catch { serviceState = 'not-installed'; }
     const localMode = localModeFromCombined(combined);
     const multi = computeMultiBadge(combined, { localMode });
     if (multi.mode === 'single') {
@@ -738,10 +835,10 @@ export async function main() {
       // one host's state and run the EXISTING computeBadge/emit path unchanged.
       const only = (combined.hosts || []).find((h) => h && h.self) || (combined.hosts || [])[0];
       const state = only && only.state ? only.state : null;
-      process.stdout.write(emit(computeBadge(state || { tools: [] }), { host: HOST, port: PORT }) + '\n');
+      process.stdout.write(emit(computeBadge(state || { tools: [] }), { host: HOST, port: PORT, serviceState }) + '\n');
     } else {
       const remotes = remotesFromCombined(combined);
-      process.stdout.write(emitMulti(multi, { host: HOST, port: PORT, remotes }) + '\n');
+      process.stdout.write(emitMulti(multi, { host: HOST, port: PORT, remotes, serviceState }) + '\n');
     }
   } catch {
     // Last-resort guard: a thrown compute/emit still lands on offline rather than

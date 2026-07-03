@@ -292,6 +292,60 @@ The **live in-menu-bar view requires SwiftBar** (the one prerequisite). Without 
 the plugin still runs from a terminal (`node scripts/menubar/llmdash.5s.js`) and
 prints the same SwiftBar-format output, which is how you can preview the states.
 
+### Service controls & uninstall (from the badge)
+
+The badge dropdown also carries install-lifecycle controls for **this Mac** — in
+both single-host and multi-host mode. Every one of them is a local `launchctl` /
+file operation run by the badge process behind an OS confirmation; none of them is
+an HTTP request, so the dashboard stays serve-only (405 for non-GET/HEAD).
+
+- **The local-service toggle** shows the *live* launchd state and offers the honest
+  action for it:
+  - `＋ Install the local service` when it's **not installed** — regenerates the
+    launchd agent with fresh absolute paths and loads it (runs at login, restarts
+    on crash).
+  - `－ Remove the local service · running` / `· stopped` when it's **installed** —
+    unloads the agent **and deletes its plist** (a true remove, not a transient
+    stop a `KeepAlive` agent would relaunch). If this badge also watches remote
+    machines, it keeps working off those; only the local reading stops.
+  The state is read live at render time (`launchctl print` + the plist's presence),
+  in the badge process — never faked, never on the dashboard's request path.
+
+- **`⊘ Uninstall llmdash…`** is a two-tier submenu:
+  - **Remove the menu-bar badge only** — reverses `--setup-badge` (the marker-gated
+    SwiftBar wrapper). The service, checkout, and your data all stay; the badge just
+    disappears on the next refresh. A file in SwiftBar's folder **without** llmdash's
+    marker is a file of yours — it's left alone.
+  - **Uninstall llmdash completely…** — first shows a confirmation that **lists every
+    artifact** it will remove (the launchd service + plist, the badge wrapper, the
+    app checkout, the Claude statusline wiring — restoring `settings.json.bak` if
+    present, and the auto-refresh trust folder and its `~/.claude.json` entry), then
+    tears them down in a safe order (the checkout is deleted **last**, by a detached
+    process that survives its own removal).
+
+**Your usage history is preserved by default.** `llmdash.db` is the only thing here
+that can't be rebuilt (there's no backfill), so a complete uninstall **keeps it**
+unless you explicitly choose *Delete history too* in a second dialog — warned as
+permanent, never the default button. (If your data dir lives under the checkout —
+the default `~/llmdash/data` — the database is moved to `~/.llmdash/preserved-data`
+before the checkout is deleted, and the final message tells you where it went.)
+
+**SwiftBar is never removed by llmdash.** Both the enumeration and the
+post-uninstall message point you to the manual step:
+```
+brew uninstall --cask swiftbar
+```
+
+Every removal is **marker-gated** and **honest on partial failure**: llmdash only
+deletes a file it created (the wrapper only with its marker, the statusline only
+when it points at *this* checkout, the plist only for the `com.llmdash.dashboard`
+label, the checkout only the resolved install dir, the trust entry only its own
+key), and if a step can't complete you're told exactly what did **not** happen and
+what remains — never a claimed removal that didn't occur.
+
+Prefer the terminal? The same powers are `install-macos.sh --service
+install|remove|status` and `install-macos.sh --uninstall`.
+
 ## How it works
 - **Claude limits** come from Claude Code's statusline output (the sanctioned
   path — no credentials reused). The script writes `rate_limits` to
