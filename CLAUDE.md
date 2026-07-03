@@ -30,6 +30,59 @@
   from input → no traversal); **validate before the write lands** (`parseHosts` +
   `sanitizeHostPort`, reject writes nothing); and **strip embedded newlines** per
   record so a value can't smuggle a second config line or a directive.
+- **A menu-bar-driven destructive or system action stays user-domain, confirmed,
+  marker-gated, and never an HTTP endpoint** — this extends the local-write rule to
+  `launchctl`/`fs` mutations (the service toggle, the two-tier uninstall). Every
+  such action: runs **user-domain only** (`launchctl … gui/<uid>/…`, user-owned
+  paths — **never** `sudo`, a system domain, or a system path); is gated by an
+  **`osascript` confirmation with the safe choice as the default button** (the
+  destructive/data-deleting option is never the default and is warned as
+  irreversible), the uninstall dialog **enumerating every artifact before acting**;
+  is **marker-gated per removal** (delete the wrapper only with the
+  `llmdash-menu-bar-badge` marker, the trust entry only via an own-key
+  `hasOwnProperty`, the plist only for the resolved label's file, the checkout only
+  the resolved dir — never a user's own file); is **honest on partial failure**
+  (each step reports its own concrete outcome; never claim a removal that didn't
+  happen); and lives entirely in the **badge/helper process** — no new endpoint,
+  `server.js` stays serve-only (405 for non-GET/HEAD), so the `0.0.0.0` bind gains
+  no mutation surface and no remote peer can trigger it.
+- **A path-ownership check before a destructive fs op is a whole-token path
+  match, never a substring `includes()`.** Deciding "does this file/command belong
+  to THIS checkout, so I may delete or revert it" on a bare `String(cmd).includes(
+  target)` is a false-positive waiting to fire: a suffix (`…/statusline.js.bak`) or
+  a sibling prefix (`…/checkout2/…`) satisfies it. Match the target only bounded by
+  end-of-string, whitespace, or a quote (`targetIsWholeToken`) so the real
+  `node <target>` (optionally with args) still matches but a super/substring does
+  not. This was the feature's one security finding — a substring gate on a
+  destructive teardown path. The same discipline is why every removal is
+  marker-gated (above): ownership is proven, never guessed.
+- **Preserve-by-default that a co-located dependency could defeat must RESCUE the
+  irreplaceable asset out of harm's way before deleting its parent — and name the
+  new location — not merely order the deletes.** The usage-history DB (`llmdash.db`,
+  the founding "no backfill" irreplaceable asset) is preserved by default on
+  uninstall; but when the data dir lives **under** the checkout being `rm -rf`'d,
+  ordering the checkout-delete last is not enough — the DB would go with it. So the
+  teardown first **moves** the named data files to `~/.llmdash/preserved-data` (a
+  `path.relative` `isUnder` check decides whether a rescue is needed — never a
+  substring), then deletes the checkout. Deleting the DB is a separate,
+  non-default, explicitly-warned opt-in. When a preserve promise and a destructive
+  op share a path, rescue the asset, don't just sequence the deletes.
+- **A detached teardown helper that must outlive what it removes is self-contained,
+  reads all inputs up front, and deletes its own origin LAST.** The complete
+  uninstall `launchctl bootout`s the service feeding the badge and `rm -rf`s its own
+  checkout, so it runs as a **detached** child (`spawn(process.execPath, [tmpSelf,
+  …, '--run'], { cwd: tmpDir, detached: true, stdio: 'ignore' })` + `unref()`)
+  copied to `os.tmpdir()` and `cd`'d out of the checkout. The binding rule (proven
+  by SPIKE-01, Hazard E): on APFS an already-loaded process survives its origin dir
+  being unlinked, but **any lazy `import` from the deleted checkout after the `rm`
+  throws `ERR_MODULE_NOT_FOUND`** — so the helper imports **only** `node:` builtins,
+  never `../../src` or the installer, receives every path via ARGV `--payload` up
+  front, and makes the checkout-delete a **leaf** (nothing loads after it). Ordering
+  is fixed: service → statusline → trust → wrapper → checkout LAST → data (opt-in,
+  after checkout). Single source of truth for the launchctl/plist/teardown logic is
+  `install-macos.sh`'s `--service`/`--uninstall` hooks; the badge invokes them, but
+  the checkout-deleting step runs from the node helper's temp copy (the installer
+  script is itself in the checkout being deleted).
 - Persist only what has no other history: limit **snapshots** go to SQLite
   (deduped). Activity/token stats are derived on demand from Claude Code logs —
   no extra storage.

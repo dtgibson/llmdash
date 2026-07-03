@@ -40,6 +40,12 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   reading is auto-de-emphasized ("no local activity") so the machines it watches
   stay loudest. Unset (the default) is exactly today's single-host badge, which
   now also offers "＋ Add host…" so the first machine is addable from the menu bar.
+- **Menu-bar install-lifecycle controls** — from the badge dropdown you can install
+  or remove llmdash's local monitoring service on this Mac (turning a machine into a
+  full local monitor or a badge-only monitoring station) and uninstall llmdash
+  entirely — either the menu-bar badge only, or completely (service, checkout,
+  statusline wiring, and trust artifacts, each enumerated before it acts) — with no
+  terminal, your usage history preserved by default, and SwiftBar never removed.
 - **Multi-host view** — one llmdash can show several of your tailnet machines
   together: each host's account-wide limit windows and its per-machine activity,
   side by side, honestly labeled and independently fresh / stale / offline. Because
@@ -82,6 +88,16 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   seeds it once, after which the file is the source of truth (so a removed host
   can't ghost back), and the poller re-reads it each tick. The HTTP surface stays
   read-only — config edits are a local file write, never an HTTP endpoint.
+- The install-lifecycle controls are the same badge-process pattern: dropdown
+  actions run `launchctl`/`fs` operations locally (user-domain, no sudo) through the
+  installer's `--service`/`--uninstall` hooks (the single source of truth), each
+  confirmed by a fixed-literal `osascript` dialog with the safe choice as default.
+  The service toggle reads the real launchd state, never a faked checkmark. The
+  complete uninstall runs as a detached, self-contained helper (temp-copied) so it
+  survives unloading its own service and deleting its own checkout; it rescues the
+  usage-history DB to `~/.llmdash/preserved-data` before removing a checkout that
+  contains it. The HTTP surface stays read-only — these are local mutations in the
+  badge/helper process, never an endpoint.
 - Multi-host is a host dimension on top of the tool dimension. Set `LLMDASH_HOSTS`
   (`host[:port][=label]`, comma-separated; the local host is always included) and
   the interval poller fans out a bounded, credential-free `GET /api/state` to each

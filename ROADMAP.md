@@ -8,20 +8,24 @@ product. Update it freely.
 
 ## Shipped
 
-9 features shipped.
+10 features shipped.
 
-- **Last shipped:** Multi-host badge — the menu-bar badge became a configurable
+- **Last shipped:** Menu-bar service controls — the badge became a local
+  install-lifecycle surface: from the dropdown you can install or remove llmdash's
+  local monitoring service (reading the real launchd state) and uninstall llmdash
+  entirely — badge-only or completely, every artifact enumerated before it acts —
+  with no terminal, usage history preserved by default (rescued out of a co-located
+  checkout before deletion), and SwiftBar never removed. Local `launchctl`/`fs` ops
+  in the badge/helper process via the installer's hooks; the complete uninstall is a
+  confirmed, detached teardown that survives deleting its own checkout; the HTTP
+  surface stays read-only.
+- **Previously:** Multi-host badge — the menu-bar badge became a configurable
   multi-host monitor: a primary Mac (even one running no local Claude/Codex)
   watches several tailnet machines from the menu bar, hosts added/removed live
   from the dropdown via a native dialog into a local `hosts.conf`; the glyph names
   the tightest machine and a monitoring-station's empty local reading is
   auto-de-emphasized. A thin consumer of the shipped `/api/hosts`; the HTTP
   surface stays read-only.
-- **Previously:** Multi-host — one llmdash can show several of your tailnet
-  machines together, each host's account-wide limits (same-account machines
-  collapsed to a single banner) and its per-machine activity, with unreachable
-  hosts named; it polls each peer's existing `/api/state` on the interval and
-  serves the combined view from a new `/api/hosts` (`/api/state` untouched).
 
 ---
 

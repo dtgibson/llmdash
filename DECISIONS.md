@@ -1,5 +1,85 @@
 # Decisions — llmdash
 
+## Menu-bar service controls — a service toggle + two-tier uninstall, preserve/rescue the DB, detached self-uninstall, installer hooks as truth — 2026-07-03 (feature)
+**Decision (service toggle = register/unregister the plist, not transient
+start/stop):** "Install the local service" writes the plist from the template (fresh
+absolute node/codex/claude paths, per the fresh-install decision) + `launchctl
+bootstrap`; "Remove the local service" `launchctl bootout`s **and deletes the plist**
+— a true unregister, not a transient stop. A `KeepAlive:true` agent relaunches after
+a plain `launchctl stop`, so a "stopped" state would be a lie the moment launchd
+relaunches it. The menu reads the **real launchd state** (`launchctl print
+gui/<uid>/<label>` + plist-on-disk → running/stopped/not-installed) and reflects it
+honestly, never a faked checkmark; a machine can drop its local service and keep the
+badge watching remotes (the monitoring-station story stays intact).
+**Decision (two-tier uninstall; DB preserved by default AND rescued):** Uninstall is
+two tiers — **"Remove the menu-bar badge only"** (marker-gated wrapper removal, leaves
+service/checkout/data) vs **"Uninstall llmdash completely…"**, whose dialog
+**enumerates every artifact before acting** (service+plist, wrapper, checkout,
+statusline wiring restoring the `.bak`, auto-refresh trust folder). The usage-history
+DB (`llmdash.db`) is the founding "self-logged history, no backfill" **irreplaceable
+asset**, so it is **preserved by default** — deleting it is a separate, non-default,
+warned-irreversible opt-in. Crucially, when the data dir lives **under** the checkout
+being `rm -rf`'d, ordering isn't enough: the teardown **rescues** the named data files
+to `~/.llmdash/preserved-data` (a `path.relative` `isUnder` check) **before** deleting
+the checkout. **SwiftBar is never removed** — the dialog only points to `brew uninstall
+--cask swiftbar`.
+**Decision (detached self-uninstall survival model):** The complete uninstall must
+`launchctl bootout` the service feeding the badge and `rm -rf` its own checkout, so it
+runs as a **detached, self-contained, temp-copied helper** (`spawn(process.execPath,
+[tmpSelf, …, '--run'], {cwd: tmpDir, detached: true})` + `unref()`): it reads every
+path up front from ARGV, imports **only** `node:` builtins (never `../../src` or the
+installer), and deletes its origin checkout **LAST** as a leaf. SPIKE-01 proved this
+survives both destructions on APFS; the binding rule (Hazard E) is that a lazy import
+from the deleted checkout throws `ERR_MODULE_NOT_FOUND`, so nothing may reach back into
+the checkout after the delete. Fixed ordering: service → statusline → trust → wrapper →
+checkout LAST → data (opt-in, after checkout).
+**Decision (installer hooks as the single source of truth):** The launchctl/plist/
+teardown logic is extended onto `install-macos.sh`'s `--service`/`--uninstall` hooks —
+one place that knows what the installer touches, so uninstall reverses it honestly and
+stays in sync as the installer evolves. The badge invokes the hooks; the
+checkout-deleting step runs from the node helper's temp copy (the installer script is
+itself in the checkout being deleted).
+**Decision (destructive-from-a-click security posture):** Every mutation is
+**user-domain only** (`launchctl … gui/<uid>`, user-owned paths — no `sudo`, no system
+domain), confirmed by a **fixed-literal `osascript` dialog with the safe choice as the
+default button** (the destructive/data-delete option never the default, warned
+irreversible), **marker-gated per removal** (wrapper by the `llmdash-menu-bar-badge`
+marker, trust by own-key `hasOwnProperty`, plist by the resolved label's filename,
+checkout by the resolved dir), **honest on partial failure** (each step reports its own
+outcome; never claim a removal that didn't happen), and **serve-only preserved** — no
+new endpoint, `server.js` byte-for-byte unchanged (still 405 for non-GET/HEAD), so the
+`0.0.0.0` bind gains no mutation surface and no remote peer can trigger any of it. The
+statusline-revert ownership check is a **whole-path-token** match (not a substring
+`includes()`), so a `…statusline.js.bak` superstring can't trigger a false-positive
+revert. The osascript fixed-literal + `execFileSync`-no-shell + ARGV-only anti-injection
+is the standing convention from multi-host-badge, carried forward.
+**Rationale:** The service toggle maps cleanly onto the real user intent ("this is a
+monitoring station now, drop the local service") and a launchd state the menu can read
+truthfully — a transient stop can't, because KeepAlive defeats it. Preserving the DB by
+default honors the founding no-backfill promise (it's the one asset a reinstall can't
+rebuild), and the rescue closes the gap that preserve-by-default alone leaves when the
+asset sits inside the thing being deleted. The detached temp-copy is forced by the
+self-deletion problem: a helper that deletes its own code mid-run is only safe if it's
+self-contained and reads everything up front. Installer hooks as truth keep uninstall in
+lockstep with install. The security posture is the multi-host-badge hardening made
+stricter by the higher stakes — this is the most destructive capability llmdash has
+shipped, and its safety is **structural** (fixed literal + ARGV + `fs` + marker-gate +
+whole-token ownership), not a promise to be careful.
+**Implications:** The menu-bar badge is now a **local install-lifecycle surface**, not
+only a read-only glance — completing the "everything from the menu bar" arc (install
+badge → add/remove hosts → manage/remove the service → uninstall) and removing the last
+terminal dependencies for the install lifecycle. Security **PASSED WITH NOTES**: the one
+finding (statusline-revert substring→boundary match, on a destructive path) was
+**resolved in-stage before ship** via a new `targetIsWholeToken` helper (folded into the
+feature commit; 378 tests). Shipped as commit 96ee98d on origin/main; installed copy at
+~/llmdash fast-forwarded and the service restarted; live-verified (`/api/state` 200,
+POST → 405, the installed badge dropdown shows the state-aware toggle and the uninstall
+submenu). The three osascript dialogs were the only deploy-deferred item (one of them
+uninstalls llmdash) — the mechanism is proven; the in-menu-bar dialog capture fires on a
+real click. Three CLAUDE.md conventions promoted (whole-token path-ownership match;
+rescue-before-delete for a co-located irreplaceable asset; the self-contained detached
+teardown), plus the destructive-menu-bar-action posture extended in place.
+
 ## Multi-host badge — badge consumes `/api/hosts`, a runtime host-config file, serve-only preserved — 2026-07-03 (feature)
 **Decision (consumer, not a second data path):** The badge became a **thin
 consumer of the shipped `/api/hosts`** — it reads its local instance's already-
