@@ -8,9 +8,17 @@ product. Update it freely.
 
 ## Shipped
 
-10 features shipped.
+11 features shipped.
 
-- **Last shipped:** Menu-bar service controls — the badge became a local
+- **Last shipped:** Badge display options — the menu-bar badge became
+  user-configurable from its own dropdown: group by host or by tool, show hosts
+  single / side-by-side / alternating, wide or compact, with neutral marks
+  (`◆` Claude / `▲` Codex, now the default cue) or opt-in logos, plus an on-demand
+  legend. A pure presentation layer over the existing `hostViews` (no data-model or
+  `/api` change) — a view filter that never changes what's monitored; prefs persist
+  as `!display-*` directives the badge writes locally (no HTTP mutation), and an
+  unconfigured badge is byte-for-byte the shipped one save the ratified cue swap.
+- **Previously:** Menu-bar service controls — the badge became a local
   install-lifecycle surface: from the dropdown you can install or remove llmdash's
   local monitoring service (reading the real launchd state) and uninstall llmdash
   entirely — badge-only or completely, every artifact enumerated before it acts —
@@ -18,13 +26,6 @@ product. Update it freely.
   checkout before deletion), and SwiftBar never removed. Local `launchctl`/`fs` ops
   in the badge/helper process via the installer's hooks; the complete uninstall is a
   confirmed, detached teardown that survives deleting its own checkout; the HTTP
-  surface stays read-only.
-- **Previously:** Multi-host badge — the menu-bar badge became a configurable
-  multi-host monitor: a primary Mac (even one running no local Claude/Codex)
-  watches several tailnet machines from the menu bar, hosts added/removed live
-  from the dropdown via a native dialog into a local `hosts.conf`; the glyph names
-  the tightest machine and a monitoring-station's empty local reading is
-  auto-de-emphasized. A thin consumer of the shipped `/api/hosts`; the HTTP
   surface stays read-only.
 
 ---

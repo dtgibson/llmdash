@@ -84,8 +84,29 @@ Spacing & shape:
   (`.stale-note` grammar), never a stale meter; a monitoring-station host with no
   local readings is de-emphasized (dimmed, pinned last, `no local activity` idle
   pill) but still shown — no fabricated zeros. The menu-bar badge miniaturizes the
-  same vocabulary onto one glyph + dropdown (glyph host cue `▪ <host>·<C|X> <pct>`,
+  same vocabulary onto one glyph + dropdown (glyph host cue `▪ <host>·◆ <pct>`,
   the tightest machine named), so a change here should hold for both surfaces.
+- **Tool marks** (`◆` Claude / `▲` Codex): the neutral glyph pair that identifies
+  which tool a reading is — different silhouettes (diamond vs. triangle), solid,
+  monochrome-legible at menu-bar size (a same-shape/different-fill pair like
+  `◇`/`◆` blurs and is rejected). Used wherever a tool is named in a text surface
+  (the badge's per-host cue and per-tool aggregate). They are the **default cue**,
+  having replaced the older `C`/`X` letters. An opt-in product **logo** may replace
+  a mark as a small template-image, but the neutral glyph is always the floor —
+  identity never depends on an image rendering.
+- **Compact glyph cell** (menu-bar badge): the five-state honesty vocabulary
+  miniaturized to a marker + number for a menu-bar line. `fresh` = bare `<pct>` in
+  its status hue; `aging` = `<pct>·` (trailing dot, dimmed); `stale` = `⚠<pct>`
+  (leading warning, amber); `no-reading` = `—` and `offline` = `⊘` (both carry
+  **no number** — the never-a-fabricated-number floor is structural). The marker is
+  the load-bearing carrier (reads in a monochrome bar even with color stripped);
+  color reinforces, never carries alone. A leading `▪` marks identity once. Layout
+  axes over the cells: single / side-by-side (one line, one `color=` = the binding
+  cell, per-cell state on the marker, capped with `+M more`) / alternating (one
+  cell per ~5s tick, stateless clock rotation). A **grow-prefix host cue**
+  (`St`/`La`/`De`) restores per-host identity in multi-cell layouts. This is the
+  text/`color=` floor that holds on xbar; `sfimage=`/logos are additive SwiftBar
+  polish on top, never the sole carrier of a state.
 - **Headroom strip** (`.headroom`): a top-of-page cross-tool cue (warn-tinted,
   left accent border). Shown only when a tool is low or maxed; it names the
   depleted tool and points to the one with the most remaining headroom. Hidden

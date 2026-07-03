@@ -17,6 +17,25 @@
   file; without this, a host removed at runtime would be **resurrected** by the
   still-set env var on the next start (env-as-perpetual-truth silently defeats the
   Remove action). Any future editable-at-runtime config follows the same rule.
+- **Runtime prefs are `!`-directives in `hosts.conf` (the `!local=` / `!display-*`
+  family), and the writer round-trips ALL of them.** The badge's display prefs live
+  as `!display-hosts` / `!display-layout` / `!display-density` / `!display-group` /
+  `!display-tool-mark` lines alongside `!local=` — same directive parser, same
+  seed-once/degrade discipline (an unknown value → the axis default + a `bad-*`
+  error surfaced in health, never a crash; an unknown `!display-*` → the existing
+  `unknown-directive` path). Two rules keep it honest: (1) **the writer round-trips
+  every directive** — a display edit preserves host entries + `!local` + the other
+  axes, and an Add/Remove preserves every `!display-*`; drop this and one edit
+  silently wipes an unrelated pref. (2) **Default-valued axes are omitted from the
+  file**, so an unconfigured file stays byte-for-byte (the file-level form of the
+  byte-for-byte-when-unconfigured guard) and an opt-in axis like
+  `!display-tool-mark=logo` is opt-in at the file level too. **Host-list keys stay
+  CASE-PRESERVED** (they are case-sensitive identities that must match the badge's
+  `addr` = `sanitizeHostPort(host):sanitizeHostPort(port)`); only the *enum* axes
+  lowercase. A blanket `.toLowerCase()` on the stored host keys was the QA bug — a
+  mixed-case `.local` Bonjour key wrote case-preserved, read lowercased, failed the
+  intersection, and silently fell back to `all`; read/write/`addr` must all be
+  case-consistent.
 - **A local config *write* stays a local file write — never an HTTP mutation
   endpoint.** llmdash is serve-only (read-only over the `0.0.0.0` tailnet bind);
   the badge's Add/Remove edits `hosts.conf` in its **own process**, so the bind
@@ -88,6 +107,15 @@
   no extra storage.
 - **Be honest in the UI.** When a number's source or scope differs from the
   headline data (e.g. account-wide limits vs local-log activity), say so.
+- **A visible change to a shipped default that every user sees is ratified +
+  disclosed, never silent.** The badge's default tool cue swapped `C`/`X` → `◆`/`▲`
+  (diamond = Claude, triangle = Codex) — this alters the always-on glyph of every
+  current user, so it was user-ratified, disclosed in the README + `healthLines()`,
+  the byte-for-byte guard was **updated** to "unchanged save the ratified cue" (not
+  loosened away), the shipped tests' expected strings were **updated to the new cue
+  (never reverted to `C`/`X`)**, and a **pin test** locks the new default so a
+  future silent revert is caught. A default diff that lands unannounced reads as a
+  regression; ratify it, disclose it, and pin it.
 - **Surface security-relevant defaults** (e.g. network binding) in the README and
   the startup log — never silently.
 - HTTP responses carry baseline security headers (`nosniff`, CSP `default-src
@@ -118,6 +146,24 @@
   must **copy** a presentation helper) ships a **parity guard test** (byte +
   behavioral equality) in the same commit as the copy, never a bare copy: a diff
   can't catch drift the copier never sees. See `tests/menubar-parity.test.js`.
+- **Badge display is a pure presentation layer over `computeMultiBadge`, never a
+  data-model or `/api` change.** The badge's display axes (group × hosts × layout ×
+  density × tool-mark) are applied by a pure `applyDisplay(multi, display,
+  {epochMs})` over the existing per-host `hostViews` — `computeMultiBadge`, the
+  fetch, `/api/state`, and `/api/hosts` stay byte-for-byte unchanged; a display
+  view reads only `hostViews`, and if an axis *appears* to need a new payload
+  field that is a flag to raise, not a silent contract coupling. An unconfigured
+  badge routes to the shipped `emit`/`emitMulti` path **byte-for-byte, save the one
+  ratified cue change** (see the `◆`/`▲` swap below). A new display axis extends
+  `applyDisplay`, never the store or the contract.
+- **A per-tool aggregate is a presentation regroup over `hostViews`, scoped to the
+  selected hosts** — the same binding-min the badge already computes per host×tool,
+  now the tightest-window minimum-remaining across the *selected* machines for one
+  tool, carrying that window's freshness state. Honesty is structural: no reading
+  on any selected host → `—`, every contributing host offline → `⊘`, **never a
+  fabricated zero**; exactly two units (Claude / Codex), so no cap in tool mode.
+  The Hosts view-filter still scopes which machines feed the aggregate (grouping by
+  tool never discards the host selection).
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path). The Claude reading is also refreshed
   there: when it goes stale **and** Claude has been active, the poller spawns a
@@ -212,7 +258,21 @@
   append a second param — including the arbitrary-command `bash=`/`shell=`. Strip
   whitespace and `|` (`sanitizeHostPort`); a real host/IP/port never contains
   them. This is the menu-bar form of "never interpolate untrusted input into raw
-  output."
+  output." **Sanitize at the compose helper too, not only at ingest:** a
+  presentation helper that composes a menu-bar cell (`truncateHostCue`,
+  `growPrefixCues`) re-`sanitize()`s its input, so a future un-ingested caller
+  can't silently reopen the SwiftBar-grammar injection class — defense in depth,
+  symmetry across every cue path, not a substitute for ingest sanitization.
+- **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
+  the honesty never depends on.** The optional tool logos are OFF by default; the
+  neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a
+  template-image that can't render, still names the tool — a logo is never the sole
+  carrier of an identity). The asset is a passive **local `node:fs`** read (no
+  network, no `import()`, no eval), resolved via `import.meta.url` so it works under
+  the wrapper/symlink, read **only** when opted in, reaching the line only as a
+  passive base64 `templateImage=`. Ship **original placeholder art + a `LICENSE.md`**;
+  dropping in the **real** brand marks is a separate, explicit operator fair-use
+  choice (replace two PNGs) — the code's honesty invariants hold either way.
 
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`

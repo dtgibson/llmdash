@@ -1,5 +1,65 @@
 # Decisions — llmdash
 
+## Badge display options — display as a pure presentation layer, `!display-*` directives, the ratified `◆`/`▲` default cue, per-tool aggregates, opt-in logos with a neutral floor — 2026-07-03 (feature)
+**Decision (display is a presentation layer over `computeMultiBadge`, not a data
+change):** The badge's five display axes (group × hosts × layout × density ×
+tool-mark) are applied by a pure `applyDisplay(multi, display, {epochMs})` over the
+existing per-host `hostViews`. `computeMultiBadge`, the fetch, `/api/state`, and
+`/api/hosts` are **byte-for-byte unchanged** — no table, no column, no migration, no
+new payload field. A display view reads only `hostViews`; a new axis extends
+`applyDisplay`, never the store or the contract.
+**Decision (prefs as `!display-*` directives; round-trip all; case-preserve hosts):**
+The prefs persist as `!display-hosts` / `-layout` / `-density` / `-group` /
+`-tool-mark` lines in `hosts.conf` (the same seed-once/directive family as `!local=`),
+written locally by a tracked `display-action.mjs` helper under `$ABS_NODE` — **no
+`osascript` dialog** (the values are enumerable menu choices, not typed input) and
+**no HTTP mutation** (serve-only preserved, still 405 for non-GET/HEAD). The writer
+**round-trips every directive** (a display edit preserves entries + `!local` + other
+axes; an Add/Remove preserves every `!display-*`) and **omits default-valued axes** so
+an unconfigured file stays byte-for-byte. **Host-list keys are case-preserved** (only
+the enum axes lowercase) — a blanket lowercase broke mixed-case `.local` host filtering
+(the QA MAJOR, fixed in-stage).
+**Decision (the ratified `C`/`X` → `◆`/`▲` default cue swap — the one break in
+byte-for-byte):** The neutral tool marks (diamond = Claude, triangle = Codex) are the
+default and apply wherever the tool is named, **including the shipped wide badge every
+current user sees**. This is user-ratified, not a regression: the byte-for-byte guard
+was **updated** to "unchanged save the ratified cue," the shipped tests' expected
+strings were **updated (never reverted) with a pin test** against a silent revert, and
+it was disclosed in the README + `healthLines()`.
+**Decision (group-by-tool = per-tool aggregate, honest):** Grouping by tool makes each
+unit a per-tool aggregate over the *selected* hosts — the tightest window's remaining
+% for that tool across those machines (the same binding-min, scoped to one tool),
+carrying that window's freshness state. No reading anywhere → `—`; all contributing
+hosts offline → `⊘`; **never a fabricated zero**. Two units, so no cap.
+**Decision (logos opt-in, neutral floor, fair-use posture):** Tool logos are OFF by
+default; the neutral `◆`/`▲` text floor is emitted unconditionally so honesty never
+depends on an image rendering. The asset is a passive local `node:fs` read (no network,
+no `import()`, no eval), resolved via `import.meta.url`, read only when opted in,
+reaching the line only as a base64 `templateImage=`. Shipped as **original placeholder
+art + a `LICENSE.md`**; dropping in the real brand marks is a separate explicit
+operator fair-use choice.
+**Rationale:** Keeping display a presentation regroup over `hostViews` makes the two
+hardest invariants structural — the contract is untouched and monitoring is never
+affected (the view filter is glyph-only; the dropdown and poller stay full). Directives
+reuse the shipped `!local=` parser/seed-once/atomic-writer rather than adding a second
+prefs file and write path. The case bug proves host keys are identities, not enums. The
+cue swap is the "visible default change is ratified + disclosed, never silent" rule made
+concrete. The neutral floor is the "logo is never the sole carrier" honesty invariant,
+and shipping placeholders keeps the code honest whichever art an operator later drops in.
+**Implications:** The menu-bar badge is now a **user-configurable view** — group by host
+or tool, single/side-by-side/alternating, wide/compact, neutral marks or opt-in logos,
+with an on-demand legend — that is still a **view filter, never a coverage change**
+(polling and the dropdown stay full). Security PASSED: no exploitable issues; INFO-3
+hardening applied in-stage (`truncateHostCue` now re-`sanitize()`s its input for
+symmetry with `growPrefixCues` — defense in depth, a new CLAUDE.md rule). Shipped as
+commit `07682e2` on origin/main; installed `~/llmdash` fast-forwarded and the service
+restarted (user domain, no sudo); live-verified (`/api/state`/`/api/hosts` 200, POST →
+405) and real-invocation-verified through the SwiftBar wrapper (the `◆` cue live in the
+menu bar). Five CLAUDE.md conventions promoted (display-as-presentation-layer; per-tool
+aggregate honesty; the `!display-*`/round-trip/case-preserve directive rule; the
+ratified-visible-default rule; sanitize-at-the-compose-helper), plus the brand-asset
+opt-in-with-neutral-floor rule.
+
 ## Menu-bar service controls — a service toggle + two-tier uninstall, preserve/rescue the DB, detached self-uninstall, installer hooks as truth — 2026-07-03 (feature)
 **Decision (service toggle = register/unregister the plist, not transient
 start/stop):** "Install the local service" writes the plist from the template (fresh

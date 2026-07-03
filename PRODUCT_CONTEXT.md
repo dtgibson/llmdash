@@ -32,14 +32,19 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   windows), with a dropdown carrying the full per-tool picture and a link to the
   dashboard. It is a pure consumer of the local instance's data (no second data
   path, no recomputed limits), honest about freshness and offline state (five
-  honesty states mirroring the dashboard), and names the binding tool (C = Claude,
-  X = Codex). It can also watch **several tailnet machines at once**: hosts are
+  honesty states mirroring the dashboard), and names the binding tool (◆ Claude /
+  ▲ Codex). It can also watch **several tailnet machines at once**: hosts are
   added and removed live from its dropdown (a native dialog editing a local
-  `hosts.conf`), the glyph names the tightest machine (`▪ <host>·<C|X> <pct>`),
+  `hosts.conf`), the glyph names the tightest machine (`▪ <host>·◆ <pct>`),
   an unreachable machine is named, and a monitoring-station Mac's empty local
   reading is auto-de-emphasized ("no local activity") so the machines it watches
-  stay loudest. Unset (the default) is exactly today's single-host badge, which
-  now also offers "＋ Add host…" so the first machine is addable from the menu bar.
+  stay loudest. It is **configurable from its own 🖥 Display submenu** — group by
+  host or by tool (per-tool aggregates across the chosen machines), show hosts
+  single / side-by-side / alternating, wide or compact, with the neutral tool marks
+  or opt-in logos, plus a 🛈 Legend explaining every mark on demand; this is a view
+  filter only (it changes what the glyph shows, never what's monitored). Unset (the
+  default) is exactly today's single-host badge, which also offers "＋ Add host…" so
+  the first machine is addable from the menu bar.
 - **Menu-bar install-lifecycle controls** — from the badge dropdown you can install
   or remove llmdash's local monitoring service on this Mac (turning a machine into a
   full local monitor or a badge-only monitoring station) and uninstall llmdash
