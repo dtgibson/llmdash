@@ -1,5 +1,65 @@
 # Decisions — llmdash
 
+## Multi-host badge — badge consumes `/api/hosts`, a runtime host-config file, serve-only preserved — 2026-07-03 (feature)
+**Decision (consumer, not a second data path):** The badge became a **thin
+consumer of the shipped `/api/hosts`** — it reads its local instance's already-
+combined multi-host view and issues **no outbound peer fetch of its own** (the
+local instance does the credential-free fan-out on its poller). The glyph names
+the tightest machine (`▪ <host>·<C|X> <pct>`); an unreachable machine is named,
+never shown as a stale meter; a monitoring-station Mac's empty local reading is
+auto-de-emphasized ("no local activity") client-side in the badge, never
+fabricated as zeros. Unset = today's single-host badge, glyph byte-for-byte.
+**Decision (runtime host-config file, seed-once precedence):** The watched-host
+list is a human-readable **`hosts.conf` under the data dir** that the badge edits
+**locally** (Add/Remove/List dropdown actions), and the poller re-reads each tick.
+`LLMDASH_HOSTS` **seeds the file once**; the file is the source of truth
+thereafter — so a host removed from the badge **can't be resurrected** by the
+still-set env var on the next start (env-as-truth would ghost it back).
+**Decision (serve-only preserved — the config write is a local file write, never
+an HTTP mutation):** Adding a write path did **not** add a write *endpoint*.
+`server.js` stays serve-only (no POST/PUT/DELETE/PATCH, still 405 for non-GET/HEAD,
+baseline headers, `no-store`); the write lives entirely in the **badge process**,
+a user-owned local file, so the `0.0.0.0` tailnet bind gains **no** write surface.
+**Decision (osascript anti-injection posture):** The Add/Remove dialog is a
+**fixed-literal AppleScript** run via `execFileSync('/usr/bin/osascript', ['-e',
+<constant>])` — **no shell**; the user's typed value returns on stdout via `text
+returned of result` and reaches the config writer as a **plain ARGV string** only,
+never concatenated into the script or a command. A hostile hostname/label
+(`"; rm -rf ~`, `$(…)`, backticks, `\n`, an AS-breaking `"`) is inert data end to
+end. The write is atomic temp+rename, `0o600`, to the **fixed** `hosts.conf` path
+(never derived from input → no traversal), validated by `parseHosts` +
+`sanitizeHostPort` before landing, embedded newlines stripped per entry (so a
+label can't smuggle a second line or a `!local=` directive), and the local host is
+never removable.
+**Rationale:** Consuming `/api/hosts` reuses the shipped peer plumbing instead of
+giving the badge its own fan-out — one hardened outbound surface, not two.
+Seed-once precedence is the honest resolution of "env seeds vs. file edits": a
+runtime removal must stick, and env-as-perpetual-truth silently defeats the very
+Remove action the feature ships. Keeping the config edit a **local file write**
+holds the founding serve-only / read-only posture — the dashboard's tailnet bind
+must never become a mutation surface — while still letting the operator manage
+hosts from the menu bar. The osascript surface is the sharpest new risk, so its
+safety is **structural** (fixed literal + ARGV, no shell), not a promise to
+sanitize one string.
+**Implications:** The badge's headline (a monitoring-station Mac watching remotes)
+now works with **zero local Claude/Codex** — auto-de-emphasis keeps the empty
+local reading out of the glyph while still showing it honestly, last and dimmed.
+The `!local=include|exclude|auto` in-file directive overrides the auto-detect (a
+real knob, edited alongside the host list). Single-host mode now also offers
+**`＋ Add host…`** so the first machine is addable from the menu bar — the glyph +
+tool rows stay byte-for-byte the shipped single-host badge (the "byte-for-byte"
+guard is now "glyph+rows unchanged AND the Add affordance present"). Security
+PASSED WITH NOTES: two Informational only (a downstream non-finite `remainingPct`
+rendering as inert `NaN%` text with no injection sink reachable; the accepted
+operator-config-in-terminal-log disclosure) — no Critical/High. **Deploy-caught
+fix-forward (commit 8bf0535):** the post-deploy check ran the *installed* badge
+and found single-host mode had **no** host-config actions, so a fresh single-host /
+monitoring-station machine couldn't add its **first** host from the menu bar —
+FR-13's "byte-for-byte" had over-applied by hiding the one new affordance that
+must be reachable there. Fixed with a shared `hostConfigActionLines()` helper on
+both paths. Caught by running the real artifact, not by tests (every unit test
+passed) — reinforces "verify a feature the way its host actually runs it."
+
 ## Multi-host — a new `/api/hosts` endpoint, cached-only peers, account-wide-limits collapse — 2026-07-02 (feature)
 **Decision (endpoint):** The combined multi-host view is a **new `GET /api/hosts`**
 endpoint; `/api/state` and `buildState()` are left **byte-for-byte unchanged** (a

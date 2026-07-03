@@ -8,18 +8,20 @@ product. Update it freely.
 
 ## Shipped
 
-8 features shipped.
+9 features shipped.
 
-- **Last shipped:** Multi-host — one llmdash can now show several of your tailnet
+- **Last shipped:** Multi-host badge — the menu-bar badge became a configurable
+  multi-host monitor: a primary Mac (even one running no local Claude/Codex)
+  watches several tailnet machines from the menu bar, hosts added/removed live
+  from the dropdown via a native dialog into a local `hosts.conf`; the glyph names
+  the tightest machine and a monitoring-station's empty local reading is
+  auto-de-emphasized. A thin consumer of the shipped `/api/hosts`; the HTTP
+  surface stays read-only.
+- **Previously:** Multi-host — one llmdash can show several of your tailnet
   machines together, each host's account-wide limits (same-account machines
   collapsed to a single banner) and its per-machine activity, with unreachable
   hosts named; it polls each peer's existing `/api/state` on the interval and
   serves the combined view from a new `/api/hosts` (`/api/state` untouched).
-- **Previously:** Menu-bar badge — a zero-dependency SwiftBar/xbar plugin puts
-  the most-constrained remaining % (across both tools, both windows) in the macOS
-  menu bar, with a full-picture dropdown and honest freshness/offline states; a
-  pure consumer of `/api/state`, wired in by a generated wrapper that never
-  modifies the tracked source.
 
 ---
 
@@ -42,14 +44,6 @@ peer can be offline — rather than blindly trust an old reading.
 
 ## On the Horizon
 
-- **Multi-host badge** — a host *list* (per-machine dropdown grouping + glyph
-  selection/switching) so one badge can watch several tailnet machines at once.
-  The hard server-side work now exists: the multi-host dashboard shipped
-  (DECISIONS.md 2026-07-02) with peer-list config (`LLMDASH_HOSTS`), the poller
-  fan-out, and a combined `/api/hosts` view. The badge follow-on is now a thin
-  consumer of that plumbing — read `/api/hosts` (or keep single-host via
-  `LLMDASH_BADGE_HOST`), pick the most-constrained host, and add the dropdown
-  grouping; the plugin is already built so a host list slots in without a rewrite.
 - **tmux / terminal statusline emitter** — the same `/api/state` → most-
   constrained-glyph logic feeding the terminal statusline the user lives in.
   Would reuse the badge's selection + honesty model and (per CLAUDE.md) ship a

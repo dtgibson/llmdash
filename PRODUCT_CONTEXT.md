@@ -30,11 +30,16 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 - **macOS menu-bar badge** — a glanceable badge in the menu bar (via SwiftBar/xbar)
   showing the most-constrained remaining % across Claude Code and Codex (both
   windows), with a dropdown carrying the full per-tool picture and a link to the
-  dashboard. It is a pure consumer of `/api/state` (no second data path, no
-  recomputed limits), honest about freshness and offline state (five honesty
-  states mirroring the dashboard), and names the binding tool (C = Claude,
-  X = Codex). The host is configurable so it can read a dashboard on any tailnet
-  machine.
+  dashboard. It is a pure consumer of the local instance's data (no second data
+  path, no recomputed limits), honest about freshness and offline state (five
+  honesty states mirroring the dashboard), and names the binding tool (C = Claude,
+  X = Codex). It can also watch **several tailnet machines at once**: hosts are
+  added and removed live from its dropdown (a native dialog editing a local
+  `hosts.conf`), the glyph names the tightest machine (`▪ <host>·<C|X> <pct>`),
+  an unreachable machine is named, and a monitoring-station Mac's empty local
+  reading is auto-de-emphasized ("no local activity") so the machines it watches
+  stay loudest. Unset (the default) is exactly today's single-host badge, which
+  now also offers "＋ Add host…" so the first machine is addable from the menu bar.
 - **Multi-host view** — one llmdash can show several of your tailnet machines
   together: each host's account-wide limit windows and its per-machine activity,
   side by side, honestly labeled and independently fresh / stale / offline. Because
@@ -66,10 +71,17 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 - Served on `0.0.0.0:8787`, reachable over the tailnet. Runs as a systemd user
   service (`llmdash.service`) with lingering enabled, so it survives reboots.
 - The menu-bar badge is a zero-dependency Node plugin that only does a loopback
-  `GET /api/state`. SwiftBar is a user-installed prerequisite (llmdash never
-  installs it); `--setup-badge` wires it in by generating a wrapper in SwiftBar's
-  plugin dir that runs the tracked plugin, so the checkout is never modified and
-  the badge updates on pull (`--remove-badge` reverses it symmetrically).
+  read of its local instance's combined `GET /api/hosts` (no outbound peer fetch
+  of its own — the local instance does the fan-out). SwiftBar is a user-installed
+  prerequisite (llmdash never installs it); `--setup-badge` wires it in by
+  generating a wrapper in SwiftBar's plugin dir that runs the tracked plugin, so
+  the checkout is never modified and the badge updates on pull (`--remove-badge`
+  reverses it symmetrically). The badge's host list is a human-readable
+  `hosts.conf` under the data dir that the badge edits **locally** (Add/Remove →
+  a native `osascript` dialog → sanitize/validate → atomic write); `LLMDASH_HOSTS`
+  seeds it once, after which the file is the source of truth (so a removed host
+  can't ghost back), and the poller re-reads it each tick. The HTTP surface stays
+  read-only — config edits are a local file write, never an HTTP endpoint.
 - Multi-host is a host dimension on top of the tool dimension. Set `LLMDASH_HOSTS`
   (`host[:port][=label]`, comma-separated; the local host is always included) and
   the interval poller fans out a bounded, credential-free `GET /api/state` to each
@@ -93,10 +105,8 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
-  Horizon (the multi-host *badge* — the host-list + switching in the menu bar, now
-  a thin consumer of the shipped peer plumbing — a tmux/terminal statusline
-  emitter, strict tailnet-only binding, the auto-refresh teardown follow-up, the
-  Fable per-model weekly meter).
+  Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding, the
+  auto-refresh teardown follow-up, the Fable per-model weekly meter).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

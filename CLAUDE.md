@@ -10,6 +10,26 @@
 - Configuration lives in `config.js`, overridable via `LLMDASH_*` env vars.
   **Never ship a dead knob** — an env var that drives nothing is dishonest
   surface.
+- **A runtime-config file that supersedes an env var uses seed-once precedence:**
+  the env **seeds** the file once (first run / no file), and the file is the
+  source of truth thereafter — the env is not re-consulted while the file exists.
+  The badge's `hosts.conf` is seeded from `LLMDASH_HOSTS` once, then owned by the
+  file; without this, a host removed at runtime would be **resurrected** by the
+  still-set env var on the next start (env-as-perpetual-truth silently defeats the
+  Remove action). Any future editable-at-runtime config follows the same rule.
+- **A local config *write* stays a local file write — never an HTTP mutation
+  endpoint.** llmdash is serve-only (read-only over the `0.0.0.0` tailnet bind);
+  the badge's Add/Remove edits `hosts.conf` in its **own process**, so the bind
+  gains no write surface (`server.js` keeps no POST/PUT/DELETE/PATCH — still 405
+  for non-GET/HEAD). When such a write ingests a user-typed value (the
+  `osascript` Add dialog), harden it structurally: a **fixed-literal** AppleScript
+  run via `execFileSync('/usr/bin/osascript', ['-e', <constant>])` (**no shell**),
+  the typed value returning on stdout and reaching the writer as a **plain ARGV
+  string** only (never concatenated into the script or a command); write
+  **atomically** (temp+rename, `0o600`) to a **fixed** path (never one derived
+  from input → no traversal); **validate before the write lands** (`parseHosts` +
+  `sanitizeHostPort`, reject writes nothing); and **strip embedded newlines** per
+  record so a value can't smuggle a second config line or a directive.
 - Persist only what has no other history: limit **snapshots** go to SQLite
   (deduped). Activity/token stats are derived on demand from Claude Code logs —
   no extra storage.
@@ -126,6 +146,12 @@
   but not `argv[1]`, so the entry-point run-guard never fired). For anything a
   foreign host invokes, exercise the **real invocation path** (wrapper/symlink) in
   a test and once at deploy — the convenient path can hide a host-only defect.
+  This also catches **behavioral** host-only gaps, not just blank output: a
+  "byte-for-byte unchanged" invariant over-applied to hide the one *new* affordance
+  that must be reachable in that state (single-host mode shipped with no
+  `＋ Add host…`, so a fresh machine couldn't add its first host) passed every unit
+  test and was only visible in the installed badge — a "same output AND the new
+  affordance present" guard replaced the whole-output equality check.
 - **A value that flows into a menu-bar (SwiftBar/xbar) line must be sanitized for
   *that* grammar before output**, config-derived values included — not only wire
   payload text. A SwiftBar param list is space-separated after `|`, so a stray

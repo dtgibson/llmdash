@@ -72,6 +72,20 @@ Spacing & shape:
 - **Tool block** (`.tool` + `.tool-head`): groups one tool's gauges and activity
   under a labeled header. The grouping is how multi-source views stay
   unambiguous — every number sits under its tool's name.
+- **Host group** (`.host-head` + `.host-pill`): the machine-scoped wrapper for
+  multi-host views — one host's tool blocks sit under a header carrying its
+  escaped label and a right-aligned status pill (`binding` / `you` accent or muted
+  pills; a freshness `aging`/`stale` or offline `unreachable` pill reusing the
+  age-pill grammar; fresh → an "updated Ns ago" with a good pulse dot and **no**
+  pill, so escalation stays structural). It layers the host axis in front of the
+  tool axis without forking the tool block. Honesty rules travel with it:
+  same-account limits (matching reset epochs) collapse to a single shared banner
+  shown **once** (never N budgets); an unreachable host is a named offline callout
+  (`.stale-note` grammar), never a stale meter; a monitoring-station host with no
+  local readings is de-emphasized (dimmed, pinned last, `no local activity` idle
+  pill) but still shown — no fabricated zeros. The menu-bar badge miniaturizes the
+  same vocabulary onto one glyph + dropdown (glyph host cue `▪ <host>·<C|X> <pct>`,
+  the tightest machine named), so a change here should hold for both surfaces.
 - **Headroom strip** (`.headroom`): a top-of-page cross-tool cue (warn-tinted,
   left accent border). Shown only when a tool is low or maxed; it names the
   depleted tool and points to the one with the most remaining headroom. Hidden
