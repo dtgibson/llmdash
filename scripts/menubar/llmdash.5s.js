@@ -391,6 +391,57 @@ const COLOR_AGING = '#a0a0a0';
 const COLOR_STALE = '#f0a94b';
 const COLOR_MUTED = '#9b9ea6';
 const COLOR_OFFLINE = '#8b8b8b';
+const DROPDOWN_WRAP_CHARS = 72;
+const DROPDOWN_HEADER_SIZE = 14;
+const DROPDOWN_BODY_SIZE = 13;
+const DROPDOWN_NOTE_SIZE = 12;
+
+function menuParams({ size = null, color = null, font = null } = {}) {
+  const parts = [];
+  if (font) parts.push(`font=${font}`);
+  if (size) parts.push(`size=${size}`);
+  if (color) parts.push(`color=${color}`);
+  return parts.join(' ');
+}
+
+function menuLine(text, opts = {}) {
+  const params = menuParams(opts);
+  return params ? `${sanitize(text)} | ${params}` : sanitize(text);
+}
+
+export function wrapMenuText(text, max = DROPDOWN_WRAP_CHARS) {
+  const clean = sanitize(text).replace(/\s+/g, ' ').trim();
+  if (!clean) return [''];
+  const lines = [];
+  let current = '';
+  for (const word of clean.split(' ')) {
+    if (!current) {
+      if (word.length <= max) {
+        current = word;
+      } else {
+        for (let i = 0; i < word.length; i += max) lines.push(word.slice(i, i + max));
+      }
+      continue;
+    }
+    if (current.length + 1 + word.length <= max) {
+      current += ` ${word}`;
+      continue;
+    }
+    lines.push(current);
+    if (word.length <= max) {
+      current = word;
+    } else {
+      for (let i = 0; i < word.length; i += max) lines.push(word.slice(i, i + max));
+      current = '';
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function wrappedMenuLines(text, opts = {}, { max = DROPDOWN_WRAP_CHARS } = {}) {
+  return wrapMenuText(text, max).map((line, idx) => menuLine(idx === 0 ? line : `  ${line}`, opts));
+}
 
 export function baseUrl(host, port) {
   return `http://${sanitizeHostPort(host)}:${sanitizeHostPort(port)}/`;
@@ -417,7 +468,7 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
   for (const tv of badge.toolViews) {
     lines.push('---'); // group separator
     const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
-    lines.push(`${tv.label}${tag} | size=13 color=#888888`);
+    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_HEADER_SIZE }));
     for (const row of tv.rows) {
       let text;
       if (row.remaining == null) {
@@ -431,7 +482,7 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
       }
       lines.push(`${text} | font=Menlo`);
     }
-    if (tv.diag) diagBlock.push(`${tv.diag} | size=12 color=${COLOR_STALE}`);
+    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_BODY_SIZE, color: COLOR_STALE }));
   }
 
   if (diagBlock.length) {
@@ -457,7 +508,7 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
 function offlineLines(host, port) {
   return [
     '---',
-    `Dashboard offline — no server on ${sanitizeHostPort(host)}:${sanitizeHostPort(port)}`,
+    ...wrappedMenuLines(`Dashboard offline — no server on ${sanitizeHostPort(host)}:${sanitizeHostPort(port)}`, { size: DROPDOWN_BODY_SIZE }),
     `Open dashboard | href=${baseUrl(host, port)}`,
     'Refresh | refresh=true',
   ];
@@ -556,19 +607,19 @@ function hostSectionLines(view, { isBinding = false } = {}) {
   let head = view.label;
   if (isBinding) head += '  ▸ binding';
   else if (view.self) head += '  · you';
-  lines.push(`${head} | size=13 color=#cccccc`);
+  lines.push(menuLine(head, { size: DROPDOWN_HEADER_SIZE }));
 
   if (view.self && view.deemph) {
     // De-emphasized local (monitoring station): the honest idle note, no fake
     // rows, no zeros — retained but out of the glance (FR-20). Copy verbatim.
-    lines.push('no local activity | size=12 color=#888888');
-    lines.push("This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated. | size=11 color=#888888");
+    lines.push(menuLine('no local activity', { size: DROPDOWN_BODY_SIZE }));
+    lines.push(...wrappedMenuLines("This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated.", { size: DROPDOWN_NOTE_SIZE }));
     return lines;
   }
 
   if (view.diagLine) {
     // Offline / error / pending host: the named line, never a fabricated zero.
-    lines.push(`${view.diagLine} | size=12 color=${COLOR_STALE}`);
+    lines.push(...wrappedMenuLines(view.diagLine, { size: DROPDOWN_BODY_SIZE, color: COLOR_STALE }));
     return lines;
   }
 
@@ -583,7 +634,7 @@ function hostSectionLines(view, { isBinding = false } = {}) {
   const diagBlock = [];
   for (const tv of view.badge.toolViews) {
     const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
-    lines.push(`${tv.label}${tag} | size=12 color=#999999`);
+    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_BODY_SIZE }));
     for (const row of tv.rows) {
       let text;
       if (row.remaining == null) {
@@ -597,7 +648,7 @@ function hostSectionLines(view, { isBinding = false } = {}) {
       }
       lines.push(`${text} | font=Menlo`);
     }
-    if (tv.diag) diagBlock.push(`${tv.diag} | size=11 color=${COLOR_STALE}`);
+    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_NOTE_SIZE, color: COLOR_STALE }));
   }
   for (const dl of diagBlock) lines.push(dl);
   return lines;

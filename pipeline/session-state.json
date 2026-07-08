@@ -1,11 +1,20 @@
 {
-  "activeFeature": null,
-  "sessionType": null,
-  "currentStage": null,
-  "lastCompletedStage": 9,
+  "activeFeature": "status-bar-popup-legibility",
+  "sessionType": "maintain",
+  "currentStage": 5,
+  "lastCompletedStage": 4,
   "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
-  "confirmedArtifacts": [],
+  "confirmedArtifacts": [
+    "pipeline/status-bar-popup-legibility/change-brief.md",
+    "scripts/menubar/llmdash.5s.js",
+    "tests/menubar.test.js",
+    "tests/menubar-multihost.test.js",
+    "pipeline/status-bar-popup-legibility/pr-description.md",
+    "pipeline/status-bar-popup-legibility/how-to-see.md",
+    "pipeline/status-bar-popup-legibility/qa-report.md",
+    "pipeline/status-bar-popup-legibility/security-report.md"
+  ],
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-03T23:15:00Z"
+  "updatedAt": "2026-07-08T03:26:47Z"
 }

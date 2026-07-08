@@ -40,10 +40,11 @@ function host(label, { self = false, tools = null, reachable = true, hostDiagnos
 function combined(hosts) { return { hosts, generatedAt: iso(0) }; }
 
 // ── Single-host: shipped glyph + tool rows, PLUS the always-present Add action ─
-// FR-13 refined: single-host keeps the VISUAL byte-for-byte (glyph + per-tool
-// rows), but the host-config affordance rides it too so the FIRST host is addable
-// from the menu bar. (Coordinator deploy-time fix.)
-test('single host ⇒ mode "single"; the glyph + tool rows match the shipped badge exactly (QA-13)', () => {
+// FR-13 refined: single-host keeps the glyph + per-tool rows compatible with the
+// shipped badge, while the host-config affordance rides it too so the FIRST host
+// is addable from the menu bar. Headers are intentionally larger now for
+// status-bar-popup-legibility.
+test('single host ⇒ mode "single"; the glyph + tool rows stay compatible (QA-13)', () => {
   const state = { tools: [tool('claude-code', 46, 61), tool('codex', 88, 72)], headroom: null, generatedAt: iso(0) };
   const c = combined([host('This machine', { self: true, tools: state.tools })]);
   const multi = computeMultiBadge(c);
@@ -54,10 +55,11 @@ test('single host ⇒ mode "single"; the glyph + tool rows match the shipped bad
   // The GLYPH is byte-for-byte the shipped single-host glyph (no host cue).
   assert.match(lines[0], /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
   assert.doesNotMatch(lines[0], /·[◆▲]/);
-  // The per-tool ROWS are the shipped rows, unchanged.
-  assert.match(out, /^Claude Code \| size=13 color=#888888$/m);
+  // The per-tool ROWS are the shipped rows, unchanged; headers are larger and
+  // use default menu text color for legibility.
+  assert.match(out, /^Claude Code \| size=14$/m);
   assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo$/m);
-  assert.match(out, /^Codex \| size=13 color=#888888$/m);
+  assert.match(out, /^Codex \| size=14$/m);
 });
 
 test('single-host mode still offers ＋ Add host… so the first machine is addable from the menu bar (FR-14)', () => {

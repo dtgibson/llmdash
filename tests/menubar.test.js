@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   computeBadge, emit, fmtDur, ageBand, sanitize, diagLine, statusClass, baseUrl,
-  sanitizeHostPort,
+  sanitizeHostPort, wrapMenuText,
 } from '../scripts/menubar/llmdash.5s.js';
 
 // ── fixture loader ──────────────────────────────────────────────────────────
@@ -73,6 +73,14 @@ test('sanitize: strips | \\n \\r to spaces (the menu-bar analogue of esc)', () =
   assert.equal(sanitize('spawn codex ENOENT | rm -rf /'), 'spawn codex ENOENT   rm -rf /');
   assert.equal(sanitize('a\nb\r\nc'), 'a b  c');
   assert.equal(sanitize('plain text'), 'plain text');
+});
+
+test('wrapMenuText: wraps long menu text and long tokens to bounded rows', () => {
+  const lines = wrapMenuText('one two three four five six', 13);
+  assert.deepEqual(lines, ['one two three', 'four five six']);
+  const tokenLines = wrapMenuText('abcdefghijklmno', 5);
+  assert.deepEqual(tokenLines, ['abcde', 'fghij', 'klmno']);
+  assert.ok([...lines, ...tokenLines].every((line) => line.length <= 13));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,7 +218,8 @@ test('emit stale: number present, amber, trailing ⚠; diagnostics block present
   const title = titleLine(out);
   assert.match(title, /^▪ ◆ 66% ⚠ \| color=#f0a94b$/);
   assert.match(out, /^Claude Code {2}\(stale\) \|/m);
-  assert.match(out, /^Stale reading — .* \| size=12 color=#f0a94b$/m);
+  assert.match(out, /^Stale reading — .* \| size=13 color=#f0a94b$/m);
+  assert.match(out, /^  session to refresh\. \| size=13 color=#f0a94b$/m);
 });
 
 test('emit maxed: a maxed window reads "limit reached", never 0%; null → "not available"', () => {
@@ -250,12 +259,13 @@ test('emit offline: wordmark + ⚠, NEVER a number; still offers actions', () =>
 
 test('emit no-reading: the | injection in Codex detail is neutralized, opens no extra param', () => {
   const out = emit(computeBadge(loadFixture('state-no-reading')));
-  // The diagnostic line for codex-cmd-failed carries the sanitized detail. The
-  // ONLY | on that line is the SwiftBar param delimiter; the injected | is gone.
-  const diagLineText = out.split('\n').find((l) => l.startsWith('The codex command'));
-  assert.ok(diagLineText);
-  assert.equal((diagLineText.match(/\|/g) || []).length, 1); // just the param delimiter
-  assert.match(diagLineText, /spawn codex ENOENT {3}rm -rf \//); // injected " | " → 3 spaces
+  // The wrapped diagnostic lines carry the sanitized detail. The ONLY | on each
+  // diagnostic row is the SwiftBar param delimiter; the injected | is gone.
+  const diagLines = out.split('\n').filter((l) =>
+    l.includes('codex command') || l.includes('spawn codex') || l.includes('rm -rf'));
+  assert.ok(diagLines.length >= 2);
+  for (const line of diagLines) assert.equal((line.match(/\|/g) || []).length, 1);
+  assert.match(diagLines.join(' '), /spawn codex ENOENT\s+rm -rf \//);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,15 +321,20 @@ test('emit: a hostile LLMDASH_BADGE_HOST cannot inject a bash= action or an extr
   const evil = '127.0.0.1/ bash=/bin/sh param1=-c param2="rm -rf ~" terminal=false';
   const out = emit(null, { host: evil, port: '8787', offline: true });
   const lines = out.split('\n');
-  assert.equal(lines.length, 5); // offline is exactly: title, ---, offline-note, Open, Refresh
   const openLine = lines.find((l) => l.startsWith('Open dashboard'));
   const afterHref = openLine.split('href=')[1] || '';
   // The href value is a single inert token: no space-separated param can follow
   // it, so `bash=…` stays swallowed inside the (garbage) URL rather than parsing
   // as a clickable SwiftBar action. A space then any `key=` would be the smuggle.
   assert.doesNotMatch(afterHref, /\s\S*=/);
-  // The offline note line likewise carries no whitespace that could split it.
-  const noteLine = lines.find((l) => l.startsWith('Dashboard offline'));
-  assert.equal(noteLine.split('bash=/bin/sh').length - 1, 1); // present but as inert glued text
-  assert.doesNotMatch(noteLine, /\bbash=\S+\s+\w+=/);         // no second key=value token
+  // The offline note can wrap, but every wrapped row is inert display text: no
+  // injected SwiftBar action param and no oversized visible row.
+  const openIdx = lines.findIndex((l) => l.startsWith('Open dashboard'));
+  const noteLines = lines.slice(2, openIdx);
+  assert.ok(noteLines.length >= 2);
+  assert.ok(noteLines.every((l) => l.split('|')[0].length <= 74));
+  for (const line of noteLines) {
+    const params = line.split('|')[1] || '';
+    assert.doesNotMatch(params, /\bbash=/);
+  }
 });
