@@ -1140,11 +1140,12 @@ function wideCell({ state, pct, cue = '', mark = '' }) {
 
 // ── The logo template-image (opt-in, SwiftBar-only, neutral floor always) ──────
 // When toolMark=logo AND the host is SwiftBar, layer a base64 template image over
-// the neutral ◆/▲ floor. Read + encode ONLY when opted in (no cost on the default
-// path), cached per process (the plugin re-spawns each tick). Resolve the asset
-// from THIS file's own location via import.meta.url (ESM de-symlinks it → works
-// under the wrapper/symlink, the shipped run-guard lesson). If the asset is
-// missing/unreadable → return null (the ◆/▲ floor already covers it, honest).
+// the neutral ◆/▲ floor. Codex uses the OpenAI blossom mark. Read + encode ONLY
+// when opted in (no cost on the default path), cached per process (the plugin
+// re-spawns each tick). Resolve the asset from THIS file's own location via
+// import.meta.url (ESM de-symlinks it → works under the wrapper/symlink, the
+// shipped run-guard lesson). If the asset is missing/unreadable → return null
+// (the ◆/▲ floor already covers it, honest).
 const LOGO_ASSET = { 'claude-code': 'claude-mark.png', claude: 'claude-mark.png', codex: 'codex-mark.png' };
 const _logoCache = new Map(); // source → base64 | null (per-process)
 export function logoBase64(source, { read = _readFileSync } = {}) {

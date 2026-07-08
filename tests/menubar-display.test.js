@@ -526,5 +526,10 @@ test('the tracked tool-mark PNG assets exist and are real PNGs', () => {
     assert.ok(b.length < 4096, `${f} is small (${b.length} bytes)`);
   }
   // A LICENSE/attribution note travels with them.
-  assert.ok(fs.existsSync(path.join(assets, 'LICENSE.md')));
+  const license = fs.readFileSync(path.join(assets, 'LICENSE.md'), 'utf8');
+  assert.match(license, /Claude AI symbol\.svg/);
+  assert.match(license, /OpenAI logo 2025 \(symbol\)\.svg/);
+  assert.match(license, /Codex is an OpenAI product/);
+  assert.match(license, /trademark/i);
+  assert.doesNotMatch(license, /placeholder/i);
 });

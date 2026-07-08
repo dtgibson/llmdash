@@ -67,6 +67,10 @@ test('the tracked tool-mark PNGs are source (not a dependency), read via node:fs
   const plugin = fs.readFileSync(path.join(root, 'scripts', 'menubar', 'llmdash.5s.js'), 'utf8');
   assert.match(plugin, /readFileSync|_readFileSync/);
   assert.match(plugin, /new URL\(`\.\/assets\//); // resolved via import.meta.url
+  assert.doesNotMatch(plugin, /https?:\/\/.*logo/i);
+  const license = fs.readFileSync(path.join(assets, 'LICENSE.md'), 'utf8');
+  assert.match(license, /Source pages:/);
+  assert.match(license, /trademark/i);
 });
 
 // menubar-service-controls: the detached teardown copies the helper to a temp dir
