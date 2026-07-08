@@ -1,24 +1,24 @@
-## Last shipped: badge-display-options (2026-07-03) — CLOSED OUT
+## Last shipped: status-bar-popup-legibility (2026-07-08) — CLOSED OUT
 
-The menu-bar badge is now user-configurable from its own **🖥 Display** submenu along
-five persisted axes — Group (host | tool), Hosts (multi-select view filter), Layout
-(single | side-by-side | alternating), Density (wide | compact), Tool marks (neutral
-`◆`/`▲` | opt-in logos) — with six presets and an on-demand **🛈 Legend**. Grouping by
-Tool gives an all-Claude / all-Codex view (each the tightest window across the selected
-machines). Pure presentation layer over the unchanged `computeMultiBadge`: prefs persist
-as `!display-*` directives written atomically to `hosts.conf` by `display-action.mjs`
-(no osascript, no HTTP — serve-only intact). The default tool cue changed `C`/`X`→`◆`/`▲`
-(ratified, disclosed). Logos ship as honest original placeholders; real logos are a
-drop-in-two-PNGs operator choice.
+The macOS SwiftBar/xbar dropdown is readable in the states that used to make it
+hard to use: primary labels use normal menu text sizing, and long offline or
+diagnostic copy is emitted as bounded non-action rows instead of one enormous
+line. The new wrapping path sanitizes for the SwiftBar grammar, wraps by words,
+and splits a single overlong token so a long unavailable host cannot widen the
+whole pop-up. Action rows (`href=`, refresh, scripts, submenus) stay separate and
+unchanged.
 
-- Commit `07682e2` (feature) + `fe20ee9` (context update) + this close-out, on origin/main.
-- Installed `~/llmdash` fast-forwarded, service restarted, health-checked (serve-only 405
-  preserved), badge verified rendering live with the `◆` cue through its real wrapper.
-- Build 464/462/0/2; QA pass (one case bug fixed in-stage + regression guard); Security
-  pass (one hardening applied). Real install untouched throughout.
+- Commit `f4e5f3f` (implementation) + `10f6d02` (context/deploy report) + this
+  close-out, on origin/main.
+- Installed `/Users/developer/llmdash` was fast-forwarded through the shipped
+  implementation; the launchd service is running and `/api/state` + `/api/hosts`
+  return 200. The installed SwiftBar wrapper previewed a long unavailable host as
+  bounded rows.
+- QA passed (`npm test`: 463 passing, 0 failing, 2 skipped) plus focused menu-bar
+  suites. Security passed with no findings and `git diff --check` clean.
 
 ## Status: idle — no active feature
-Pipeline is clean and reset. Run `/weft` to start the next lane.
+Pipeline is clean and reset. Run `$weft` to start the next lane.
 
 ## Roadmap (open)
 - **Up Next:** Limit alerts — notify before a window is exhausted.
