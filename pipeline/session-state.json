@@ -1,9 +1,9 @@
 {
-  "activeFeature": "dropdown-legibility-aging-symbols",
+  "activeFeature": null,
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": 6,
-  "lastCompletedStage": 5,
+  "currentStage": null,
+  "lastCompletedStage": 6,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/dropdown-legibility-aging-symbols/change-brief.md",
@@ -15,5 +15,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T17:01:46Z"
+  "updatedAt": "2026-07-08T17:04:20Z"
 }
