@@ -193,6 +193,11 @@ test('computeBadge: a Codex-owned binding window (no freshness) reads fresh unle
 // ─────────────────────────────────────────────────────────────────────────────
 function titleLine(out) { return out.split('\n')[0]; }
 function afterSep(out) { const i = out.indexOf('\n---\n'); return i < 0 ? '' : out.slice(i); }
+function preSeparatorLines(out) {
+  const lines = out.split('\n');
+  const i = lines.indexOf('---');
+  return i < 0 ? lines : lines.slice(0, i);
+}
 
 test('emit fresh: title has the cue + %, colored by status; grammar valid', () => {
   const out = emit(computeBadge(loadFixture('state-fresh')));
@@ -203,6 +208,12 @@ test('emit fresh: title has the cue + %, colored by status; grammar valid', () =
   assert.match(out, /\n---\n/);
   assert.match(out, /Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\/$/m);
   assert.match(out, /^Refresh \| refresh=true$/m);
+});
+
+test('emit: exactly one line appears before the first separator', () => {
+  const out = emit(computeBadge(loadFixture('state-fresh')));
+  assert.deepEqual(preSeparatorLines(out), [titleLine(out)]);
+  assert.doesNotMatch(preSeparatorLines(out).join('\n'), /remaining|Watching|not reachable/i);
 });
 
 test('emit aging: number KEEPS its value with a trailing · and dim color', () => {
@@ -249,6 +260,7 @@ test('emit offline: wordmark + ⚠, NEVER a number; still offers actions', () =>
   const out = emit(null, { offline: true });
   const title = titleLine(out);
   assert.equal(title, '▪ llmdash ⚠ | color=#8b8b8b');
+  assert.deepEqual(preSeparatorLines(out), [title]);
   // The glyph text (before the SwiftBar param `|`) carries no reading number.
   const glyphText = title.split('|')[0];
   assert.doesNotMatch(glyphText, /\d/);       // no number in the visible glyph

@@ -451,7 +451,7 @@ export function baseUrl(host, port) {
 // diagnostics → actions. host/port drive the Open-dashboard href so the link
 // matches what the badge reads.
 function dropdownLines(badge, host, port, serviceState = 'not-installed', display = null) {
-  const lines = [];
+  const lines = ['---'];
 
   // Title echo line — repeats the glyph with the binding tool·window (and band
   // when degraded), mirroring SwiftBar's natural top-of-dropdown title.
@@ -753,7 +753,7 @@ export function actionClusterLines({ serviceState = 'not-installed', remotes = [
 // Open-dashboard / Refresh. host/port drive the Open-dashboard href (THIS machine's
 // loopback, never a peer's).
 function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-installed', display = null) {
-  const lines = [];
+  const lines = ['---'];
   const reachableCount = multi.hostViews.length;
   const unreachable = multi.hostViews.filter((v) => !v.reachable || (!v.badge && !v.self)).length;
 
@@ -1179,8 +1179,8 @@ const DISPLAY_ACTION = `${PLUGIN_DIR}/display-action.mjs`;
 // orthogonal — it persists across preset changes, FR-06/round-2 orthogonality).
 export const DISPLAY_PRESETS = [
   { id: 'most-constrained-wide', label: 'Most-constrained · wide (today)', axes: { group: 'host', hosts: 'all', layout: 'single', density: 'wide' } },
-  { id: 'single-compact', label: 'Single compact icon', axes: { group: 'host', hosts: 'all', layout: 'single', density: 'compact' } },
-  { id: 'all-compact-sbs', label: 'Compact icons side-by-side', axes: { group: 'host', hosts: 'all', layout: 'side-by-side', density: 'compact' } },
+  { id: 'single-compact', label: 'Single compact glyph', axes: { group: 'host', hosts: 'all', layout: 'single', density: 'compact' } },
+  { id: 'all-compact-sbs', label: 'Compact glyphs side-by-side', axes: { group: 'host', hosts: 'all', layout: 'side-by-side', density: 'compact' } },
   { id: 'rotate-compact', label: 'Rotate hosts · compact', axes: { group: 'host', hosts: 'all', layout: 'alternating', density: 'compact' } },
   { id: 'tool-sbs', label: 'Claude vs Codex · side-by-side', axes: { group: 'tool', hosts: 'all', layout: 'side-by-side', density: 'compact' } },
   { id: 'tool-rotate', label: 'Rotate Claude / Codex · compact', axes: { group: 'tool', hosts: 'all', layout: 'alternating', density: 'compact' } },
@@ -1237,16 +1237,17 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
     lines.push(`--${activeMark(on)}${sanitize(r.label)} (${r.addr}) | ${act('hosts', key)}${activeFont(on)}`);
   }
   lines.push('-----');
-  // Layout (radio).
-  lines.push('--Layout | size=11 color=#888888');
-  for (const [val, lbl] of [['single', 'Single (most-constrained)'], ['side-by-side', 'Side-by-side'], ['alternating', 'Alternating']]) {
+  // Layout (radio). This controls the menu-bar glyph only; the dropdown remains
+  // the full per-host picture.
+  lines.push('--Glyph layout | size=11 color=#888888');
+  for (const [val, lbl] of [['single', 'Single (tightest only)'], ['side-by-side', 'Side-by-side (up to 3)'], ['alternating', 'Alternating (one at a time)']]) {
     const on = d.layout === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('layout', val)}${activeFont(on)}`);
   }
   lines.push('-----');
-  // Density (radio).
-  lines.push('--Density | size=11 color=#888888');
-  for (const [val, lbl] of [['wide', 'Wide (text)'], ['compact', 'Compact (icon)']]) {
+  // Density (radio). Density changes the glyph cell, not the dropdown detail.
+  lines.push('--Glyph density | size=11 color=#888888');
+  for (const [val, lbl] of [['wide', 'Wide (text glyph)'], ['compact', 'Compact (tight glyph)']]) {
     const on = d.density === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('density', val)}${activeFont(on)}`);
   }

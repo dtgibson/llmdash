@@ -119,6 +119,7 @@ test('hostsConfigLine: the !local override is disclosed as a real knob (QA-19/21
 test('displayDisclosure: default axes read as "default (today\'s glyph)" + name the ◆/▲ default cue', () => {
   const line = displayDisclosure({ hosts: 'all', layout: 'single', density: 'wide', group: 'host', toolMark: 'neutral' });
   assert.match(line, /default/i);
+  assert.match(line, /default glyph/);
   // The ratified default-cue change is disclosed (a visible default change is never silent).
   assert.match(line, /◆ Claude/);
   assert.match(line, /▲ Codex/);
@@ -132,6 +133,8 @@ test('displayDisclosure: a non-default config names group + tool-mark + every ax
   assert.match(line, /density=compact/);
   assert.match(line, /tool-mark=logo/);
   assert.match(line, /a:1,b:2/);
+  assert.match(line, /glyph only/);
+  assert.match(line, /dropdown still lists every host in full/);
   assert.match(line, /◆ Claude \/ ▲ Codex/);
 });
 

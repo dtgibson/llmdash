@@ -299,8 +299,9 @@ prints the same SwiftBar-format output, which is how you can preview the states.
 ### Display options
 
 The badge's glyph is configurable from a **🖥 Display** submenu (in both single-host
-and multi-host dropdowns). Five independent axes shape what the glyph shows — pick a
-**preset** as a starting point, then fine-tune any axis underneath:
+and multi-host dropdowns). Five independent axes shape the **menu-bar glyph only**;
+the dropdown still lists the full per-host detail. Pick a **preset** as a starting
+point, then fine-tune any axis underneath:
 
 - **Group** — **Host** (the default; each unit is a machine) or **Tool** (each unit
   is a **per-tool aggregate** across the machines you watch). Grouped by tool,
@@ -313,13 +314,14 @@ and multi-host dropdowns). Five independent axes shape what the glyph shows — 
   appears in the glyph with its `⊘` marker (marked, never dropped). Grouped by tool,
   the Hosts selection **scopes** which machines feed each aggregate. "All hosts"
   (the default) is the sentinel that watches every machine in the glyph.
-- **Layout** — **Single** (the most-constrained unit), **Side-by-side** (up to 3
-  units on one line, tightest-first, then `+M more`), or **Alternating** (one unit
-  per ~5s tick, rotating deterministically off the clock).
-- **Density** — **Wide** (today's text glyph) or **Compact** (a tight icon: a colored
+- **Layout** — **Single** (the tightest unit only), **Side-by-side** (up to 3 units
+  on one line, tightest-first, then `+M more`), or **Alternating** (one unit per
+  ~5s tick, rotating deterministically off the clock).
+- **Density** — **Wide** (a text glyph) or **Compact** (a tight glyph cell: a colored
   number with its state marker — `46` fresh, `46·` aging, `⚠12` stale, `—` no reading,
   `⊘` offline). Side-by-side compact cues each machine with a short grown-until-unique
-  prefix (`St12 La88·`).
+  prefix (`St12 La88·`). Density does not shorten the dropdown; it only controls the
+  status-bar glyph.
 - **Tool marks** — **Neutral** (the default `◆` / `▲` glyphs) or **Logos** (opt-in
   product marks, SwiftBar only). See the fair-use note below.
 

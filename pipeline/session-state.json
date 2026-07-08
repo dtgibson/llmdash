@@ -1,11 +1,18 @@
 {
-  "activeFeature": null,
-  "sessionType": null,
-  "currentStage": null,
-  "lastCompletedStage": 6,
+  "activeFeature": "compact-mode-display-honesty",
+  "sessionType": "maintain",
+  "entryPath": "new",
+  "currentStage": 5,
+  "lastCompletedStage": 4,
   "lastCheckpointStatus": "approved",
+  "confirmedArtifacts": [
+    "pipeline/compact-mode-display-honesty/change-brief.md",
+    "pipeline/compact-mode-display-honesty/pr-description.md",
+    "pipeline/compact-mode-display-honesty/qa-report.md",
+    "pipeline/compact-mode-display-honesty/security-report.md"
+  ],
   "awaitingHuman": null,
-  "confirmedArtifacts": [],
+  "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T03:42:48Z"
+  "updatedAt": "2026-07-08T04:10:07Z"
 }

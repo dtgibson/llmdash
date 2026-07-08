@@ -39,6 +39,11 @@ function host(label, { self = false, tools = null, reachable = true, hostDiagnos
 }
 function combined(hosts) { return { hosts, generatedAt: iso(0) }; }
 const glyphOf = (out) => out.split('\n')[0];
+function preSeparatorLines(out) {
+  const lines = out.split('\n');
+  const i = lines.indexOf('---');
+  return i < 0 ? lines : lines.slice(0, i);
+}
 
 // A canonical 3-host fleet: Studio (Claude 12%, crit/fresh, binding), Laptop
 // (Codex 88%, fresh), Desktop (Codex 63%, fresh).
@@ -134,6 +139,21 @@ test('a SELECTED offline host STAYS in the glyph with ⊘, never dropped or zero
   assert.match(cells, /⊘/);       // the offline host is shown with ⊘
   assert.match(cells, /12/);      // Studio's reading is shown
   assert.doesNotMatch(view.cells.find((x) => x.state === 'offline').text, /\d/); // ⊘ carries NO digit
+});
+
+test('display emit: compact mode keeps secondary copy below the first separator', () => {
+  const c = combined([
+    host('This machine', { self: true, tools: [tool('claude-code', 80, 90)] }),
+    host('Down', { reachable: false, tools: null, hostDiagnostic: { reason: 'peer-unreachable' }, hostStr: 'down', port: 8787 }),
+    host('Studio', { tools: [tool('claude-code', 12, 38)], hostStr: '100.64.0.7', port: 8788 }),
+  ]);
+  const multi = computeMultiBadge(c);
+  const view = applyDisplay(multi, { ...DEF, hosts: 'all', layout: 'side-by-side', density: 'compact' }, { epochMs: 0 });
+  const out = emitDisplay(view, multi, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(c) });
+  assert.deepEqual(preSeparatorLines(out), [glyphOf(out)]);
+  assert.doesNotMatch(preSeparatorLines(out).join('\n'), /Watching|not reachable|unreachable|remaining/i);
+  assert.match(out, /\n---\n▪ 12% remaining/);
+  assert.match(out, /Watching 3 machines · 1 not reachable/);
 });
 
 // ── The five compact states (QA-14/16) ────────────────────────────────────────
@@ -353,8 +373,8 @@ test('the submenu offers six presets + the five axes; host choices enumerate the
   for (const p of DISPLAY_PRESETS) assert.ok(lines.includes(p.label), `preset ${p.label}`);
   assert.match(lines, /Group by/);
   assert.match(lines, /Hosts/);
-  assert.match(lines, /Layout/);
-  assert.match(lines, /Density/);
+  assert.match(lines, /Glyph layout/);
+  assert.match(lines, /Glyph density/);
   assert.match(lines, /Tool marks/);
   // Host choices enumerate the monitored remotes + "All hosts".
   assert.match(lines, /All hosts/);
@@ -364,18 +384,31 @@ test('the submenu offers six presets + the five axes; host choices enumerate the
 
 test('the active axis value is ✓-marked live; a preset is active ONLY when all four axes match (QA-09)', () => {
   const c = fleet();
-  // A config matching the "Compact icons side-by-side" preset exactly.
+  // A config matching the "Compact glyphs side-by-side" preset exactly.
   const disp = { hosts: 'all', group: 'host', layout: 'side-by-side', density: 'compact', toolMark: 'neutral' };
   const lines = submenuIn(disp, remotesFromCombined(c));
-  const activePreset = lines.find((l) => l.includes('✓') && l.includes('Compact icons side-by-side'));
+  const activePreset = lines.find((l) => l.includes('✓') && l.includes('Compact glyphs side-by-side'));
   assert.ok(activePreset, 'the matching preset is ✓-marked');
   // The active axis values are ✓-marked.
-  assert.ok(lines.some((l) => l.includes('✓') && l.includes('Side-by-side')));
-  assert.ok(lines.some((l) => l.includes('✓') && l.includes('Compact (icon)')));
+  assert.ok(lines.some((l) => l.includes('✓') && l.includes('Side-by-side (up to 3)')));
+  assert.ok(lines.some((l) => l.includes('✓') && l.includes('Compact (tight glyph)')));
   // A DRIFTED axis (density flipped to wide) → no preset ✓, but each axis marks itself.
   const drifted = submenuIn({ ...disp, density: 'wide' }, remotesFromCombined(c));
   assert.ok(!drifted.some((l) => l.includes('✓') && DISPLAY_PRESETS.some((p) => l.includes(p.label))), 'no preset marked when drifted');
-  assert.ok(drifted.some((l) => l.includes('✓') && l.includes('Wide (text)')), 'the drifted axis still marks itself');
+  assert.ok(drifted.some((l) => l.includes('✓') && l.includes('Wide (text glyph)')), 'the drifted axis still marks itself');
+});
+
+test('the Display submenu labels layout and density as glyph-only choices', () => {
+  const c = fleet();
+  const lines = submenuIn(DEF, remotesFromCombined(c)).join('\n');
+  assert.match(lines, /Glyph layout/);
+  assert.match(lines, /Single \(tightest only\)/);
+  assert.match(lines, /Side-by-side \(up to 3\)/);
+  assert.match(lines, /Alternating \(one at a time\)/);
+  assert.match(lines, /Glyph density/);
+  assert.match(lines, /Wide \(text glyph\)/);
+  assert.match(lines, /Compact \(tight glyph\)/);
+  assert.doesNotMatch(lines, /Compact \(icon\)|Compact icons/);
 });
 
 test('the Group by + Tool marks axes are present and ✓-active-marked (round 2)', () => {

@@ -177,10 +177,10 @@ export function displayDisclosure(display = null) {
     && group === 'host' && toolMark === 'neutral';
   const cueNote = 'The default tool cue is the neutral mark ◆ Claude / ▲ Codex (it replaced the C/X letters).';
   if (isDefault) {
-    return `Badge display: default (today's glyph — every host, single, wide, grouped by host). ${cueNote}`;
+    return `Badge display: default glyph (all hosts, single tightest unit, wide text glyph, grouped by host). ${cueNote}`;
   }
   const hostsStr = hosts === 'all' ? 'all hosts' : `hosts ${Array.isArray(hosts) ? hosts.join(',') : hosts}`;
-  return `Badge display: group=${group}, ${hostsStr}, layout=${layout}, density=${density}, tool-mark=${toolMark} (set from the badge's Display submenu; edit the !display-* directives in the config file). ${cueNote}`;
+  return `Badge display: glyph group=${group}, ${hostsStr}, layout=${layout}, density=${density}, tool-mark=${toolMark} (glyph only; the dropdown still lists every host in full. Set from the badge's Display submenu or edit the !display-* directives in the config file). ${cueNote}`;
 }
 
 // Service-state disclosure line (menubar-service-controls, FR-22 / OQ-05): names

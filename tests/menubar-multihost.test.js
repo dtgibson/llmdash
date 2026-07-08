@@ -38,6 +38,12 @@ function host(label, { self = false, tools = null, reachable = true, hostDiagnos
   return h;
 }
 function combined(hosts) { return { hosts, generatedAt: iso(0) }; }
+function titleLine(out) { return out.split('\n')[0]; }
+function preSeparatorLines(out) {
+  const lines = out.split('\n');
+  const i = lines.indexOf('---');
+  return i < 0 ? lines : lines.slice(0, i);
+}
 
 // ── Single-host: shipped glyph + tool rows, PLUS the always-present Add action ─
 // FR-13 refined: single-host keeps the glyph + per-tool rows compatible with the
@@ -130,6 +136,20 @@ test('the binding host is named in the glyph and the title echo (QA-08)', () => 
   assert.match(title, /^▪ Desktop·◆ 12% \|/);      // host cue · tool cue · pct
   // The dropdown title echo spells out host · tool · window.
   assert.match(out, /Desktop · Claude Code · 5-hour/);
+});
+
+test('multi-host emit: exactly one line appears before the first separator', () => {
+  const c = combined([
+    host('This machine', { self: true, tools: [tool('claude-code', 80, 90)] }),
+    host('Desktop', { tools: [tool('claude-code', 12, 38)] }),
+    host('Studio VM', { reachable: false, tools: null, hostDiagnostic: { reason: 'peer-unreachable' }, hostStr: '100.64.0.9', port: 8790 }),
+  ]);
+  const multi = computeMultiBadge(c);
+  const out = emitMulti(multi, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(c) });
+  assert.deepEqual(preSeparatorLines(out), [titleLine(out)]);
+  assert.doesNotMatch(preSeparatorLines(out).join('\n'), /Watching|not reachable|unreachable|remaining/i);
+  assert.match(out, /\n---\n▪ 12% remaining/);
+  assert.match(out, /Watching 3 machines · 1 not reachable/);
 });
 
 test('a long host label is truncated at 10 chars with … in the glyph; full label in the dropdown', () => {
