@@ -8,16 +8,15 @@ product. Update it freely.
 
 ## Shipped
 
-15 features shipped.
+16 features shipped.
 
-- **Last shipped:** Menu-bar dropdown legibility and complete legend — the macOS
+- **Last shipped:** Menu-bar logo assets — the macOS badge's opt-in Logos mode now
+  bundles local Claude and OpenAI/Codex marks while keeping the neutral glyph
+  fallback and no first-use fetch.
+- **Previously:** Menu-bar dropdown legibility and complete legend — the macOS
   badge dropdown now uses explicit dark readable colors for normal rows and a
   complete Legend that explains every visible badge/menu mark, including the `▪`
   llmdash mark.
-- **Previously:** Dropdown legibility and aging symbols — the macOS badge dropdown
-  started using darker top summary/header rows, and aging readings switched to the
-  clearer `◷` marker while stale readings kept `⚠`; the change was
-  presentation-only, with `/api`, polling, persistence, and action rows unchanged.
 
 ---
 

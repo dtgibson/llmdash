@@ -45,7 +45,8 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   stay loudest. It is **configurable from its own 🖥 Display submenu** — group by
   host or by tool (per-tool aggregates across the chosen machines), show hosts
   single / side-by-side / alternating, wide or compact, with the neutral tool marks
-  or opt-in logos, plus a 🛈 Legend explaining every mark on demand; display
+  or bundled opt-in Claude/OpenAI logo marks, plus a 🛈 Legend explaining every
+  mark on demand; display
   settings are a glyph-only view filter (layout and density change only the
   status-bar glyph, including compact tight cells; the dropdown remains the full
   per-host detail view and monitoring coverage never changes). Unset (the default)

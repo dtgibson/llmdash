@@ -290,9 +290,11 @@
   carrier of an identity). The asset is a passive **local `node:fs`** read (no
   network, no `import()`, no eval), resolved via `import.meta.url` so it works under
   the wrapper/symlink, read **only** when opted in, reaching the line only as a
-  passive base64 `templateImage=`. Ship **original placeholder art + a `LICENSE.md`**;
-  dropping in the **real** brand marks is a separate, explicit operator fair-use
-  choice (replace two PNGs) — the code's honesty invariants hold either way.
+  passive base64 `templateImage=`. Bundled brand marks must be small monochrome
+  local template images with source/license/trademark notes in the asset
+  `LICENSE.md`; Codex uses the OpenAI mark because Codex is an OpenAI product. Do
+  not add a first-use fetch or runtime logo download — the code's honesty
+  invariants hold only when the neutral floor and local-only read stay structural.
 
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`

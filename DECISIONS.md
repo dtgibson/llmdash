@@ -1,5 +1,28 @@
 # Decisions — llmdash
 
+## Menu-bar logo assets — bundled local Claude and OpenAI/Codex marks, no first-use fetch — 2026-07-08 (improve)
+**Decision:** The existing **Tool marks -> Logos** option now ships with bundled
+local template-image marks instead of self-authored placeholders: Claude uses the
+Claude symbol, and Codex uses the OpenAI blossom mark because Codex is an OpenAI
+product. The prior "placeholder-only; operator supplies real brand marks" part of
+the badge-display decision is reversed, while the original safety posture remains:
+logos are off by default, the neutral `◆` / `▲` floor is always emitted, assets
+are local `node:fs` reads only when opted in, and there is no first-use fetch or
+runtime logo download.
+**Rationale:** The logo option already existed, but placeholder art made it less
+useful. Bundling documented, monochrome local marks makes the option recognizable
+without adding network behavior, a dependency, or a new user setup step.
+**Implications:** Future badge logo work should preserve local-only bundled assets
+with source/license/trademark notes, keep the neutral glyph floor as the identity
+fallback, and avoid adding a runtime fetch path. SwiftBar supports one
+`templateImage=` per title line, so multi-cell side-by-side views continue to use
+the neutral text glyphs. QA PASSED: full `npm test` passed (467 passing, 0
+failing, 2 skipped), focused menu-bar suites passed, and an installed render with
+`toolMark=logo` emitted the neutral `◆` floor plus PNG `templateImage=`. Security
+PASSED: no new dependency, shell, HTTP mutation, or runtime network surface was
+added. Shipped as commit `78226f6`; installed `~/llmdash` was fast-forwarded, the
+launchd service restarted, and SwiftBar relaunched.
+
 ## Menu-bar dropdown legibility and complete legend — explicit dark dropdown palette, every mark explained — 2026-07-08 (improve)
 **Decision:** The macOS SwiftBar/xbar badge now uses an explicit dark dropdown
 palette for normal informational rows (`#111111`, `#1f1f1f`, `#333333`) and
