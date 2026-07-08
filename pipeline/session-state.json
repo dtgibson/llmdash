@@ -1,9 +1,9 @@
 {
-  "activeFeature": "menubar-dropdown-legibility-legend",
+  "activeFeature": null,
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": 6,
-  "lastCompletedStage": 5,
+  "currentStage": null,
+  "lastCompletedStage": 6,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/menubar-dropdown-legibility-legend/change-brief.md",
@@ -15,5 +15,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T18:06:24Z"
+  "updatedAt": "2026-07-08T18:07:47Z"
 }
