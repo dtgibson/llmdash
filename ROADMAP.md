@@ -8,15 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-16 features shipped.
+17 features shipped.
 
-- **Last shipped:** Menu-bar logo assets — the macOS badge's opt-in Logos mode now
+- **Last shipped:** Menu-bar logo side-by-side — the macOS badge's opt-in Logos
+  mode now uses status-bar-sized single marks and a paired Claude/Codex image for
+  side-by-side tool glyphs.
+- **Previously:** Menu-bar logo assets — the macOS badge's opt-in Logos mode now
   bundles local Claude and OpenAI/Codex marks while keeping the neutral glyph
   fallback and no first-use fetch.
-- **Previously:** Menu-bar dropdown legibility and complete legend — the macOS
-  badge dropdown now uses explicit dark readable colors for normal rows and a
-  complete Legend that explains every visible badge/menu mark, including the `▪`
-  llmdash mark.
 
 ---
 

@@ -1,5 +1,28 @@
 # Decisions — llmdash
 
+## Menu-bar logo side-by-side — paired SwiftBar image, 16x16 single marks — 2026-07-08 (improve)
+**Decision:** The **Tool marks -> Logos** option now treats SwiftBar's one-image
+title-line constraint as a product constraint: single-tool logo mode uses smaller
+16x16 local template images, while Claude/Codex side-by-side logo mode uses one
+paired 34x16 local template image in the same order as the text cells. This
+explicitly modifies the prior logo-asset implication that multi-cell side-by-side
+views would continue with neutral text glyphs only; the neutral `◆` / `▲` text
+floor still stays unconditional.
+**Rationale:** SwiftBar does not provide arbitrary inline custom images inside a
+single title line, but the user's selected side-by-side logo mode should still
+show a recognizable logo cue without oversized art. A single paired template
+image is the honest fit for the host API.
+**Implications:** Future badge logo work should preserve the local-only,
+no-fetch, neutral-floor posture, size status-bar marks for the status bar, and
+use paired local images for multi-tool SwiftBar title lines unless the host API
+gains true inline image support. QA PASSED: focused menu-bar tests and full
+`npm test` passed (468 passing, 0 failing, 2 skipped), and installed SwiftBar
+output emitted a 34x16 paired `templateImage=` while keeping `◆` and `▲`.
+Security PASSED WITH NOTES: no new dependency, network fetch, shell execution,
+HTTP mutation, polling, persistence, or service-control surface was added.
+Shipped as commit `004c72d`; installed `~/llmdash` was fast-forwarded, the
+launchd service restarted, and SwiftBar relaunched.
+
 ## Menu-bar logo assets — bundled local Claude and OpenAI/Codex marks, no first-use fetch — 2026-07-08 (improve)
 **Decision:** The existing **Tool marks -> Logos** option now ships with bundled
 local template-image marks instead of self-authored placeholders: Claude uses the
