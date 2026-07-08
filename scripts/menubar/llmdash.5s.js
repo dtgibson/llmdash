@@ -410,12 +410,16 @@ const DROPDOWN_HEADER_SIZE = 14;
 const DROPDOWN_BODY_SIZE = 13;
 const DROPDOWN_NOTE_SIZE = 12;
 const DROPDOWN_SECTION_SIZE = 12;
+const DROPDOWN_NOOP_ACTION = 'bash=/usr/bin/true terminal=false refresh=false';
 
-function menuParams({ size = null, color = null, font = null } = {}) {
+function menuParams({ size = null, color = null, font = null, inert = true } = {}) {
   const parts = [];
   if (font) parts.push(`font=${font}`);
   if (size) parts.push(`size=${size}`);
   if (color) parts.push(`color=${color}`);
+  // SwiftBar renders menu items with no action as disabled, which makes text
+  // grey even when color= is present. A fixed no-op keeps info rows readable.
+  if (inert) parts.push(DROPDOWN_NOOP_ACTION);
   return parts.join(' ');
 }
 
@@ -693,18 +697,18 @@ export function hostConfigActionLines({ remotes = [] } = {}) {
     // Remove submenu: SwiftBar renders a nested item with a leading `--`. One item
     // per removable host; each passes the host KEY on ARGV (param3). The key is a
     // sanitized host:port identity — never a free-form label.
-    lines.push('－ Remove host…');
+    lines.push(menuLine('－ Remove host…', { color: COLOR_DROPDOWN_HEADER, inert: false }));
     for (const r of remotes) {
       const label = sanitize(r.label);
       const key = sanitizeHostPort(r.key);
       lines.push(`--Stop watching ${label} (${r.addr}) | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`);
     }
     // A live listing of the current remote set (a real affordance, not a dead item).
-    lines.push(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'} | color=${COLOR_DROPDOWN_SUBTLE}`);
+    lines.push(menuLine(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'}`, { color: COLOR_DROPDOWN_SUBTLE }));
   } else {
     // Single-host: no remotes to remove; state the honest zero so the count line
     // is never a dead/absent affordance. Add host… above is the live path.
-    lines.push(`☰ Watching: 0 other machines | color=${COLOR_DROPDOWN_SUBTLE}`);
+    lines.push(menuLine('☰ Watching: 0 other machines', { color: COLOR_DROPDOWN_SUBTLE }));
   }
   return lines;
 }
@@ -786,7 +790,7 @@ function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-inst
   }
   const scope = `Watching ${reachableCount} machine${reachableCount === 1 ? '' : 's'}`
     + (unreachable ? ` · ${unreachable} not reachable` : '');
-  lines.push(`${scope} | size=12 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(menuLine(scope, { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
 
   const bindingView = multi.binding ? multi.hostViews[0] : null;
   for (const view of multi.hostViews) {
@@ -1230,7 +1234,7 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
     toolMark: display.toolMark || 'neutral',
   };
   const act = (verb, value) => `shell="${ABS_NODE}" param1="${DISPLAY_ACTION}" param2=${verb} param3="${value}" terminal=false refresh=true`;
-  const lines = ['---', menuLine('🖥 Display', { color: COLOR_DROPDOWN_HEADER })];
+  const lines = ['---', menuLine('🖥 Display', { color: COLOR_DROPDOWN_HEADER, inert: false })];
   // Presets (the friendly front).
   lines.push(submenuLine('Presets', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const p of DISPLAY_PRESETS) {
@@ -1290,7 +1294,7 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
 export function legendLines() {
   return [
     '---',
-    menuLine('🛈 Legend — what the marks mean', { color: COLOR_DROPDOWN_HEADER }),
+    menuLine('🛈 Legend — what the marks mean', { color: COLOR_DROPDOWN_HEADER, inert: false }),
     submenuLine('Badge', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('▪ — llmdash mark; every status-bar glyph starts here.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
     submenuLine('· — separator between host, tool, and scope words.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),

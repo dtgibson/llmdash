@@ -229,14 +229,14 @@ test('emit stale: number present, amber, trailing ⚠; diagnostics block present
   const title = titleLine(out);
   assert.match(title, /^▪ ◆ 66% ⚠ \| color=#f0a94b$/);
   assert.match(out, /^Claude Code {2}\(stale\) \|/m);
-  assert.match(out, /^Stale reading — .* \| size=13 color=#8a5a00$/m);
-  assert.match(out, /^  session to refresh\. \| size=13 color=#8a5a00$/m);
+  assert.match(out, /^Stale reading — .* \| size=13 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^  session to refresh\. \| size=13 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 test('emit maxed: a maxed window reads "limit reached", never 0%; null → "not available"', () => {
   const out = emit(computeBadge(loadFixture('state-maxed')));
-  assert.match(out, /^5-hour: {2}limit reached · resets .+ \| font=Menlo color=#111111$/m);
-  assert.match(out, /^Weekly: {2}not available \| font=Menlo color=#111111$/m);
+  assert.match(out, /^5-hour: {2}limit reached · resets .+ \| font=Menlo color=#111111 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^Weekly: {2}not available \| font=Menlo color=#111111 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
   // The glyph is a valid 0% binding.
   assert.match(titleLine(out), /^▪ ◆ 0% \| /);
 });
@@ -329,7 +329,7 @@ test('sanitizeHostPort: strips whitespace and | so no host value can inject a Sw
   assert.equal(sanitizeHostPort('a|bash=/bin/sh'), 'abash=/bin/sh');  // pipe removed
 });
 
-test('emit: a hostile LLMDASH_BADGE_HOST cannot inject a bash= action or an extra menu line', () => {
+test('emit: a hostile LLMDASH_BADGE_HOST cannot inject its own action or an extra menu line', () => {
   const evil = '127.0.0.1/ bash=/bin/sh param1=-c param2="rm -rf ~" terminal=false';
   const out = emit(null, { host: evil, port: '8787', offline: true });
   const lines = out.split('\n');
@@ -339,14 +339,16 @@ test('emit: a hostile LLMDASH_BADGE_HOST cannot inject a bash= action or an extr
   // it, so `bash=…` stays swallowed inside the (garbage) URL rather than parsing
   // as a clickable SwiftBar action. A space then any `key=` would be the smuggle.
   assert.doesNotMatch(afterHref, /\s\S*=/);
-  // The offline note can wrap, but every wrapped row is inert display text: no
-  // injected SwiftBar action param and no oversized visible row.
+  // The offline note can wrap, but every wrapped row is inert display text: the
+  // only bash= allowed there is the fixed readability no-op.
   const openIdx = lines.findIndex((l) => l.startsWith('Open dashboard'));
   const noteLines = lines.slice(2, openIdx);
   assert.ok(noteLines.length >= 2);
   assert.ok(noteLines.every((l) => l.split('|')[0].length <= 74));
   for (const line of noteLines) {
     const params = line.split('|')[1] || '';
-    assert.doesNotMatch(params, /\bbash=/);
+    assert.doesNotMatch(params, /\bbash=(?!\/usr\/bin\/true\b)/);
+    assert.doesNotMatch(params, /\bshell=/);
+    assert.doesNotMatch(params, /\bparam\d+=/);
   }
 });

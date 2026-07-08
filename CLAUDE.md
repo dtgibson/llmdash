@@ -276,11 +276,13 @@
   offline = `⊘`; use `·` only as a separator (host/tool/scope), not as an aging
   signal. Dropdown text that carries normal information (top summaries, scope rows,
   host/tool headers, per-window detail rows, Display/Legend labels, and Legend
-  samples) uses explicit dark dropdown colors, separate from the darker menu-bar
-  glyph colors, so SwiftBar/xbar cannot render it as faint default gray. The
-  Legend must explain every visible mark the badge can emit (`▪`, `·`, `▸`, `◆`,
-  `▲`, `◷`, `⚠`, `—`, `⊘`, compact host cues, overflow, and menu/action marks)
-  while action rows stay explicitly constructed.
+  samples) uses explicit dark dropdown colors plus the fixed
+  `bash=/usr/bin/true terminal=false refresh=false` no-op so SwiftBar renders the
+  rows as enabled readable text instead of disabled gray. The no-op is allowed
+  only through the shared text-row helper; real action rows stay explicitly
+  constructed. The Legend must explain every visible mark the badge can emit
+  (`▪`, `·`, `▸`, `◆`, `▲`, `◷`, `⚠`, `—`, `⊘`, compact host cues, overflow,
+  and menu/action marks) while action rows stay explicitly constructed.
 - **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
   the honesty never depends on.** The optional tool logos are OFF by default; the
   neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a
