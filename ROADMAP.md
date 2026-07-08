@@ -8,25 +8,17 @@ product. Update it freely.
 
 ## Shipped
 
-11 features shipped.
+14 features shipped.
 
-- **Last shipped:** Badge display options — the menu-bar badge became
-  user-configurable from its own dropdown: group by host or by tool, show hosts
-  single / side-by-side / alternating, wide or compact, with neutral marks
-  (`◆` Claude / `▲` Codex, now the default cue) or opt-in logos, plus an on-demand
-  legend. A pure presentation layer over the existing `hostViews` (no data-model or
-  `/api` change) — a view filter that never changes what's monitored; prefs persist
-  as `!display-*` directives the badge writes locally (no HTTP mutation), and an
-  unconfigured badge is byte-for-byte the shipped one save the ratified cue swap.
-- **Previously:** Menu-bar service controls — the badge became a local
-  install-lifecycle surface: from the dropdown you can install or remove llmdash's
-  local monitoring service (reading the real launchd state) and uninstall llmdash
-  entirely — badge-only or completely, every artifact enumerated before it acts —
-  with no terminal, usage history preserved by default (rescued out of a co-located
-  checkout before deletion), and SwiftBar never removed. Local `launchctl`/`fs` ops
-  in the badge/helper process via the installer's hooks; the complete uninstall is a
-  confirmed, detached teardown that survives deleting its own checkout; the HTTP
-  surface stays read-only.
+- **Last shipped:** Dropdown legibility and aging symbols — the macOS badge dropdown
+  now uses darker, easier-to-read top summary and header rows, and aging readings
+  use the clearer `◷` marker while stale readings keep `⚠`; the change is
+  presentation-only, with `/api`, polling, persistence, and action rows unchanged.
+- **Previously:** Compact mode display honesty — the badge keeps compact mode
+  compact by emitting exactly one status-bar title line before the first separator,
+  with explanatory scope copy like "Watching 3 machines · 1 not reachable" kept in
+  the dropdown where it can wrap; display settings are documented as glyph-only,
+  while the dropdown remains the full per-host view.
 
 ---
 

@@ -1,5 +1,25 @@
 # Decisions — llmdash
 
+## Dropdown legibility and aging symbols — darker top rows, `◷` aging, `⚠` stale — 2026-07-08 (improve)
+**Decision:** The macOS SwiftBar/xbar badge now uses darker fixed colors for the
+dropdown's top summary, host/tool headers, scope/count rows, and Display/Legend
+section labels. Aging readings use the clock-like `◷` marker, while stale readings
+keep the stronger `⚠` warning marker; `·` remains only a separator between host,
+tool, scope, or reset copy.
+**Rationale:** The previous top dropdown text was too light to scan comfortably,
+and the trailing-dot aging marker was easy to miss and did not intuitively say
+"this reading is getting old." Separating separator punctuation from freshness
+state makes the glyph grammar clearer without changing any data path.
+**Implications:** This is presentation-only: monitoring, polling, persistence,
+display preferences, `/api/state`, `/api/hosts`, and action rows are unchanged.
+Future badge work should keep aging/stale/no-reading/offline markers visually
+distinct and should not reintroduce faint gray for high-priority dropdown text. QA
+PASSED: focused menu-bar suites and full `npm test` passed (467 passing, 0 failing,
+2 skipped), plus a forced installed aging render emitted `▪ ◆ 66% ◷`. Security
+PASSED: no new HTTP route, persistence, peer fetch, subprocess action, href/shell
+row, or SwiftBar action-param surface was added. Shipped as commit `053c961`;
+installed `~/llmdash` was fast-forwarded and the launchd service is running.
+
 ## Compact mode display honesty — one status-bar line, glyph-only settings copy, dropdown stays full — 2026-07-08 (improve)
 **Decision:** SwiftBar/xbar badge output now treats the first separator as the hard
 boundary between the status-bar glyph and dropdown detail: exactly one title line

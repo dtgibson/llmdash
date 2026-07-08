@@ -271,7 +271,12 @@
   width stays bounded and wrapped text cannot smuggle action params. SwiftBar/xbar
   status-bar output has exactly one title line before the first `---`; all
   explanatory, diagnostic, and scope copy belongs below that separator so compact
-  glyph settings cannot widen the menu bar.
+  glyph settings cannot widen the menu bar. The current five-state badge grammar
+  is: fresh = bare number, aging = `◷` clock marker, stale = `⚠`, no reading = `—`,
+  offline = `⊘`; use `·` only as a separator (host/tool/scope), not as an aging
+  signal. High-priority dropdown text (top summaries, host/tool headers, section
+  labels) uses darker fixed colors so it stays readable, while action rows stay
+  explicitly constructed.
 - **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
   the honesty never depends on.** The optional tool logos are OFF by default; the
   neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a
