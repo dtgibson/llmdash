@@ -263,6 +263,12 @@
   `growPrefixCues`) re-`sanitize()`s its input, so a future un-ingested caller
   can't silently reopen the SwiftBar-grammar injection class — defense in depth,
   symmetry across every cue path, not a substitute for ingest sanitization.
+  Long non-action explanatory/diagnostic copy is the same surface: sanitize it,
+  then bound it through a shared wrapping helper before it reaches SwiftBar/xbar,
+  including splitting one very long token so a bad host name cannot force a huge
+  menu. Keep action rows (`href=`, `shell=`, `bash=`, refresh, submenu controls)
+  explicitly constructed and separate from wrapped text; tests should prove row
+  width stays bounded and wrapped text cannot smuggle action params.
 - **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
   the honesty never depends on.** The optional tool logos are OFF by default; the
   neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a

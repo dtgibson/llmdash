@@ -1,5 +1,27 @@
 # Decisions — llmdash
 
+## Status bar popup legibility — bounded readable SwiftBar rows, action rows unchanged — 2026-07-08 (improve)
+**Decision:** Non-action menu-bar dropdown copy now flows through a shared
+`wrapMenuText` / `wrappedMenuLines` path before SwiftBar/xbar output. The wrapper
+sanitizes display text for the menu grammar, collapses whitespace, wraps by words,
+and splits a single overlong token so an unavailable server name cannot make the
+dropdown enormous. Primary dropdown labels use readable menu text sizes instead of
+tiny low-contrast gray. Action rows (`href=`, refresh, submenus, scripts) stay
+explicitly constructed and unwrapped.
+**Rationale:** The menu host has no native paragraph wrapping, so the practical
+control is to emit several bounded non-action rows. Keeping the wrapping helper
+limited to explanatory/diagnostic text preserves the existing command surface while
+making unavailable-server and stale/diagnostic states readable.
+**Implications:** Badge glyphs, display preferences, `/api/state`, `/api/hosts`,
+service controls, and dashboard behavior are unchanged. Security PASSED: no new
+HTTP route, persistence, peer fetch, subprocess action, or SwiftBar action-param
+surface was added; wrapped rows use only controlled visual params. QA PASSED:
+focused menu-bar suites and full `npm test` passed (463 passing, 0 failing, 2
+skipped), plus the installed SwiftBar wrapper was previewed with a long unavailable
+host and rendered bounded rows. Shipped as commit `f4e5f3f`; installed
+`~/llmdash` was fast-forwarded and the launchd service is running after a direct
+bootstrap retry.
+
 ## Badge display options — display as a pure presentation layer, `!display-*` directives, the ratified `◆`/`▲` default cue, per-tool aggregates, opt-in logos with a neutral floor — 2026-07-03 (feature)
 **Decision (display is a presentation layer over `computeMultiBadge`, not a data
 change):** The badge's five display axes (group × hosts × layout × density ×

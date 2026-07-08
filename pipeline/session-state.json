@@ -1,8 +1,8 @@
 {
   "activeFeature": "status-bar-popup-legibility",
   "sessionType": "maintain",
-  "currentStage": 5,
-  "lastCompletedStage": 4,
+  "currentStage": 6,
+  "lastCompletedStage": 5,
   "lastCheckpointStatus": "approved",
   "awaitingHuman": null,
   "confirmedArtifacts": [
@@ -13,8 +13,9 @@
     "pipeline/status-bar-popup-legibility/pr-description.md",
     "pipeline/status-bar-popup-legibility/how-to-see.md",
     "pipeline/status-bar-popup-legibility/qa-report.md",
-    "pipeline/status-bar-popup-legibility/security-report.md"
+    "pipeline/status-bar-popup-legibility/security-report.md",
+    "pipeline/status-bar-popup-legibility/deployment-report.md"
   ],
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T03:26:47Z"
+  "updatedAt": "2026-07-08T03:36:33Z"
 }
