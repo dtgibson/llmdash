@@ -1,8 +1,14 @@
 # Menu-bar badge tool-mark assets
 
-`claude-mark.png` and `codex-mark.png` are bundled monochrome 26x26 transparent
+`claude-mark.png` and `codex-mark.png` are bundled monochrome 16x16 transparent
 PNG template images for SwiftBar's `templateImage=` parameter. SwiftBar tints
 template images to the menu-bar foreground color.
+
+`claude-codex-mark.png` and `codex-claude-mark.png` are paired 34x16 template
+images built from the same two marks. They are used when SwiftBar's side-by-side
+tool mode needs both logos on one title line. SwiftBar provides one image slot
+per menu item line, so the pair is a single image that matches the text cell
+order.
 
 ## Sources
 
@@ -12,6 +18,8 @@ template images to the menu-bar foreground color.
   Commons. Codex is an OpenAI product, so llmdash uses the OpenAI blossom mark for
   Codex. The Commons page identifies OpenAI as the author and describes the symbol
   as public-domain textlogo material with a trademark notice.
+- `claude-codex-mark.png` and `codex-claude-mark.png` are local composites of the
+  two derived marks above.
 
 Source pages:
 

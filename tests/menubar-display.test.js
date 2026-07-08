@@ -7,7 +7,7 @@ import {
   computeMultiBadge, computeBadge, emit, emitMulti,
   applyDisplay, emitDisplay, displayFromConfig, isDefaultDisplay,
   displayActionLines, legendLines, DISPLAY_PRESETS, SIDE_BY_SIDE_CAP, ROTATE_MS,
-  toolAggregates, growPrefixCues, compactCell, logoBase64, _resetLogoCache, isSwiftBar,
+  toolAggregates, growPrefixCues, compactCell, logoBase64, logoBase64ForCells, _resetLogoCache, isSwiftBar,
   remotesFromCombined, TOOL_MARK,
 } from '../scripts/menubar/llmdash.5s.js';
 
@@ -39,6 +39,13 @@ function host(label, { self = false, tools = null, reachable = true, hostDiagnos
 }
 function combined(hosts) { return { hosts, generatedAt: iso(0) }; }
 const glyphOf = (out) => out.split('\n')[0];
+function templateImageBuffer(line) {
+  const m = line.match(/templateImage=([A-Za-z0-9+/=]+)/);
+  return m ? Buffer.from(m[1], 'base64') : null;
+}
+function pngDims(buf) {
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
 function preSeparatorLines(out) {
   const lines = out.split('\n');
   const i = lines.indexOf('---');
@@ -316,6 +323,20 @@ test('toolMark=logo: the neutral glyph is STILL emitted (floor) AND a templateIm
   const sb = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: { SWIFTBAR: '1' } }));
   assert.match(sb, /◆/);                  // neutral floor still present
   assert.match(sb, /templateImage=[A-Za-z0-9+/=]+/); // the image layered
+  assert.deepEqual(pngDims(templateImageBuffer(sb)), { width: 16, height: 16 });
+});
+
+test('toolMark=logo: tool side-by-side gets a paired SwiftBar image plus the ◆/▲ floor', () => {
+  _resetLogoCache();
+  const c = fleet();
+  const multi = computeMultiBadge(c);
+  const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact', toolMark: 'logo' }, { epochMs: 0 });
+  const sb = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: { SWIFTBAR: '1' } }));
+  assert.match(sb, /◆12/);
+  assert.match(sb, /▲61/);
+  assert.match(sb, /templateImage=[A-Za-z0-9+/=]+/);
+  assert.equal(templateImageBuffer(sb).toString('base64'), logoBase64ForCells(view.cells));
+  assert.deepEqual(pngDims(templateImageBuffer(sb)), { width: 34, height: 16 });
 });
 
 test('xbar / no-SwiftBar: toolMark=logo emits ◆/▲ ALONE — no templateImage (floor stands alone)', () => {
@@ -520,15 +541,24 @@ test('isSwiftBar detects the SwiftBar plugin env; xbar/no-env is false', () => {
 test('the tracked tool-mark PNG assets exist and are real PNGs', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const assets = path.join(here, '..', 'scripts', 'menubar', 'assets');
-  for (const f of ['claude-mark.png', 'codex-mark.png']) {
+  for (const [f, expected] of [
+    ['claude-mark.png', { width: 16, height: 16 }],
+    ['codex-mark.png', { width: 16, height: 16 }],
+    ['claude-codex-mark.png', { width: 34, height: 16 }],
+    ['codex-claude-mark.png', { width: 34, height: 16 }],
+  ]) {
     const b = fs.readFileSync(path.join(assets, f));
     assert.ok(b.slice(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), `${f} is a PNG`);
+    assert.deepEqual(pngDims(b), expected, `${f} dimensions`);
     assert.ok(b.length < 4096, `${f} is small (${b.length} bytes)`);
   }
   // A LICENSE/attribution note travels with them.
   const license = fs.readFileSync(path.join(assets, 'LICENSE.md'), 'utf8');
   assert.match(license, /Claude AI symbol\.svg/);
   assert.match(license, /OpenAI logo 2025 \(symbol\)\.svg/);
+  assert.match(license, /claude-codex-mark\.png/);
+  assert.match(license, /codex-claude-mark\.png/);
+  assert.match(license, /one image slot/);
   assert.match(license, /Codex is an OpenAI product/);
   assert.match(license, /trademark/i);
   assert.doesNotMatch(license, /placeholder/i);

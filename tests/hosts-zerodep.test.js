@@ -54,7 +54,7 @@ test('the fan-out uses node:http (not an npm http client)', () => {
 // build step is introduced by shipping them.
 test('the tracked tool-mark PNGs are source (not a dependency), read via node:fs, no build step', () => {
   const assets = path.join(root, 'scripts', 'menubar', 'assets');
-  for (const a of ['claude-mark.png', 'codex-mark.png']) {
+  for (const a of ['claude-mark.png', 'codex-mark.png', 'claude-codex-mark.png', 'codex-claude-mark.png']) {
     const fp = path.join(assets, a);
     assert.ok(fs.existsSync(fp), `${a} is tracked source`);
     const b = fs.readFileSync(fp);

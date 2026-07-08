@@ -1139,17 +1139,23 @@ function wideCell({ state, pct, cue = '', mark = '' }) {
 }
 
 // ── The logo template-image (opt-in, SwiftBar-only, neutral floor always) ──────
-// When toolMark=logo AND the host is SwiftBar, layer a base64 template image over
-// the neutral ◆/▲ floor. Codex uses the OpenAI blossom mark. Read + encode ONLY
-// when opted in (no cost on the default path), cached per process (the plugin
-// re-spawns each tick). Resolve the asset from THIS file's own location via
-// import.meta.url (ESM de-symlinks it → works under the wrapper/symlink, the
-// shipped run-guard lesson). If the asset is missing/unreadable → return null
-// (the ◆/▲ floor already covers it, honest).
+// SwiftBar exposes one image slot per menu item line (`templateImage=`), not
+// arbitrary inline images. Single tool cells use the matching 16x16 mark; a
+// two-cell tool side-by-side title uses one paired 34x16 mark in the same order
+// as the text cells. The neutral ◆/▲ floor is always emitted too, so xbar, or a
+// failed image, still names every tool. Read + encode ONLY when opted in (no cost
+// on the default path), cached per process (the plugin re-spawns each tick).
+// Resolve assets from THIS file via import.meta.url (ESM de-symlinks it → works
+// under the wrapper/symlink). If an asset is missing/unreadable → return null.
 const LOGO_ASSET = { 'claude-code': 'claude-mark.png', claude: 'claude-mark.png', codex: 'codex-mark.png' };
-const _logoCache = new Map(); // source → base64 | null (per-process)
-export function logoBase64(source, { read = _readFileSync } = {}) {
-  const name = LOGO_ASSET[source] || LOGO_ASSET.claude;
+const LOGO_PAIR_ASSET = {
+  'claude-code|codex': 'claude-codex-mark.png',
+  'codex|claude-code': 'codex-claude-mark.png',
+};
+const MARK_TO_LOGO_SOURCE = { [TOOL_MARK.claude]: 'claude-code', [TOOL_MARK.codex]: 'codex' };
+const _logoCache = new Map(); // asset filename → base64 | null (per-process)
+function logoAssetBase64(name, { read = _readFileSync } = {}) {
+  if (!name) return null;
   if (_logoCache.has(name)) return _logoCache.get(name);
   let b64 = null;
   try {
@@ -1158,6 +1164,17 @@ export function logoBase64(source, { read = _readFileSync } = {}) {
   } catch { b64 = null; }
   _logoCache.set(name, b64);
   return b64;
+}
+export function logoBase64(source, options = {}) {
+  return logoAssetBase64(LOGO_ASSET[source] || LOGO_ASSET.claude, options);
+}
+export function logoBase64ForCells(cells, options = {}) {
+  const sources = (Array.isArray(cells) ? cells : [])
+    .map((c) => MARK_TO_LOGO_SOURCE[c && c.mark])
+    .filter(Boolean);
+  if (sources.length === 1) return logoBase64(sources[0], options);
+  if (sources.length === 2) return logoAssetBase64(LOGO_PAIR_ASSET[sources.join('|')], options);
+  return null;
 }
 export function _resetLogoCache() { _logoCache.clear(); }
 
@@ -1178,15 +1195,11 @@ export function emitDisplay(view, multi, { host = HOST, port = PORT, remotes = [
   if (view.more > 0) parts.push(`+${view.more}`);
   const glyphText = parts.join(' ');
   let title = `${MARK} ${glyphText} | color=${view.color}`;
-  // Opt-in logo template image (SwiftBar-only, additive over the ◆/▲ floor). Only
-  // read the asset when opted in; only for a single-cell glyph carrying one tool
-  // mark (the image occupies the tool-cue slot). The neutral glyph text stays as
-  // the floor (xbar / a failed image still names the tool). Read the asset ONLY
-  // here — no read on the default/neutral path.
-  if (view.toolMark === 'logo' && isSwiftBar(env) && view.group === 'tool' && view.cells.length === 1) {
-    const markToSource = { [TOOL_MARK.claude]: 'claude-code', [TOOL_MARK.codex]: 'codex' };
-    const source = markToSource[view.cells[0].mark];
-    const b64 = source ? logoBase64(source) : null;
+  // Opt-in logo template image (SwiftBar-only, additive over the ◆/▲ floor). Read
+  // assets ONLY here and ONLY when opted in; single-cell tool glyphs get one mark,
+  // two-cell tool glyphs get the paired mark matching the cell order.
+  if (view.toolMark === 'logo' && isSwiftBar(env) && view.group === 'tool') {
+    const b64 = logoBase64ForCells(view.cells);
     if (b64) title += ` templateImage=${b64}`;
   }
   return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState, view.display)].join('\n');
@@ -1318,7 +1331,7 @@ export function legendLines() {
     '-----',
     submenuLine('Tool', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('◆ — Claude Code.', { color: COLOR_DROPDOWN_TEXT }),
-    submenuLine('▲ — Codex. Logos, if enabled, mean the same thing.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('▲ — Codex. Logos use Claude/OpenAI marks; side-by-side uses a paired mark.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
     submenuLine('Multi-host', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('St12 — host cue plus % in compact side-by-side mode.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),

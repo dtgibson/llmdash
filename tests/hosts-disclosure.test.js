@@ -173,7 +173,9 @@ test('README documents the display axes, per-tool aggregate, tool marks, Legend,
   assert.match(readme, /fair.use|neutral floor|nominative/i);
   assert.match(readme, /Claude symbol/);
   assert.match(readme, /OpenAI\s+blossom mark/);
-  assert.match(readme, /never fetches logo art/i);
+  assert.match(readme, /paired 34x16 image/);
+  assert.match(readme, /one image slot per title line/);
+  assert.match(readme, /never\s+fetches logo art/i);
   // The Legend.
   assert.match(readme, /Legend/);
   // The serve-only / local-write posture.

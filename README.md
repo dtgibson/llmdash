@@ -323,7 +323,9 @@ point, then fine-tune any axis underneath:
   prefix (`St12 La◷88`). Density does not shorten the dropdown; it only controls the
   status-bar glyph.
 - **Tool marks** — **Neutral** (the default `◆` / `▲` glyphs) or **Logos** (opt-in
-  product marks, SwiftBar only). See the fair-use note below.
+  product marks, SwiftBar only). Side-by-side logo mode uses one paired image
+  because SwiftBar gives each title line one image slot. See the fair-use note
+  below.
 
 A **🛈 Legend — what the marks mean** submenu (also in both modes) spells out every
 symbol the badge can show — the `▪` llmdash mark, separators, binding-host marker,
@@ -345,16 +347,20 @@ dashboard stays serve-only (405 for non-GET/HEAD), exactly like the host-list ed
 The glyph and the submenu's `✓` marks update on the **next render** — no restart.
 
 **Tool logos (opt-in, off by default) — the fair-use posture.** Turning on
-**Tool marks → Logos** layers a small monochrome template image in the tool-cue slot,
-**SwiftBar only**. The neutral `◆` / `▲` glyph is **always the floor**: on xbar, or if
-the image can't render, the badge still names the tool — a logo is never the sole
-carrier of a reading. The repo bundles small local template-image marks under
-`scripts/menubar/assets/`: Claude uses the Claude symbol, and Codex uses the OpenAI
-blossom mark because Codex is an OpenAI product. The LICENSE note in that directory
-records the source pages and trademark posture. The intended posture is **nominative
-fair use** — small, monochrome, opt-in, no endorsement implied, with the neutral glyph
-as the guaranteed alternative. The badge never fetches logo art at first use; images
-are local files read only when Logos is selected.
+**Tool marks → Logos** layers a small monochrome template image in the tool-cue
+slot, **SwiftBar only**. Single-tool glyphs use 16x16 local template images.
+Side-by-side Claude/Codex glyphs use one paired 34x16 image in the same order as
+the text cells, because SwiftBar exposes one image slot per title line rather
+than arbitrary inline images. The neutral `◆` / `▲` glyph is **always the floor**:
+on xbar, or if the image can't render, the badge still names the tool — a logo is
+never the sole carrier of a reading. The repo bundles small local template-image
+marks under `scripts/menubar/assets/`: Claude uses the Claude symbol, and Codex
+uses the OpenAI blossom mark because Codex is an OpenAI product. The LICENSE note
+in that directory records the source pages and trademark posture. The intended
+posture is **nominative fair use** — small, monochrome, opt-in, no endorsement
+implied, with the neutral glyph as the guaranteed alternative. The badge never
+fetches logo art at first use; images are local files read only when Logos is
+selected.
 
 ### Service controls & uninstall (from the badge)
 
