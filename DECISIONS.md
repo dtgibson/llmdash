@@ -1,5 +1,29 @@
 # Decisions — llmdash
 
+## Menu-bar dropdown legibility and complete legend — explicit dark dropdown palette, every mark explained — 2026-07-08 (improve)
+**Decision:** The macOS SwiftBar/xbar badge now uses an explicit dark dropdown
+palette for normal informational rows (`#111111`, `#1f1f1f`, `#333333`) and
+separate darker dropdown-specific state colors for warnings, aging, no-reading,
+and offline legend samples. The Legend now explains every visible badge/menu mark:
+the `▪` llmdash mark, separators, `▸ binding`, tool marks, freshness markers,
+no-reading/offline markers, compact host cues, overflow, active choices, host
+actions, Display, Legend, uninstall, and badge-only removal marks.
+**Rationale:** The prior pass darkened some top rows but left common detail rows
+and legend samples dependent on faint SwiftBar defaults or menu-bar colors that
+were too light on the dropdown background. The square `▪` mark and several menu
+symbols were visible in the product but not explained, making the badge grammar
+feel arbitrary.
+**Implications:** Future menu-bar work should treat dropdown readability as its
+own palette rather than reusing dark-strip glyph colors, and any new visible mark
+must be added to the Legend in the same change. This remains presentation-only:
+no API, polling, persistence, display-pref, service-control, or action-row target
+changed. QA PASSED: focused menu-bar suites and full `npm test` passed (467
+passing, 0 failing, 2 skipped), with installed output showing the darker rows and
+complete legend. Security PASSED: no new HTTP route, persistence, peer fetch,
+subprocess, `href=`, `shell=`, `bash=`, osascript, or SwiftBar action-param
+surface was added. Shipped as commit `8353709`; installed `~/llmdash` was
+fast-forwarded, llmdash restarted, and SwiftBar relaunched.
+
 ## Dropdown legibility and aging symbols — darker top rows, `◷` aging, `⚠` stale — 2026-07-08 (improve)
 **Decision:** The macOS SwiftBar/xbar badge now uses darker fixed colors for the
 dropdown's top summary, host/tool headers, scope/count rows, and Display/Legend

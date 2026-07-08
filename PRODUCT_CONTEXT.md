@@ -33,9 +33,11 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   dashboard. It is a pure consumer of the local instance's data (no second data
   path, no recomputed limits), honest about freshness and offline state (five
   honesty states mirroring the dashboard, with `◷` for aging and `⚠` for stale),
-  and names the binding tool (◆ Claude / ▲ Codex). Its dropdown keeps top summary
-  text and offline/diagnostic copy readable as high-contrast, bounded rows instead
-  of one wide or faint line. It can also watch **several tailnet machines at
+  and names the binding tool (◆ Claude / ▲ Codex). Its dropdown keeps summary,
+  detail, diagnostics, Display controls, and Legend copy readable as explicit
+  high-contrast rows instead of faint default-gray menu text, and the Legend
+  explains every visible badge/menu mark, including the `▪` llmdash mark. It can
+  also watch **several tailnet machines at
   once**: hosts are added and removed live from its dropdown (a native dialog
   editing a local `hosts.conf`), the glyph names the tightest machine (`▪ <host>·◆ <pct>`),
   an unreachable machine is named, and a monitoring-station Mac's empty local

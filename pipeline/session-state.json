@@ -2,11 +2,12 @@
   "activeFeature": "menubar-dropdown-legibility-legend",
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": 5,
-  "lastCompletedStage": 4,
+  "currentStage": 6,
+  "lastCompletedStage": 5,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/menubar-dropdown-legibility-legend/change-brief.md",
+    "pipeline/menubar-dropdown-legibility-legend/deployment-report.md",
     "pipeline/menubar-dropdown-legibility-legend/pr-description.md",
     "pipeline/menubar-dropdown-legibility-legend/qa-report.md",
     "pipeline/menubar-dropdown-legibility-legend/security-report.md"
@@ -14,5 +15,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T17:46:41Z"
+  "updatedAt": "2026-07-08T18:06:24Z"
 }

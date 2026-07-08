@@ -274,9 +274,13 @@
   glyph settings cannot widen the menu bar. The current five-state badge grammar
   is: fresh = bare number, aging = `◷` clock marker, stale = `⚠`, no reading = `—`,
   offline = `⊘`; use `·` only as a separator (host/tool/scope), not as an aging
-  signal. High-priority dropdown text (top summaries, host/tool headers, section
-  labels) uses darker fixed colors so it stays readable, while action rows stay
-  explicitly constructed.
+  signal. Dropdown text that carries normal information (top summaries, scope rows,
+  host/tool headers, per-window detail rows, Display/Legend labels, and Legend
+  samples) uses explicit dark dropdown colors, separate from the darker menu-bar
+  glyph colors, so SwiftBar/xbar cannot render it as faint default gray. The
+  Legend must explain every visible mark the badge can emit (`▪`, `·`, `▸`, `◆`,
+  `▲`, `◷`, `⚠`, `—`, `⊘`, compact host cues, overflow, and menu/action marks)
+  while action rows stay explicitly constructed.
 - **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
   the honesty never depends on.** The optional tool logos are OFF by default; the
   neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a

@@ -8,17 +8,16 @@ product. Update it freely.
 
 ## Shipped
 
-14 features shipped.
+15 features shipped.
 
-- **Last shipped:** Dropdown legibility and aging symbols — the macOS badge dropdown
-  now uses darker, easier-to-read top summary and header rows, and aging readings
-  use the clearer `◷` marker while stale readings keep `⚠`; the change is
+- **Last shipped:** Menu-bar dropdown legibility and complete legend — the macOS
+  badge dropdown now uses explicit dark readable colors for normal rows and a
+  complete Legend that explains every visible badge/menu mark, including the `▪`
+  llmdash mark.
+- **Previously:** Dropdown legibility and aging symbols — the macOS badge dropdown
+  started using darker top summary/header rows, and aging readings switched to the
+  clearer `◷` marker while stale readings kept `⚠`; the change was
   presentation-only, with `/api`, polling, persistence, and action rows unchanged.
-- **Previously:** Compact mode display honesty — the badge keeps compact mode
-  compact by emitting exactly one status-bar title line before the first separator,
-  with explanatory scope copy like "Watching 3 machines · 1 not reachable" kept in
-  the dropdown where it can wrap; display settings are documented as glyph-only,
-  while the dropdown remains the full per-host view.
 
 ---
 
