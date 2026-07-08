@@ -268,7 +268,10 @@
   including splitting one very long token so a bad host name cannot force a huge
   menu. Keep action rows (`href=`, `shell=`, `bash=`, refresh, submenu controls)
   explicitly constructed and separate from wrapped text; tests should prove row
-  width stays bounded and wrapped text cannot smuggle action params.
+  width stays bounded and wrapped text cannot smuggle action params. SwiftBar/xbar
+  status-bar output has exactly one title line before the first `---`; all
+  explanatory, diagnostic, and scope copy belongs below that separator so compact
+  glyph settings cannot widen the menu bar.
 - **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
   the honesty never depends on.** The optional tool logos are OFF by default; the
   neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a

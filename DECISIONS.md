@@ -1,5 +1,26 @@
 # Decisions — llmdash
 
+## Compact mode display honesty — one status-bar line, glyph-only settings copy, dropdown stays full — 2026-07-08 (improve)
+**Decision:** SwiftBar/xbar badge output now treats the first separator as the hard
+boundary between the status-bar glyph and dropdown detail: exactly one title line
+appears before the first `---`, and explanatory/scope copy such as "Watching 3
+machines · 1 not reachable" appears only below it. Display settings are described
+as glyph settings: layout controls which glyph units appear, density controls how
+terse each glyph cell is, and the dropdown remains the complete per-host view.
+**Rationale:** Compact mode was visually dishonest when non-glyph summary text
+leaked into the title area and widened the menu bar. Keeping scope and diagnostic
+copy below the separator preserves readable dropdown detail while making the
+status-bar area obey the chosen display setting.
+**Implications:** Monitoring, polling, persistence, `/api/state`, and `/api/hosts`
+are unchanged; this is presentation-only. Future badge work should preserve the
+one-title-line separator contract and state clearly when a display option affects
+only the glyph. QA PASSED: full `npm test` passed (467 passing, 0 failing, 2
+skipped), focused menu-bar separator tests passed, and the installed SwiftBar
+wrapper plus a forced compact/offline render were previewed. Security PASSED:
+existing action rows remain explicitly constructed and unchanged. Shipped as
+commit `1ee31db`; installed `~/llmdash` was fast-forwarded and the launchd service
+is running after a direct bootstrap retry.
+
 ## Status bar popup legibility — bounded readable SwiftBar rows, action rows unchanged — 2026-07-08 (improve)
 **Decision:** Non-action menu-bar dropdown copy now flows through a shared
 `wrapMenuText` / `wrappedMenuLines` path before SwiftBar/xbar output. The wrapper

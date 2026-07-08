@@ -2,11 +2,12 @@
   "activeFeature": "compact-mode-display-honesty",
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": 5,
-  "lastCompletedStage": 4,
+  "currentStage": 6,
+  "lastCompletedStage": 5,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/compact-mode-display-honesty/change-brief.md",
+    "pipeline/compact-mode-display-honesty/deployment-report.md",
     "pipeline/compact-mode-display-honesty/pr-description.md",
     "pipeline/compact-mode-display-honesty/qa-report.md",
     "pipeline/compact-mode-display-honesty/security-report.md"
@@ -14,5 +15,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T04:10:07Z"
+  "updatedAt": "2026-07-08T04:23:51Z"
 }

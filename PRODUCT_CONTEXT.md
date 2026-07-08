@@ -42,10 +42,12 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   stay loudest. It is **configurable from its own 🖥 Display submenu** — group by
   host or by tool (per-tool aggregates across the chosen machines), show hosts
   single / side-by-side / alternating, wide or compact, with the neutral tool marks
-  or opt-in logos, plus a 🛈 Legend explaining every mark on demand; this is a view
-  filter only (it changes what the glyph shows, never what's monitored). Unset (the
-  default) is exactly today's single-host badge, which also offers "＋ Add host…" so
-  the first machine is addable from the menu bar.
+  or opt-in logos, plus a 🛈 Legend explaining every mark on demand; display
+  settings are a glyph-only view filter (layout and density change only the
+  status-bar glyph, including compact tight cells; the dropdown remains the full
+  per-host detail view and monitoring coverage never changes). Unset (the default)
+  is exactly today's single-host badge, which also offers "＋ Add host…" so the
+  first machine is addable from the menu bar.
 - **Menu-bar install-lifecycle controls** — from the badge dropdown you can install
   or remove llmdash's local monitoring service on this Mac (turning a machine into a
   full local monitor or a badge-only monitoring station) and uninstall llmdash
