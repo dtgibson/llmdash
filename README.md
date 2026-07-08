@@ -243,7 +243,7 @@ carries the full name). One glance says **which machine, which tool, how much**.
 The badge mirrors the dashboard's honesty — it never shows a confident number
 that's secretly old, and it never fabricates one:
 - **fresh** — a plain, confident number (`▪ ◆ 46%`, or `▪ Desktop·◆ 12%`).
-- **aging** — the number kept, with a trailing `·` and a slight dim.
+- **aging** — the number kept, with a trailing `◷` clock marker and a slight dim.
 - **stale** — the number tinted amber with a trailing `⚠` (still names the machine).
 - **no reading yet** — `▪ —` (a dash, never a number); the dropdown says why per host.
 - **offline** — `▪ llmdash ⚠` when your **local** dashboard isn't reachable —
@@ -326,9 +326,10 @@ point, then fine-tune any axis underneath:
   product marks, SwiftBar only). See the fair-use note below.
 
 A **🛈 Legend — what the marks mean** submenu (also in both modes) spells out every
-symbol the badge can show — the five freshness states, the three colors and their
-thresholds, what the number is, both tool marks, the side-by-side cue and `+M`, and
-the `✓` active marker — one scannable line each.
+symbol the badge can show — the `▪` llmdash mark, separators, binding-host marker,
+five freshness states, the three colors and their thresholds, what the number is,
+both tool marks, side-by-side host cues and `+M`, plus menu/action marks like `✓`,
+`＋`, `－`, `☰`, `🖥`, `🛈`, `⊘`, and `▬` — one scannable line each.
 
 **With nothing configured, the badge is byte-for-byte today's glyph** — every host,
 single, wide, grouped by host — save the one ratified change: the default tool cue is

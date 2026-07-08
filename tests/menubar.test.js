@@ -229,14 +229,14 @@ test('emit stale: number present, amber, trailing ⚠; diagnostics block present
   const title = titleLine(out);
   assert.match(title, /^▪ ◆ 66% ⚠ \| color=#f0a94b$/);
   assert.match(out, /^Claude Code {2}\(stale\) \|/m);
-  assert.match(out, /^Stale reading — .* \| size=13 color=#f0a94b$/m);
-  assert.match(out, /^  session to refresh\. \| size=13 color=#f0a94b$/m);
+  assert.match(out, /^Stale reading — .* \| size=13 color=#8a5a00$/m);
+  assert.match(out, /^  session to refresh\. \| size=13 color=#8a5a00$/m);
 });
 
 test('emit maxed: a maxed window reads "limit reached", never 0%; null → "not available"', () => {
   const out = emit(computeBadge(loadFixture('state-maxed')));
-  assert.match(out, /^5-hour: {2}limit reached · resets .+ \| font=Menlo$/m);
-  assert.match(out, /^Weekly: {2}not available \| font=Menlo$/m);
+  assert.match(out, /^5-hour: {2}limit reached · resets .+ \| font=Menlo color=#111111$/m);
+  assert.match(out, /^Weekly: {2}not available \| font=Menlo color=#111111$/m);
   // The glyph is a valid 0% binding.
   assert.match(titleLine(out), /^▪ ◆ 0% \| /);
 });

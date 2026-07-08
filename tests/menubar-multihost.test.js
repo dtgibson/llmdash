@@ -61,11 +61,11 @@ test('single host ⇒ mode "single"; the glyph + tool rows stay compatible (QA-1
   // The GLYPH is byte-for-byte the shipped single-host glyph (no host cue).
   assert.match(lines[0], /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
   assert.doesNotMatch(lines[0], /·[◆▲]/);
-  // The per-tool ROWS are the shipped rows, unchanged; headers are larger and
-  // use a darker explicit menu text color for legibility.
-  assert.match(out, /^Claude Code \| size=14 color=#333333$/m);
-  assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo$/m);
-  assert.match(out, /^Codex \| size=14 color=#333333$/m);
+  // The per-tool ROWS stay the same content, now with explicit dark dropdown
+  // colors so SwiftBar does not render them as faint gray.
+  assert.match(out, /^Claude Code \| size=14 color=#1f1f1f$/m);
+  assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo color=#111111$/m);
+  assert.match(out, /^Codex \| size=14 color=#1f1f1f$/m);
 });
 
 test('single-host mode still offers ＋ Add host… so the first machine is addable from the menu bar (FR-14)', () => {
@@ -77,7 +77,7 @@ test('single-host mode still offers ＋ Add host… so the first machine is adda
   // No Remove submenu in single mode (nothing to remove); the count is honest.
   assert.doesNotMatch(out, /Remove host…/);
   assert.doesNotMatch(out, /Stop watching/);
-  assert.match(out, /^☰ Watching: 0 other machines \| color=#555555$/m);
+  assert.match(out, /^☰ Watching: 0 other machines \| color=#333333$/m);
   // Open dashboard / Refresh still present, unchanged.
   assert.match(out, /^Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\/$/m);
   assert.match(out, /^Refresh \| refresh=true$/m);

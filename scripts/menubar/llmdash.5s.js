@@ -392,13 +392,24 @@ const COLOR_AGING = '#a0a0a0';
 const COLOR_STALE = '#f0a94b';
 const COLOR_MUTED = '#9b9ea6';
 const COLOR_OFFLINE = '#8b8b8b';
-const COLOR_DROPDOWN_TEXT = '#222222';
-const COLOR_DROPDOWN_HEADER = '#333333';
-const COLOR_DROPDOWN_SUBTLE = '#555555';
+const COLOR_DROPDOWN_TEXT = '#111111';
+const COLOR_DROPDOWN_HEADER = '#1f1f1f';
+const COLOR_DROPDOWN_SUBTLE = '#333333';
+const COLOR_DROPDOWN_DEEMPH = '#4a4a4a';
+const DROPDOWN_STATE_COLOR = {
+  good: '#17783c',
+  warn: '#8a5a00',
+  crit: '#b3261e',
+  aging: '#4a4a4a',
+  stale: '#8a5a00',
+  muted: '#3f4754',
+  offline: '#444444',
+};
 const DROPDOWN_WRAP_CHARS = 72;
 const DROPDOWN_HEADER_SIZE = 14;
 const DROPDOWN_BODY_SIZE = 13;
 const DROPDOWN_NOTE_SIZE = 12;
+const DROPDOWN_SECTION_SIZE = 12;
 
 function menuParams({ size = null, color = null, font = null } = {}) {
   const parts = [];
@@ -411,6 +422,10 @@ function menuParams({ size = null, color = null, font = null } = {}) {
 function menuLine(text, opts = {}) {
   const params = menuParams(opts);
   return params ? `${sanitize(text)} | ${params}` : sanitize(text);
+}
+
+function submenuLine(text, opts = {}) {
+  return `--${menuLine(text, opts)}`;
 }
 
 export function wrapMenuText(text, max = DROPDOWN_WRAP_CHARS) {
@@ -484,9 +499,9 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
         const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
         text = `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
       }
-      lines.push(`${text} | font=Menlo`);
+      lines.push(menuLine(text, { font: 'Menlo', color: COLOR_DROPDOWN_TEXT }));
     }
-    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_BODY_SIZE, color: COLOR_STALE }));
+    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_BODY_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
   }
 
   if (diagBlock.length) {
@@ -512,7 +527,7 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
 function offlineLines(host, port) {
   return [
     '---',
-    ...wrappedMenuLines(`Dashboard offline — no server on ${sanitizeHostPort(host)}:${sanitizeHostPort(port)}`, { size: DROPDOWN_BODY_SIZE }),
+    ...wrappedMenuLines(`Dashboard offline — no server on ${sanitizeHostPort(host)}:${sanitizeHostPort(port)}`, { size: DROPDOWN_BODY_SIZE, color: COLOR_DROPDOWN_TEXT }),
     `Open dashboard | href=${baseUrl(host, port)}`,
     'Refresh | refresh=true',
   ];
@@ -623,13 +638,13 @@ function hostSectionLines(view, { isBinding = false } = {}) {
 
   if (view.diagLine) {
     // Offline / error / pending host: the named line, never a fabricated zero.
-    lines.push(...wrappedMenuLines(view.diagLine, { size: DROPDOWN_BODY_SIZE, color: COLOR_STALE }));
+    lines.push(...wrappedMenuLines(view.diagLine, { size: DROPDOWN_BODY_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
     return lines;
   }
 
   if (!view.badge) {
     // No state and no diagnostic (shouldn't happen post-normalize) — honest dash.
-    lines.push(menuLine('no reading', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
+    lines.push(menuLine('no reading', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH }));
     return lines;
   }
 
@@ -650,9 +665,9 @@ function hostSectionLines(view, { isBinding = false } = {}) {
         const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
         text = `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
       }
-      lines.push(`${text} | font=Menlo`);
+      lines.push(menuLine(text, { font: 'Menlo', color: COLOR_DROPDOWN_TEXT }));
     }
-    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_NOTE_SIZE, color: COLOR_STALE }));
+    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_NOTE_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
   }
   for (const dl of diagBlock) lines.push(dl);
   return lines;
@@ -1215,23 +1230,23 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
     toolMark: display.toolMark || 'neutral',
   };
   const act = (verb, value) => `shell="${ABS_NODE}" param1="${DISPLAY_ACTION}" param2=${verb} param3="${value}" terminal=false refresh=true`;
-  const lines = ['---', '🖥 Display'];
+  const lines = ['---', menuLine('🖥 Display', { color: COLOR_DROPDOWN_HEADER })];
   // Presets (the friendly front).
-  lines.push(`--Presets | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(submenuLine('Presets', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const p of DISPLAY_PRESETS) {
     const on = presetActive(p, d);
     lines.push(`--${activeMark(on)}${sanitize(p.label)} | ${act('preset', p.id)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Group by (radio).
-  lines.push(`--Group by | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(submenuLine('Group by', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const [val, lbl] of [['host', 'Host (machine)'], ['tool', 'Tool (◆ Claude / ▲ Codex)']]) {
     const on = d.group === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('group', val)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Hosts (multi-select toggle). "All hosts" sentinel clears to all.
-  lines.push(`--Hosts | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(submenuLine('Hosts', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   const allOn = d.hosts === 'all';
   lines.push(`--${activeMark(allOn)}All hosts | ${act('hosts', 'all')}${activeFont(allOn)}`);
   const selected = Array.isArray(d.hosts) ? new Set(d.hosts) : new Set();
@@ -1243,21 +1258,21 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
   lines.push('-----');
   // Layout (radio). This controls the menu-bar glyph only; the dropdown remains
   // the full per-host picture.
-  lines.push(`--Glyph layout | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(submenuLine('Glyph layout', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const [val, lbl] of [['single', 'Single (tightest only)'], ['side-by-side', 'Side-by-side (up to 3)'], ['alternating', 'Alternating (one at a time)']]) {
     const on = d.layout === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('layout', val)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Density (radio). Density changes the glyph cell, not the dropdown detail.
-  lines.push(`--Glyph density | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(submenuLine('Glyph density', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const [val, lbl] of [['wide', 'Wide (text glyph)'], ['compact', 'Compact (tight glyph)']]) {
     const on = d.density === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('density', val)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Tool marks (radio) — neutral floor · logos opt-in.
-  lines.push(`--Tool marks | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
+  lines.push(submenuLine('Tool marks', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const [val, lbl] of [['neutral', 'Neutral (◆ / ▲)'], ['logo', 'Logos']]) {
     const on = d.toolMark === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('tool-mark', val)}${activeFont(on)}`);
@@ -1275,32 +1290,44 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
 export function legendLines() {
   return [
     '---',
-    '🛈 Legend — what the marks mean',
-    `--Freshness | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
-    `--46 — Live: a fresh reading. | color=${BAR_COLOR.good} font=Menlo`,
-    `--◷46 — Aging: reading is getting old. | color=${COLOR_AGING} font=Menlo`,
-    `--⚠12 — Stale: too old to trust; may have moved. | color=${COLOR_STALE} font=Menlo`,
-    `--— — No reading: no data yet (never a fake number). | color=${COLOR_MUTED} font=Menlo`,
-    `--⊘ — Offline: host unreachable (never a number). | color=${COLOR_OFFLINE} font=Menlo`,
+    menuLine('🛈 Legend — what the marks mean', { color: COLOR_DROPDOWN_HEADER }),
+    submenuLine('Badge', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('▪ — llmdash mark; every status-bar glyph starts here.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
+    submenuLine('· — separator between host, tool, and scope words.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
+    submenuLine('▸ binding — this host is driving the status-bar glyph.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
-    `--Color | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
-    `--good — 50%+ remaining — plenty of room. | color=${BAR_COLOR.good}`,
-    `--warn — 20–49% — getting tight. | color=${BAR_COLOR.warn}`,
-    `--crit — under 20% — nearly out. | color=${BAR_COLOR.crit}`,
+    submenuLine('Freshness', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('46 — Fresh: a current reading.', { color: DROPDOWN_STATE_COLOR.good, font: 'Menlo' }),
+    submenuLine('◷46 — Aging: reading is getting old.', { color: DROPDOWN_STATE_COLOR.aging, font: 'Menlo' }),
+    submenuLine('⚠12 — Stale: too old to trust; may have moved.', { color: DROPDOWN_STATE_COLOR.stale, font: 'Menlo' }),
+    submenuLine('— — No reading: no data yet (never a fake number).', { color: DROPDOWN_STATE_COLOR.muted, font: 'Menlo' }),
+    submenuLine('⊘ — Offline: host unreachable (never a number).', { color: DROPDOWN_STATE_COLOR.offline, font: 'Menlo' }),
     '-----',
-    `--Number | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
-    '--12 — % remaining in the tightest tracked window (5-hour or weekly). Single view shows the binding host/tool.',
+    submenuLine('Color', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('good — 50%+ remaining; plenty of room.', { color: DROPDOWN_STATE_COLOR.good }),
+    submenuLine('warn — 20-49%; getting tight.', { color: DROPDOWN_STATE_COLOR.warn }),
+    submenuLine('crit — under 20%; nearly out.', { color: DROPDOWN_STATE_COLOR.crit }),
     '-----',
-    `--Tool | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
-    '--◆ — Claude — which tool this reading is.',
-    '--▲ — Codex. (Logos, if on, mean the same.)',
+    submenuLine('Number', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('12 — % remaining in the tightest tracked window (5-hour or weekly).', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
-    `--Side-by-side | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
-    '--St12 — Host cue: short machine name (grown until unique).',
-    '--+2 — +M more: hosts beyond the cap of 3 (least-tight hidden).',
+    submenuLine('Tool', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('◆ — Claude Code.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('▲ — Codex. Logos, if enabled, mean the same thing.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
-    `--This menu | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
-    '--✓ — Active: your current choice on each axis.',
+    submenuLine('Multi-host', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('St12 — host cue plus % in compact side-by-side mode.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
+    submenuLine('+2 — more hosts exist beyond the side-by-side cap.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
+    '-----',
+    submenuLine('This menu', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
+    submenuLine('✓ — active choice in Display.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('＋ — add or install.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('－ — remove.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('☰ — watched-host count.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('🖥 — Display settings.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('🛈 — this legend.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('⊘ — unavailable or uninstall.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('▬ — remove the badge only.', { color: COLOR_DROPDOWN_TEXT }),
   ];
 }
 

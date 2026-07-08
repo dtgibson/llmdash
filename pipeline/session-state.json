@@ -1,19 +1,18 @@
 {
-  "activeFeature": null,
+  "activeFeature": "menubar-dropdown-legibility-legend",
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": null,
-  "lastCompletedStage": 6,
+  "currentStage": 5,
+  "lastCompletedStage": 4,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
-    "pipeline/dropdown-legibility-aging-symbols/change-brief.md",
-    "pipeline/dropdown-legibility-aging-symbols/deployment-report.md",
-    "pipeline/dropdown-legibility-aging-symbols/pr-description.md",
-    "pipeline/dropdown-legibility-aging-symbols/qa-report.md",
-    "pipeline/dropdown-legibility-aging-symbols/security-report.md"
+    "pipeline/menubar-dropdown-legibility-legend/change-brief.md",
+    "pipeline/menubar-dropdown-legibility-legend/pr-description.md",
+    "pipeline/menubar-dropdown-legibility-legend/qa-report.md",
+    "pipeline/menubar-dropdown-legibility-legend/security-report.md"
   ],
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T17:04:20Z"
+  "updatedAt": "2026-07-08T17:46:41Z"
 }

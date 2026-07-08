@@ -278,14 +278,16 @@ test('QA: display submenu marks the active axes/preset live in both modes', () =
   assert.ok(joined.includes('Studio (studio:8788)'), 'host toggle enumerated');
 });
 
-// ── 15. Legend is static & complete (five states + both marks + colors + ✓) ───
+// ── 15. Legend is static & complete (states, marks, menu symbols) ─────────────
 test('QA: legend is complete and static', () => {
   const lines = legendLines();
   const joined = lines.join('\n');
-  for (const sym of ['46', '◷46', '⚠12', '—', '⊘', '◆', '▲', 'St12', '+2', '✓']) {
+  for (const sym of ['▪', '·', '▸ binding', '46', '◷46', '⚠12', '—', '⊘', '◆', '▲', 'St12', '+2', '✓', '＋', '－', '☰', '🖥', '🛈', '▬']) {
     assert.ok(joined.includes(sym), `legend missing ${sym}`);
   }
   for (const color of ['good', 'warn', 'crit']) assert.ok(joined.includes(color), `legend missing color ${color}`);
+  assert.ok(joined.includes('color=#111111'), 'legend uses readable dark text');
+  assert.ok(!joined.includes('color=#a0a0a0'), 'legend does not use faint aging gray on the dropdown');
   // No interpolated dynamic value — every line is a literal (call twice, identical).
   assert.deepEqual(legendLines(), lines, 'legend is deterministic/static');
 });

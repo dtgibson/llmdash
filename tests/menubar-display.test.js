@@ -451,26 +451,37 @@ test('the Legend submenu appears in single-host AND multi-host dropdowns', () =>
   assert.match(multi, /🛈 Legend/);
 });
 
-test('the Legend enumerates all five states + both tool marks + the colors + the ✓ marker (complete)', () => {
+test('the Legend enumerates every badge/menu symbol with readable dropdown colors', () => {
   const legend = legendLines().join('\n');
   // Five states.
-  assert.match(legend, /Live: a fresh reading/);
+  assert.match(legend, /Fresh: a current reading/);
   assert.match(legend, /Aging/);
   assert.match(legend, /Stale/);
   assert.match(legend, /No reading/);
   assert.match(legend, /Offline/);
+  // Badge identity / separators / host state.
+  assert.match(legend, /▪ — llmdash mark/);
+  assert.match(legend, /· — separator/);
+  assert.match(legend, /▸ binding/);
   // Both tool marks.
-  assert.match(legend, /◆ — Claude/);
+  assert.match(legend, /◆ — Claude Code/);
   assert.match(legend, /▲ — Codex/);
   // The three colors.
   assert.match(legend, /good/);
   assert.match(legend, /warn/);
   assert.match(legend, /crit/);
-  // The ✓ marker.
-  assert.match(legend, /✓ — Active/);
+  // Menu and action markers.
+  for (const sym of ['✓', '＋', '－', '☰', '🖥', '🛈', '▬']) {
+    assert.match(legend, new RegExp(sym));
+  }
   // The side-by-side cue + +M.
-  assert.match(legend, /Host cue/);
-  assert.match(legend, /\+M more/);
+  assert.match(legend, /host cue/);
+  assert.match(legend, /\+2 — more hosts/);
+  // Dropdown colors use the darker legibility palette, not the light menu-bar
+  // aging/no-reading colors.
+  assert.match(legend, /color=#111111/);
+  assert.match(legend, /color=#4a4a4a/);
+  assert.doesNotMatch(legend, /color=#a0a0a0/);
 });
 
 test('the Legend is fully static — no interpolated value (byte-stable)', () => {
