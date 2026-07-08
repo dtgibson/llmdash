@@ -1,26 +1,31 @@
-## Last shipped: status-bar-popup-legibility (2026-07-08) — CLOSED OUT
+## Last shipped: compact-mode-display-honesty (2026-07-08) - CLOSED OUT
 
-The macOS SwiftBar/xbar dropdown is readable in the states that used to make it
-hard to use: primary labels use normal menu text sizing, and long offline or
-diagnostic copy is emitted as bounded non-action rows instead of one enormous
-line. The new wrapping path sanitizes for the SwiftBar grammar, wraps by words,
-and splits a single overlong token so a long unavailable host cannot widen the
-whole pop-up. Action rows (`href=`, refresh, scripts, submenus) stay separate and
-unchanged.
+The macOS SwiftBar/xbar badge now keeps compact mode compact: exactly one
+status-bar title line appears before the first `---`, and explanatory scope copy
+like "Watching 3 machines · 1 not reachable" stays in the dropdown where it can
+wrap. Display settings now describe the menu-bar glyph honestly: layout controls
+which glyph units appear, density controls how terse each glyph cell is, and the
+dropdown remains the full per-host view.
 
-- Commit `f4e5f3f` (implementation) + `10f6d02` (context/deploy report) + this
-  close-out, on origin/main.
+- Commit `1ee31db` shipped the implementation; commit `3e0e1af` recorded the
+  deployment report and project-memory updates; this close-out follows on
+  origin/main.
 - Installed `/Users/developer/llmdash` was fast-forwarded through the shipped
-  implementation; the launchd service is running and `/api/state` + `/api/hosts`
-  return 200. The installed SwiftBar wrapper previewed a long unavailable host as
-  bounded rows.
-- QA passed (`npm test`: 463 passing, 0 failing, 2 skipped) plus focused menu-bar
-  suites. Security passed with no findings and `git diff --check` clean.
+  implementation and context update. The launchd service is running, and
+  `/api/state` + `/api/hosts` return 200.
+- The installed SwiftBar wrapper emitted one title line followed by `---`; a
+  forced compact side-by-side/offline preview emitted `▪ S12 T80 D⊘` as the only
+  title line, with the watching/unreachable copy below the separator.
+- QA passed (`npm test`: 467 passing, 0 failing, 2 skipped) plus focused menu-bar
+  separator tests. Security passed with no findings and `git diff --check` clean.
+- Context promoted the separator convention in `CLAUDE.md`, clarified the current
+  product wording in `PRODUCT_CONTEXT.md`, and logged the display-honesty
+  decision in `DECISIONS.md`.
 
-## Status: idle — no active feature
+## Status: idle - no active feature
 Pipeline is clean and reset. Run `$weft` to start the next lane.
 
 ## Roadmap (open)
-- **Up Next:** Limit alerts — notify before a window is exhausted.
-- **On the Horizon:** a tmux / terminal statusline (would reuse the compact glyph cell
-  grammar this feature established).
+- **Up Next:** Limit alerts - notify before a window is exhausted.
+- **On the Horizon:** a tmux / terminal statusline (would reuse the compact glyph
+  cell grammar and one-title-line separator contract).
