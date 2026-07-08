@@ -318,9 +318,9 @@ point, then fine-tune any axis underneath:
   on one line, tightest-first, then `+M more`), or **Alternating** (one unit per
   ~5s tick, rotating deterministically off the clock).
 - **Density** — **Wide** (a text glyph) or **Compact** (a tight glyph cell: a colored
-  number with its state marker — `46` fresh, `46·` aging, `⚠12` stale, `—` no reading,
+  number with its state marker — `46` fresh, `◷46` aging, `⚠12` stale, `—` no reading,
   `⊘` offline). Side-by-side compact cues each machine with a short grown-until-unique
-  prefix (`St12 La88·`). Density does not shorten the dropdown; it only controls the
+  prefix (`St12 La◷88`). Density does not shorten the dropdown; it only controls the
   status-bar glyph.
 - **Tool marks** — **Neutral** (the default `◆` / `▲` glyphs) or **Logos** (opt-in
   product marks, SwiftBar only). See the fair-use note below.

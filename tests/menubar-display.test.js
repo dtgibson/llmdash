@@ -159,7 +159,7 @@ test('display emit: compact mode keeps secondary copy below the first separator'
 // ── The five compact states (QA-14/16) ────────────────────────────────────────
 test('compactCell distinguishes all five states; offline/no-reading carry NO digit (QA-14/16)', () => {
   assert.equal(compactCell({ state: 'fresh', pct: 46 }).text, '46');
-  assert.equal(compactCell({ state: 'aging', pct: 46 }).text, '46·');
+  assert.equal(compactCell({ state: 'aging', pct: 46 }).text, '◷46');
   assert.equal(compactCell({ state: 'stale', pct: 12 }).text, '⚠12');   // leading ⚠
   assert.equal(compactCell({ state: 'no-reading', pct: null }).text, '—');
   assert.equal(compactCell({ state: 'offline', pct: null }).text, '⊘');

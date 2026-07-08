@@ -67,7 +67,7 @@ test('QA: a mixed-case host key survives the round-trip and still filters the gl
 // ── 2. Five honesty states, compact — no digit for no-reading/offline ─────────
 test('QA: compact cell — five states, no-reading & offline carry NO digit', () => {
   assert.equal(compactCell({ state: 'fresh', pct: 46 }).text, '46');
-  assert.equal(compactCell({ state: 'aging', pct: 46 }).text, '46·');
+  assert.equal(compactCell({ state: 'aging', pct: 46 }).text, '◷46');
   assert.equal(compactCell({ state: 'stale', pct: 12 }).text, '⚠12');
   assert.equal(compactCell({ state: 'no-reading', pct: null }).text, '—');
   assert.equal(compactCell({ state: 'offline', pct: null }).text, '⊘');
@@ -282,7 +282,7 @@ test('QA: display submenu marks the active axes/preset live in both modes', () =
 test('QA: legend is complete and static', () => {
   const lines = legendLines();
   const joined = lines.join('\n');
-  for (const sym of ['46', '46·', '⚠12', '—', '⊘', '◆', '▲', 'St12', '+2', '✓']) {
+  for (const sym of ['46', '◷46', '⚠12', '—', '⊘', '◆', '▲', 'St12', '+2', '✓']) {
     assert.ok(joined.includes(sym), `legend missing ${sym}`);
   }
   for (const color of ['good', 'warn', 'crit']) assert.ok(joined.includes(color), `legend missing color ${color}`);

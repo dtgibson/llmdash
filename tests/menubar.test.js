@@ -216,10 +216,10 @@ test('emit: exactly one line appears before the first separator', () => {
   assert.doesNotMatch(preSeparatorLines(out).join('\n'), /remaining|Watching|not reachable/i);
 });
 
-test('emit aging: number KEEPS its value with a trailing · and dim color', () => {
+test('emit aging: number KEEPS its value with a clock marker and dim color', () => {
   const out = emit(computeBadge(loadFixture('state-aging')));
   const title = titleLine(out);
-  assert.match(title, /^▪ ◆ 66%· \| color=#a0a0a0$/);
+  assert.match(title, /^▪ ◆ 66% ◷ \| color=#a0a0a0$/);
   // The tool header carries the (aging) tag.
   assert.match(out, /^Claude Code {2}\(aging\) \|/m);
 });

@@ -381,7 +381,8 @@ export function computeMultiBadge(combined, { localMode = 'auto' } = {}) {
 
 const MARK = '▪'; // stable llmdash identity mark
 const WARN_TRIANGLE = '⚠';
-const AGE_DOT = '·';
+const HOST_TOOL_SEP = '·';
+const AGE_CLOCK = '◷';
 const DASH = '—';
 
 // Menu-bar (dark strip) status colors — lifted variants of the design-system
@@ -391,6 +392,9 @@ const COLOR_AGING = '#a0a0a0';
 const COLOR_STALE = '#f0a94b';
 const COLOR_MUTED = '#9b9ea6';
 const COLOR_OFFLINE = '#8b8b8b';
+const COLOR_DROPDOWN_TEXT = '#222222';
+const COLOR_DROPDOWN_HEADER = '#333333';
+const COLOR_DROPDOWN_SUBTLE = '#555555';
 const DROPDOWN_WRAP_CHARS = 72;
 const DROPDOWN_HEADER_SIZE = 14;
 const DROPDOWN_BODY_SIZE = 13;
@@ -456,19 +460,19 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
   // Title echo line — repeats the glyph with the binding tool·window (and band
   // when degraded), mirroring SwiftBar's natural top-of-dropdown title.
   if (badge.state === 'no-reading') {
-    lines.push(`${MARK} no reading yet`);
+    lines.push(menuLine(`${MARK} no reading yet`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_TEXT }));
   } else {
     const b = badge.binding;
     const bindingCue = `${b.toolLabel} · ${b.windowLabel}`
       + (b.band === 'aging' || b.band === 'stale' ? ` · ${b.band}` : '');
-    lines.push(`${MARK} ${badge.pct}% remaining — ${bindingCue}`);
+    lines.push(menuLine(`${MARK} ${badge.pct}% remaining — ${bindingCue}`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_TEXT }));
   }
 
   const diagBlock = [];
   for (const tv of badge.toolViews) {
     lines.push('---'); // group separator
     const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
-    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_HEADER_SIZE }));
+    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_HEADER }));
     for (const row of tv.rows) {
       let text;
       if (row.remaining == null) {
@@ -532,10 +536,10 @@ export function emit(badge, { host = HOST, port = PORT, offline = false, service
       title = `${MARK} ${badge.cue} ${badge.pct}% ${WARN_TRIANGLE} | color=${COLOR_STALE}`;
       break;
     case 'aging':
-      // Number KEEPS its status color; marked with a trailing · and dimmed.
-      // The · is the load-bearing marker (reads in a monochrome bar); the dim
+      // Number KEEPS its value; marked with a clock-like age symbol and dimmed.
+      // The age symbol is load-bearing (reads in a monochrome bar); the dim
       // is secondary. color= carries the honest de-emphasis on the dark bar.
-      title = `${MARK} ${badge.cue} ${badge.pct}%${AGE_DOT} | color=${COLOR_AGING}`;
+      title = `${MARK} ${badge.cue} ${badge.pct}% ${AGE_CLOCK} | color=${COLOR_AGING}`;
       break;
     case 'fresh':
     default: {
@@ -607,13 +611,13 @@ function hostSectionLines(view, { isBinding = false } = {}) {
   let head = view.label;
   if (isBinding) head += '  ▸ binding';
   else if (view.self) head += '  · you';
-  lines.push(menuLine(head, { size: DROPDOWN_HEADER_SIZE }));
+  lines.push(menuLine(head, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_HEADER }));
 
   if (view.self && view.deemph) {
     // De-emphasized local (monitoring station): the honest idle note, no fake
     // rows, no zeros — retained but out of the glance (FR-20). Copy verbatim.
-    lines.push(menuLine('no local activity', { size: DROPDOWN_BODY_SIZE }));
-    lines.push(...wrappedMenuLines("This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated.", { size: DROPDOWN_NOTE_SIZE }));
+    lines.push(menuLine('no local activity', { size: DROPDOWN_BODY_SIZE, color: COLOR_DROPDOWN_TEXT }));
+    lines.push(...wrappedMenuLines("This Mac isn't running Claude or Codex — it's watching the machines above. Kept out of the glyph so the machines you're watching stay loudest. No reading is fabricated.", { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
     return lines;
   }
 
@@ -625,7 +629,7 @@ function hostSectionLines(view, { isBinding = false } = {}) {
 
   if (!view.badge) {
     // No state and no diagnostic (shouldn't happen post-normalize) — honest dash.
-    lines.push(`no reading | size=12 color=${COLOR_MUTED}`);
+    lines.push(menuLine('no reading', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
     return lines;
   }
 
@@ -634,7 +638,7 @@ function hostSectionLines(view, { isBinding = false } = {}) {
   const diagBlock = [];
   for (const tv of view.badge.toolViews) {
     const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
-    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_BODY_SIZE }));
+    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_BODY_SIZE, color: COLOR_DROPDOWN_HEADER }));
     for (const row of tv.rows) {
       let text;
       if (row.remaining == null) {
@@ -681,11 +685,11 @@ export function hostConfigActionLines({ remotes = [] } = {}) {
       lines.push(`--Stop watching ${label} (${r.addr}) | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`);
     }
     // A live listing of the current remote set (a real affordance, not a dead item).
-    lines.push(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'} | color=#999999`);
+    lines.push(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'} | color=${COLOR_DROPDOWN_SUBTLE}`);
   } else {
     // Single-host: no remotes to remove; state the honest zero so the count line
     // is never a dead/absent affordance. Add host… above is the live path.
-    lines.push('☰ Watching: 0 other machines | color=#999999');
+    lines.push(`☰ Watching: 0 other machines | color=${COLOR_DROPDOWN_SUBTLE}`);
   }
   return lines;
 }
@@ -758,16 +762,16 @@ function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-inst
   const unreachable = multi.hostViews.filter((v) => !v.reachable || (!v.badge && !v.self)).length;
 
   if (multi.state === 'no-reading') {
-    lines.push(`${MARK} no reading yet`);
+    lines.push(menuLine(`${MARK} no reading yet`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_TEXT }));
   } else {
     const b = multi.binding;
     const bindingCue = `${b.hostLabel} · ${b.toolLabel} · ${b.windowLabel}`
       + (b.band === 'aging' || b.band === 'stale' ? ` · ${b.band}` : '');
-    lines.push(`${MARK} ${multi.pct}% remaining — ${bindingCue}`);
+    lines.push(menuLine(`${MARK} ${multi.pct}% remaining — ${bindingCue}`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_TEXT }));
   }
   const scope = `Watching ${reachableCount} machine${reachableCount === 1 ? '' : 's'}`
     + (unreachable ? ` · ${unreachable} not reachable` : '');
-  lines.push(`${scope} | size=12 color=#999999`);
+  lines.push(`${scope} | size=12 color=${COLOR_DROPDOWN_SUBTLE}`);
 
   const bindingView = multi.binding ? multi.hostViews[0] : null;
   for (const view of multi.hostViews) {
@@ -795,15 +799,15 @@ export function emitMulti(multi, { host = HOST, port = PORT, remotes = [], servi
       title = `${MARK} ${DASH} | color=${COLOR_MUTED}`;
       break;
     case 'stale':
-      title = `${MARK} ${hc}${AGE_DOT}${multi.cue} ${multi.pct}% ${WARN_TRIANGLE} | color=${COLOR_STALE}`;
+      title = `${MARK} ${hc}${HOST_TOOL_SEP}${multi.cue} ${multi.pct}% ${WARN_TRIANGLE} | color=${COLOR_STALE}`;
       break;
     case 'aging':
-      title = `${MARK} ${hc}${AGE_DOT}${multi.cue} ${multi.pct}%${AGE_DOT} | color=${COLOR_AGING}`;
+      title = `${MARK} ${hc}${HOST_TOOL_SEP}${multi.cue} ${multi.pct}% ${AGE_CLOCK} | color=${COLOR_AGING}`;
       break;
     case 'fresh':
     default: {
       const color = BAR_COLOR[statusClass(multi.pct)];
-      title = `${MARK} ${hc}${AGE_DOT}${multi.cue} ${multi.pct}% | color=${color}`;
+      title = `${MARK} ${hc}${HOST_TOOL_SEP}${multi.cue} ${multi.pct}% | color=${color}`;
       break;
     }
   }
@@ -962,7 +966,7 @@ export function compactCell({ state, pct, cue = '', mark = '' }) {
       // Leading ⚠ in compact (design-spec: the flag registers first in tight space).
       return { text: `${prefix}${WARN_TRIANGLE}${pct}`, color: COLOR_STALE, state, mark };
     case 'aging':
-      return { text: `${prefix}${pct}${AGE_DOT}`, color: COLOR_AGING, state, mark };
+      return { text: `${prefix}${AGE_CLOCK}${pct}`, color: COLOR_AGING, state, mark };
     case 'fresh':
     default:
       return { text: `${prefix}${pct}`, color: BAR_COLOR[statusClass(pct)], state, mark };
@@ -1059,7 +1063,7 @@ export function applyDisplay(multi, display, { epochMs = Date.now() } = {}) {
   // ── density → the cell text; multi layouts carry the per-unit cue/mark. ──────
   // The host cue shows whenever the EFFECTIVE layout identifies a specific machine
   // among several: side-by-side (each cell cued) AND alternating (the one shown
-  // machine named — `▪ La88·`). single compact drops it (`▪ 12`). Degenerate
+  // machine named — `▪ La◷88`). single compact drops it (`▪ 12`). Degenerate
   // reduction to 'single' (one effective host) also drops it — there is no
   // ambiguity to resolve.
   const showHostCue = d.group === 'host'
@@ -1094,11 +1098,11 @@ export function applyDisplay(multi, display, { epochMs = Date.now() } = {}) {
 }
 
 // A wide-density cell (wide + non-default group/hosts). Mirrors the shipped wide
-// grammar per state: fresh `<cue><mark> <pct>%`, aging trailing ·, stale trailing
+// grammar per state: fresh `<cue><mark> <pct>%`, aging clock marker, stale trailing
 // ⚠, no-reading/offline no number. Used only by applyDisplay's wide multi/tool
 // paths (single+all+wide default still routes to the shipped emit()).
 function wideCell({ state, pct, cue = '', mark = '' }) {
-  const lead = cue ? `${cue}${AGE_DOT}${mark}` : mark; // host cue · tool mark, or just the mark
+  const lead = cue ? `${cue}${HOST_TOOL_SEP}${mark}` : mark; // host cue · tool mark, or just the mark
   const sp = lead ? `${lead} ` : '';
   switch (state) {
     case 'no-reading':
@@ -1108,7 +1112,7 @@ function wideCell({ state, pct, cue = '', mark = '' }) {
     case 'stale':
       return { text: `${sp}${pct}% ${WARN_TRIANGLE}`, color: COLOR_STALE, state, mark };
     case 'aging':
-      return { text: `${sp}${pct}%${AGE_DOT}`, color: COLOR_AGING, state, mark };
+      return { text: `${sp}${pct}% ${AGE_CLOCK}`, color: COLOR_AGING, state, mark };
     case 'fresh':
     default:
       return { text: `${sp}${pct}%`, color: BAR_COLOR[statusClass(pct)], state, mark };
@@ -1213,21 +1217,21 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
   const act = (verb, value) => `shell="${ABS_NODE}" param1="${DISPLAY_ACTION}" param2=${verb} param3="${value}" terminal=false refresh=true`;
   const lines = ['---', '🖥 Display'];
   // Presets (the friendly front).
-  lines.push('--Presets | size=11 color=#888888');
+  lines.push(`--Presets | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
   for (const p of DISPLAY_PRESETS) {
     const on = presetActive(p, d);
     lines.push(`--${activeMark(on)}${sanitize(p.label)} | ${act('preset', p.id)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Group by (radio).
-  lines.push('--Group by | size=11 color=#888888');
+  lines.push(`--Group by | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
   for (const [val, lbl] of [['host', 'Host (machine)'], ['tool', 'Tool (◆ Claude / ▲ Codex)']]) {
     const on = d.group === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('group', val)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Hosts (multi-select toggle). "All hosts" sentinel clears to all.
-  lines.push('--Hosts | size=11 color=#888888');
+  lines.push(`--Hosts | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
   const allOn = d.hosts === 'all';
   lines.push(`--${activeMark(allOn)}All hosts | ${act('hosts', 'all')}${activeFont(allOn)}`);
   const selected = Array.isArray(d.hosts) ? new Set(d.hosts) : new Set();
@@ -1239,21 +1243,21 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
   lines.push('-----');
   // Layout (radio). This controls the menu-bar glyph only; the dropdown remains
   // the full per-host picture.
-  lines.push('--Glyph layout | size=11 color=#888888');
+  lines.push(`--Glyph layout | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
   for (const [val, lbl] of [['single', 'Single (tightest only)'], ['side-by-side', 'Side-by-side (up to 3)'], ['alternating', 'Alternating (one at a time)']]) {
     const on = d.layout === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('layout', val)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Density (radio). Density changes the glyph cell, not the dropdown detail.
-  lines.push('--Glyph density | size=11 color=#888888');
+  lines.push(`--Glyph density | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
   for (const [val, lbl] of [['wide', 'Wide (text glyph)'], ['compact', 'Compact (tight glyph)']]) {
     const on = d.density === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('density', val)}${activeFont(on)}`);
   }
   lines.push('-----');
   // Tool marks (radio) — neutral floor · logos opt-in.
-  lines.push('--Tool marks | size=11 color=#888888');
+  lines.push(`--Tool marks | size=11 color=${COLOR_DROPDOWN_SUBTLE}`);
   for (const [val, lbl] of [['neutral', 'Neutral (◆ / ▲)'], ['logo', 'Logos']]) {
     const on = d.toolMark === val;
     lines.push(`--${activeMark(on)}${lbl} | ${act('tool-mark', val)}${activeFont(on)}`);
@@ -1272,30 +1276,30 @@ export function legendLines() {
   return [
     '---',
     '🛈 Legend — what the marks mean',
-    '--Freshness | size=11 color=#888888',
+    `--Freshness | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
     `--46 — Live: a fresh reading. | color=${BAR_COLOR.good} font=Menlo`,
-    `--46· — Aging: reading is getting old. | color=${COLOR_AGING} font=Menlo`,
+    `--◷46 — Aging: reading is getting old. | color=${COLOR_AGING} font=Menlo`,
     `--⚠12 — Stale: too old to trust; may have moved. | color=${COLOR_STALE} font=Menlo`,
     `--— — No reading: no data yet (never a fake number). | color=${COLOR_MUTED} font=Menlo`,
     `--⊘ — Offline: host unreachable (never a number). | color=${COLOR_OFFLINE} font=Menlo`,
     '-----',
-    '--Color | size=11 color=#888888',
+    `--Color | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
     `--good — 50%+ remaining — plenty of room. | color=${BAR_COLOR.good}`,
     `--warn — 20–49% — getting tight. | color=${BAR_COLOR.warn}`,
     `--crit — under 20% — nearly out. | color=${BAR_COLOR.crit}`,
     '-----',
-    '--Number | size=11 color=#888888',
+    `--Number | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
     '--12 — % remaining in the tightest tracked window (5-hour or weekly). Single view shows the binding host/tool.',
     '-----',
-    '--Tool | size=11 color=#888888',
+    `--Tool | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
     '--◆ — Claude — which tool this reading is.',
     '--▲ — Codex. (Logos, if on, mean the same.)',
     '-----',
-    '--Side-by-side | size=11 color=#888888',
+    `--Side-by-side | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
     '--St12 — Host cue: short machine name (grown until unique).',
     '--+2 — +M more: hosts beyond the cap of 3 (least-tight hidden).',
     '-----',
-    '--This menu | size=11 color=#888888',
+    `--This menu | size=11 color=${COLOR_DROPDOWN_SUBTLE}`,
     '--✓ — Active: your current choice on each axis.',
   ];
 }

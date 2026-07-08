@@ -62,10 +62,10 @@ test('single host ⇒ mode "single"; the glyph + tool rows stay compatible (QA-1
   assert.match(lines[0], /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
   assert.doesNotMatch(lines[0], /·[◆▲]/);
   // The per-tool ROWS are the shipped rows, unchanged; headers are larger and
-  // use default menu text color for legibility.
-  assert.match(out, /^Claude Code \| size=14$/m);
+  // use a darker explicit menu text color for legibility.
+  assert.match(out, /^Claude Code \| size=14 color=#333333$/m);
   assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo$/m);
-  assert.match(out, /^Codex \| size=14$/m);
+  assert.match(out, /^Codex \| size=14 color=#333333$/m);
 });
 
 test('single-host mode still offers ＋ Add host… so the first machine is addable from the menu bar (FR-14)', () => {
@@ -77,7 +77,7 @@ test('single-host mode still offers ＋ Add host… so the first machine is adda
   // No Remove submenu in single mode (nothing to remove); the count is honest.
   assert.doesNotMatch(out, /Remove host…/);
   assert.doesNotMatch(out, /Stop watching/);
-  assert.match(out, /^☰ Watching: 0 other machines \| color=#999999$/m);
+  assert.match(out, /^☰ Watching: 0 other machines \| color=#555555$/m);
   // Open dashboard / Refresh still present, unchanged.
   assert.match(out, /^Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\/$/m);
   assert.match(out, /^Refresh \| refresh=true$/m);
@@ -334,7 +334,7 @@ test('the Remove submenu + Watching count reflect the remote set (FR-14)', () =>
 });
 
 // ── aging/stale glyph carry the host cue (design spec glyph table) ────────────
-test('aging binding host keeps the host cue with a trailing · ; stale keeps it with ⚠', () => {
+test('aging binding host keeps the host cue with a clock marker; stale keeps it with ⚠', () => {
   const aging = combined([
     host('This machine', { self: true, tools: [tool('claude-code', 80, 90)] }),
     host('Desktop', { tools: [tool('claude-code', 31, 40, { freshness: { capturedAt: iso(-420000), freshForMs: 300000, staleAfterMs: 600000 } })] }),
@@ -342,7 +342,7 @@ test('aging binding host keeps the host cue with a trailing · ; stale keeps it 
   const mA = computeMultiBadge(aging);
   assert.equal(mA.state, 'aging');
   const tA = emitMulti(mA, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(aging) }).split('\n')[0];
-  assert.match(tA, /^▪ Desktop·◆ 31%· \| color=#a0a0a0$/);
+  assert.match(tA, /^▪ Desktop·◆ 31% ◷ \| color=#a0a0a0$/);
 
   const stale = combined([
     host('This machine', { self: true, tools: [tool('claude-code', 80, 90)] }),

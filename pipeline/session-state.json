@@ -1,19 +1,18 @@
 {
-  "activeFeature": null,
+  "activeFeature": "dropdown-legibility-aging-symbols",
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": null,
-  "lastCompletedStage": 6,
+  "currentStage": 5,
+  "lastCompletedStage": 4,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
-    "pipeline/compact-mode-display-honesty/change-brief.md",
-    "pipeline/compact-mode-display-honesty/deployment-report.md",
-    "pipeline/compact-mode-display-honesty/pr-description.md",
-    "pipeline/compact-mode-display-honesty/qa-report.md",
-    "pipeline/compact-mode-display-honesty/security-report.md"
+    "pipeline/dropdown-legibility-aging-symbols/change-brief.md",
+    "pipeline/dropdown-legibility-aging-symbols/pr-description.md",
+    "pipeline/dropdown-legibility-aging-symbols/qa-report.md",
+    "pipeline/dropdown-legibility-aging-symbols/security-report.md"
   ],
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-08T04:25:50Z"
+  "updatedAt": "2026-07-08T16:31:31Z"
 }
