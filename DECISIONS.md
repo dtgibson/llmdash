@@ -1,5 +1,28 @@
 # Decisions — llmdash
 
+## Menu-bar logos as glyph replacements — colored SwiftBar image, text fallback — 2026-07-09 (improve)
+**Decision:** The **Tool marks -> Logos** option now treats successful SwiftBar
+logo rendering as a replacement for the visible `◆` / `▲` tool glyphs, not an
+additive decoration beside them. In SwiftBar, the renderer first creates the
+same-color local logo image for the current title state; only after that succeeds
+does it strip the text tool marks from the title. The neutral `◆` / `▲` floor
+remains the fallback for xbar, non-SwiftBar output, and image read/decode/encode
+failures.
+**Rationale:** The user selected Logos expecting a drop-in mark replacement, and
+showing both logo art and text glyphs made the mode visually redundant. Emitting a
+colored local image gives the logo the same state-color semantics the glyphs had,
+while preserving the existing honest fallback when the host cannot render it.
+**Implications:** Future badge logo work should preserve this replacement/fallback
+split: successful SwiftBar logo mode may hide the visible text marks only after a
+local image is ready, while every other path keeps the neutral text identity. QA
+PASSED: focused menu-bar suites and full `npm test` passed (468 passing, 0
+failing, 2 skipped), and installed SwiftBar output emitted a 34x16 same-color
+`image=` with no visible `◆` / `▲` title glyphs. Security PASSED WITH NOTES: no
+new dependency, runtime fetch, process execution, HTTP mutation, polling,
+persistence, or service-control surface was added. Shipped as commit `17d4ed3`;
+installed `~/llmdash` was fast-forwarded, the launchd service restarted, and
+SwiftBar relaunched.
+
 ## Menu-bar logo side-by-side — paired SwiftBar image, 16x16 single marks — 2026-07-08 (improve)
 **Decision:** The **Tool marks -> Logos** option now treats SwiftBar's one-image
 title-line constraint as a product constraint: single-tool logo mode uses smaller

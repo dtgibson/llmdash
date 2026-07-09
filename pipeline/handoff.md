@@ -1,27 +1,29 @@
-# Handoff — Menu-Bar Logo Side-By-Side
+# Handoff — Menu-Bar Logo Drop-In
 
-Feature: `menubar-logo-side-by-side`
+Feature: `menubar-logo-drop-in`
 Lane: `maintain`
-Date: 2026-07-08
+Date: 2026-07-09
 
 ## What Changed
-- Single-tool logo assets were resized to 16x16 transparent PNG template images.
-- Side-by-side tool logo mode now uses paired 34x16 Claude/Codex and Codex/Claude template images.
-- The SwiftBar renderer emits the paired image when `toolMark=logo`, the host is SwiftBar, and the tool view has two side-by-side cells.
-- The neutral `◆` / `▲` text floor remains visible in all cases.
-- README, the asset license note, and the menu Legend explain the paired-image behavior.
+- SwiftBar Logos mode now replaces visible `◆` / `▲` tool glyphs with logo image data instead of adding logo art beside the glyphs.
+- Logo PNGs are recolored to the current title color before emission, so the logo follows the same state color as the glyph it replaces.
+- Single-tool logo mode emits a 16x16 image; side-by-side tool mode emits one paired 34x16 image in cell order.
+- xbar, non-SwiftBar output, and image read/decode/encode failures keep the neutral text glyphs.
+- README, asset notes, Legend copy, tests, and context files now describe the replacement/fallback split.
 
 ## Why
-SwiftBar provides one image slot per title line, so true inline side-by-side custom logos are not available. A paired local template image gives the user-visible logo cue without making the mark oversized or adding network fetch behavior.
+The user expected the Logos option to be a true drop-in for the tool glyphs. The prior implementation made Logos additive and left duplicate identity marks in the title. The new behavior keeps the recognizable logo cue without losing the honest text fallback.
 
 ## Verification
 - Focused menu-bar suite passed: 83 passing, 0 failing, 2 skipped.
 - Full `npm test` passed: 468 passing, 0 failing, 2 skipped.
-- Deployment verified from `/Users/developer/llmdash` at commit `004c72d`.
-- The installed SwiftBar output emitted a 34x16 paired `templateImage=` and kept both `◆` and `▲` in the title line.
+- Deployment verified from `/Users/developer/llmdash` at commit `17d4ed3`.
+- Installed SwiftBar output emitted `▪ 3 56 | color=#ff6b6b image=<base64>`.
+- The installed title line contains `image=`, does not contain `templateImage=`, and does not contain visible `◆` / `▲` tool glyphs.
+- The emitted paired image decoded as 34x16, and its first visible pixel matched the title color `#ff6b6b`.
 
 ## Deployment
-- Pushed `004c72d` to `origin/main`.
+- Pushed `17d4ed3` to `origin/main`.
 - Fast-forwarded `/Users/developer/llmdash`.
 - Restarted `com.llmdash.dashboard`.
 - Relaunched SwiftBar.
@@ -29,7 +31,7 @@ SwiftBar provides one image slot per title line, so true inline side-by-side cus
 - Existing remote host `SRDev VM` remains unreachable; this is unrelated existing state.
 
 ## Context Updates
-- `DECISIONS.md` logs the paired-image decision as an explicit modification of the prior side-by-side text-only implication.
-- `CLAUDE.md` extends the brand-asset convention with status-bar sizing and paired local images for SwiftBar side-by-side title lines.
-- `PRODUCT_CONTEXT.md` now describes opt-in logo marks as status-bar-sized and paired in side-by-side.
-- `ROADMAP.md` shipped count is updated to 17 with this work as the latest shipped item.
+- `DECISIONS.md` logs the logo replacement behavior as an explicit modification of the earlier neutral-floor/paired-image decisions.
+- `CLAUDE.md` records the convention: successful SwiftBar logo mode may hide text marks only after same-color local image generation succeeds; all other paths keep text fallback.
+- `PRODUCT_CONTEXT.md` now describes opt-in logo marks as same-color SwiftBar replacements with neutral text fallback.
+- `ROADMAP.md` shipped count is updated to 18 with this work as the latest shipped item.

@@ -283,22 +283,24 @@
   constructed. The Legend must explain every visible mark the badge can emit
   (`▪`, `·`, `▸`, `◆`, `▲`, `◷`, `⚠`, `—`, `⊘`, compact host cues, overflow,
   and menu/action marks) while action rows stay explicitly constructed.
-- **A brand / third-party visual asset is opt-in, with a guaranteed neutral floor
-  the honesty never depends on.** The optional tool logos are OFF by default; the
-  neutral `◆`/`▲` text floor is emitted **unconditionally** (so xbar, or a
-  template-image that can't render, still names the tool — a logo is never the sole
-  carrier of an identity). The asset is a passive **local `node:fs`** read (no
-  network, no `import()`, no eval), resolved via `import.meta.url` so it works under
-  the wrapper/symlink, read **only** when opted in, reaching the line only as a
-  passive base64 `templateImage=`. Bundled brand marks must be small monochrome
-  local template images with source/license/trademark notes in the asset
-  `LICENSE.md`; Codex uses the OpenAI mark because Codex is an OpenAI product.
-  Size single-tool marks for the status bar (currently 16x16), and when SwiftBar
-  side-by-side needs multiple tool logos on one title line, use one paired local
-  image in the same order as the text floor because SwiftBar provides one image
-  slot per title line. Do not add a first-use fetch or runtime logo download —
-  the code's honesty invariants hold only when the neutral floor and local-only
-  read stay structural.
+- **A brand / third-party visual asset is opt-in, with a guaranteed neutral
+  fallback the honesty never depends on.** The optional tool logos are OFF by
+  default; the neutral `◆`/`▲` text marks are the guaranteed fallback identity
+  floor for xbar, non-SwiftBar output, and any logo read/decode/encode failure.
+  In successful SwiftBar logo mode, the logo is a true drop-in replacement for
+  those visible marks: generate the same-color local image first, then strip the
+  text mark from the title only after image generation succeeds. The asset is a
+  passive **local `node:fs`** read (no network, no `import()`, no eval), resolved
+  via `import.meta.url` so it works under the wrapper/symlink, read **only** when
+  opted in, and emitted as passive base64 image data. Bundled brand marks must be
+  small monochrome local source images with source/license/trademark notes in the
+  asset `LICENSE.md`; Codex uses the OpenAI mark because Codex is an OpenAI
+  product. Size single-tool marks for the status bar (currently 16x16), and when
+  SwiftBar side-by-side needs multiple tool logos on one title line, use one
+  paired local image in the same order as the text fallback because SwiftBar
+  provides one image slot per title line. Do not add a first-use fetch or runtime
+  logo download — the code's honesty invariants hold only when the fallback text
+  identity and local-only read stay structural.
 
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
