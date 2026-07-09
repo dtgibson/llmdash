@@ -1345,22 +1345,25 @@ export function logoImageBase64ForCells(cells, color, options = {}) {
 }
 
 const TITLE_IMAGE_HEIGHT = 16;
-const TITLE_IMAGE_SCALE = 2;
+const TITLE_IMAGE_SUPERSAMPLE = 4;
+const TITLE_TEXT_CELL_HI = 5; // 1.25 final pixels per bitmap-font cell.
+const TITLE_TEXT_GAP_HI = 4;  // 1 final pixel between characters.
 const TITLE_TOOL_ORDER = { 'claude-code': 0, codex: 1 };
 const TITLE_FONT = {
-  '0': ['11111', '10001', '10011', '10101', '11001', '10001', '11111'],
-  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-  '2': ['11110', '00001', '00001', '11110', '10000', '10000', '11111'],
-  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
-  '4': ['10010', '10010', '10010', '11111', '00010', '00010', '00010'],
-  '5': ['11111', '10000', '10000', '11110', '00001', '00001', '11110'],
-  '6': ['01111', '10000', '10000', '11110', '10001', '10001', '01110'],
-  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
-  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
-  '9': ['01110', '10001', '10001', '01111', '00001', '00001', '11110'],
-  '/': ['00001', '00010', '00010', '00100', '01000', '01000', '10000'],
-  '-': ['00000', '00000', '00000', '11111', '00000', '00000', '00000'],
+  '0': ['011110', '100001', '100011', '100101', '101001', '110001', '100001', '100001', '011110'],
+  '1': ['0010', '0110', '1010', '0010', '0010', '0010', '0010', '0010', '1111'],
+  '2': ['111110', '000001', '000001', '000010', '001100', '010000', '100000', '100000', '111111'],
+  '3': ['111110', '000001', '000001', '000010', '011100', '000010', '000001', '000001', '111110'],
+  '4': ['100010', '100010', '100010', '100010', '111111', '000010', '000010', '000010', '000010'],
+  '5': ['111111', '100000', '100000', '100000', '111110', '000001', '000001', '000001', '111110'],
+  '6': ['011111', '100000', '100000', '100000', '111110', '100001', '100001', '100001', '011110'],
+  '7': ['111111', '000001', '000010', '000100', '001000', '001000', '010000', '010000', '010000'],
+  '8': ['011110', '100001', '100001', '100001', '011110', '100001', '100001', '100001', '011110'],
+  '9': ['011110', '100001', '100001', '100001', '011111', '000001', '000001', '000001', '111110'],
+  '/': ['00001', '00001', '00010', '00010', '00100', '01000', '01000', '10000', '10000'],
+  '-': ['00000', '00000', '00000', '00000', '11111', '00000', '00000', '00000', '00000'],
 };
+const TITLE_FONT_HEIGHT = Math.max(...Object.values(TITLE_FONT).map((g) => g.length));
 
 function titleToolOrder(source) {
   return Object.prototype.hasOwnProperty.call(TITLE_TOOL_ORDER, source) ? TITLE_TOOL_ORDER[source] : 99;
@@ -1379,12 +1382,12 @@ function titleWindowText(cell) {
   return `${fmt(windows.five_hour)}/${fmt(windows.seven_day)}`;
 }
 
-function measureTitleText(text, scale = TITLE_IMAGE_SCALE) {
+function measureTitleTextHi(text) {
   let w = 0;
   for (const ch of String(text)) {
     const glyph = TITLE_FONT[ch] || TITLE_FONT['-'];
-    if (w > 0) w += scale;
-    w += glyph[0].length * scale;
+    if (w > 0) w += TITLE_TEXT_GAP_HI;
+    w += glyph[0].length * TITLE_TEXT_CELL_HI;
   }
   return w;
 }
@@ -1404,18 +1407,61 @@ function drawRect(rgba, width, height, x, y, w, h, rgb, alpha = 255) {
   }
 }
 
-function drawTitleText(rgba, width, height, x, y, text, rgb, scale = TITLE_IMAGE_SCALE) {
+function downsampleRgba(src, widthHi, heightHi, scale = TITLE_IMAGE_SUPERSAMPLE) {
+  const width = Math.ceil(widthHi / scale);
+  const height = Math.ceil(heightHi / scale);
+  const out = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let aSum = 0;
+      let rSum = 0;
+      let gSum = 0;
+      let bSum = 0;
+      for (let yy = 0; yy < scale; yy += 1) {
+        for (let xx = 0; xx < scale; xx += 1) {
+          const sx = x * scale + xx;
+          const sy = y * scale + yy;
+          if (sx >= widthHi || sy >= heightHi) continue;
+          const si = (sy * widthHi + sx) * 4;
+          const a = src[si + 3];
+          aSum += a;
+          rSum += src[si] * a;
+          gSum += src[si + 1] * a;
+          bSum += src[si + 2] * a;
+        }
+      }
+      const di = (y * width + x) * 4;
+      const alpha = Math.round(aSum / (scale * scale));
+      out[di + 3] = alpha;
+      if (aSum > 0) {
+        out[di] = Math.round(rSum / aSum);
+        out[di + 1] = Math.round(gSum / aSum);
+        out[di + 2] = Math.round(bSum / aSum);
+      }
+    }
+  }
+  return { width, height, rgba: out };
+}
+
+function drawTitleTextHi(rgba, width, height, x, y, text, rgb) {
   let cx = x;
   for (const ch of String(text)) {
     const glyph = TITLE_FONT[ch] || TITLE_FONT['-'];
     for (let gy = 0; gy < glyph.length; gy += 1) {
       for (let gx = 0; gx < glyph[gy].length; gx += 1) {
         if (glyph[gy][gx] === '1') {
-          drawRect(rgba, width, height, cx + gx * scale, y + gy * scale, scale, scale, rgb);
+          drawRect(
+            rgba, width, height,
+            cx + gx * TITLE_TEXT_CELL_HI,
+            y + gy * TITLE_TEXT_CELL_HI,
+            TITLE_TEXT_CELL_HI,
+            TITLE_TEXT_CELL_HI,
+            rgb,
+          );
         }
       }
     }
-    cx += glyph[0].length * scale + scale;
+    cx += glyph[0].length * TITLE_TEXT_CELL_HI + TITLE_TEXT_GAP_HI;
   }
 }
 
@@ -1430,13 +1476,13 @@ function readLogoRgba(source, { read = _readFileSync } = {}) {
   }
 }
 
-function drawLogo(rgba, width, height, x, y, logo, rgb) {
+function drawLogoHi(rgba, width, height, x, y, logo, rgb, scale = TITLE_IMAGE_SUPERSAMPLE) {
   if (!logo) return;
   for (let yy = 0; yy < logo.height; yy += 1) {
     for (let xx = 0; xx < logo.width; xx += 1) {
       const src = (yy * logo.width + xx) * 4;
       const a = logo.rgba[src + 3];
-      if (a > 0) drawPixel(rgba, width, height, x + xx, y + yy, rgb, a);
+      if (a > 0) drawRect(rgba, width, height, x + xx * scale, y + yy * scale, scale, scale, rgb, a);
     }
   }
 }
@@ -1454,31 +1500,36 @@ export function logoTitleImageBase64ForView(view, options = {}) {
     return null;
   }
   const parts = cells.map((c, i) => ({ cell: c, logo: logos[i], text: titleWindowText(c) }));
-  const markW = 6;
+  const scale = TITLE_IMAGE_SUPERSAMPLE;
+  const markW = 5;
   const gapAfterMark = 4;
   const gapLogoText = 3;
   const gapTools = 7;
   const padding = 1;
-  let width = padding + markW + gapAfterMark;
+  let widthHi = (padding + markW + gapAfterMark) * scale;
   for (let i = 0; i < parts.length; i += 1) {
-    width += parts[i].logo.width + gapLogoText + measureTitleText(parts[i].text);
-    if (i < parts.length - 1) width += gapTools;
+    widthHi += (parts[i].logo.width + gapLogoText) * scale + measureTitleTextHi(parts[i].text);
+    if (i < parts.length - 1) widthHi += gapTools * scale;
   }
-  width += padding;
+  widthHi += padding * scale;
   const height = TITLE_IMAGE_HEIGHT;
-  const rgba = Buffer.alloc(width * height * 4);
-  let x = padding;
-  drawRect(rgba, width, height, x, 5, markW, markW, rgb);
-  x += markW + gapAfterMark;
+  const heightHi = height * scale;
+  const finalWidth = Math.ceil(widthHi / scale);
+  const rgbaHi = Buffer.alloc(finalWidth * scale * heightHi * 4);
+  let xHi = padding * scale;
+  drawRect(rgbaHi, finalWidth * scale, heightHi, xHi, Math.round((height - markW) * scale / 2), markW * scale, markW * scale, rgb);
+  xHi += (markW + gapAfterMark) * scale;
+  const textHeightHi = TITLE_FONT_HEIGHT * TITLE_TEXT_CELL_HI;
+  const textYHi = Math.round((heightHi - textHeightHi) / 2);
   for (let i = 0; i < parts.length; i += 1) {
     const logo = parts[i].logo;
-    drawLogo(rgba, width, height, x, Math.floor((height - logo.height) / 2), logo, rgb);
-    x += logo.width + gapLogoText;
-    drawTitleText(rgba, width, height, x, 1, parts[i].text, rgb);
-    x += measureTitleText(parts[i].text);
-    if (i < parts.length - 1) x += gapTools;
+    drawLogoHi(rgbaHi, finalWidth * scale, heightHi, xHi, Math.floor((height - logo.height) * scale / 2), logo, rgb, scale);
+    xHi += (logo.width + gapLogoText) * scale;
+    drawTitleTextHi(rgbaHi, finalWidth * scale, heightHi, xHi, textYHi, parts[i].text, rgb);
+    xHi += measureTitleTextHi(parts[i].text);
+    if (i < parts.length - 1) xHi += gapTools * scale;
   }
-  const b64 = encodeRgbaPng({ width, height, rgba }).toString('base64');
+  const b64 = encodeRgbaPng(downsampleRgba(rgbaHi, finalWidth * scale, heightHi, scale)).toString('base64');
   _logoTitleCache.set(key, b64);
   return b64;
 }

@@ -76,6 +76,32 @@ function firstVisibleRgb(buf) {
   }
   return null;
 }
+function alphaStats(buf) {
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  const idats = [];
+  for (let off = 8; off + 12 <= buf.length;) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.toString('ascii', off + 4, off + 8);
+    if (type === 'IDAT') idats.push(buf.subarray(off + 8, off + 8 + len));
+    off += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idats));
+  const stride = width * 4;
+  let pos = 0;
+  let partial = 0;
+  let opaque = 0;
+  for (let y = 0; y < height; y += 1) {
+    assert.equal(raw[pos++], 0, 'generated title images use filter 0');
+    for (let x = 0; x < stride; x += 4) {
+      pos += 3;
+      const a = raw[pos++];
+      if (a > 0 && a < 255) partial += 1;
+      else if (a === 255) opaque += 1;
+    }
+  }
+  return { partial, opaque };
+}
 function preSeparatorLines(out) {
   const lines = out.split('\n');
   const i = lines.indexOf('---');
@@ -378,6 +404,8 @@ test('toolMark=logo: tool side-by-side renders one ordered title image with both
   assert.notEqual(imageBuffer(sb).toString('base64'), logoImageBase64ForCells(view.cells, view.color));
   assert.equal(pngDims(imageBuffer(sb)).height, 16);
   assert.ok(pngDims(imageBuffer(sb)).width > 100, 'composite title contains mark, logos, and both window pairs');
+  assert.ok(pngDims(imageBuffer(sb)).width < 155, 'composite title stays close to native menu-bar text width');
+  assert.ok(alphaStats(imageBuffer(sb)).partial > 300, 'composite title text is antialiased, not hard-edged block pixels');
   assert.deepEqual(firstVisibleRgb(imageBuffer(sb)), [255, 107, 107]);
 });
 
