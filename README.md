@@ -324,8 +324,9 @@ point, then fine-tune any axis underneath:
   status-bar glyph.
 - **Tool marks** — **Neutral** (the default `◆` / `▲` glyphs) or **Logos** (opt-in
   product marks, SwiftBar only). Logos replace the tool glyphs when they render;
-  side-by-side logo mode uses one paired image because SwiftBar gives each title
-  line one image slot. See the fair-use note below.
+  the Claude-vs-Codex side-by-side logo preset renders one compact title image so
+  the order stays `▪`, Claude logo, Claude 5-hour/weekly, Codex logo, Codex
+  5-hour/weekly. See the fair-use note below.
 
 A **🛈 Legend — what the marks mean** submenu (also in both modes) spells out every
 symbol the badge can show — the `▪` llmdash mark, separators, binding-host marker,
@@ -349,9 +350,11 @@ The glyph and the submenu's `✓` marks update on the **next render** — no res
 **Tool logos (opt-in, off by default) — the fair-use posture.** Turning on
 **Tool marks → Logos** swaps the visible `◆` / `▲` tool glyphs for same-color
 logo art in the status-bar title, **SwiftBar only**. Single-tool glyphs use 16x16
-local images. Side-by-side Claude/Codex glyphs use one paired 34x16 image in the
-same order as the text cells, because SwiftBar exposes one image slot per title
-line rather than arbitrary inline images. The neutral `◆` / `▲` glyph is the
+local images. The Claude-vs-Codex side-by-side logo preset uses one generated
+compact title image containing `▪`, the Claude logo, Claude's 5-hour/weekly
+remaining pair, the Codex logo, and Codex's 5-hour/weekly remaining pair, because
+SwiftBar exposes one image slot per title line rather than arbitrary inline
+images. The neutral `◆` / `▲` glyph is the
 guaranteed fallback: on xbar, or if the image can't render, the badge still names
 the tool. The repo bundles small local template-image marks under
 `scripts/menubar/assets/`: Claude uses the Claude symbol, and Codex uses the

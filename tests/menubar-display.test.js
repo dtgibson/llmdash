@@ -8,7 +8,7 @@ import {
   computeMultiBadge, computeBadge, emit, emitMulti,
   applyDisplay, emitDisplay, displayFromConfig, isDefaultDisplay,
   displayActionLines, legendLines, DISPLAY_PRESETS, SIDE_BY_SIDE_CAP, ROTATE_MS,
-  toolAggregates, growPrefixCues, compactCell, logoBase64, logoBase64ForCells, logoImageBase64ForCells, _resetLogoCache, isSwiftBar,
+  toolAggregates, growPrefixCues, compactCell, logoBase64, logoBase64ForCells, logoImageBase64ForCells, logoTitleImageBase64ForView, _resetLogoCache, isSwiftBar,
   remotesFromCombined, TOOL_MARK,
 } from '../scripts/menubar/llmdash.5s.js';
 
@@ -280,8 +280,10 @@ test('toolAggregates: per-tool min-remaining across selected hosts, tightest-win
   // Desktop(63/70) = 61 (Laptop weekly). Binding-first (12 < 61).
   assert.equal(cells[0].mark, TOOL_MARK.claude);
   assert.equal(cells[0].pct, 12);
+  assert.deepEqual(cells[0].windows, { five_hour: 12, seven_day: 38 });
   assert.equal(cells[1].mark, TOOL_MARK.codex);
   assert.equal(cells[1].pct, 61);
+  assert.deepEqual(cells[1].windows, { five_hour: 63, seven_day: 61 });
 });
 
 test('a tool with NO reading on any selected host ⇒ — (never a fabricated zero)', () => {
@@ -357,17 +359,25 @@ test('toolMark=logo: SwiftBar logo replaces the visible glyph and matches the ti
   assert.deepEqual(firstVisibleRgb(imageBuffer(sb)), [255, 107, 107]);
 });
 
-test('toolMark=logo: tool side-by-side uses a paired color image instead of ◆/▲ text', () => {
+test('toolMark=logo: tool side-by-side renders one ordered title image with both windows per tool', () => {
   _resetLogoCache();
   const c = fleet();
   const multi = computeMultiBadge(c);
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact', toolMark: 'logo' }, { epochMs: 0 });
   const sb = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: { SWIFTBAR: '1' } }));
-  assert.match(sb, /^▪ 12 61 \| color=#ff6b6b image=[A-Za-z0-9+/=]+$/);
+  assert.match(sb, /^\u200b \| color=#ff6b6b image=[A-Za-z0-9+/=]+$/u);
   assert.doesNotMatch(sb, /[◆▲]/);
-  assert.equal(imageBuffer(sb).toString('base64'), logoImageBase64ForCells(view.cells, view.color));
+  assert.doesNotMatch(sb, /12 61/);
+  assert.equal(imageBuffer(sb).toString('base64'), logoTitleImageBase64ForView(view));
+  assert.equal(
+    logoTitleImageBase64ForView({ ...view, cells: [...view.cells].reverse() }),
+    logoTitleImageBase64ForView(view),
+    'side-by-side logo title is fixed Claude then Codex, not binding-order dependent',
+  );
   assert.notEqual(imageBuffer(sb).toString('base64'), logoBase64ForCells(view.cells));
-  assert.deepEqual(pngDims(imageBuffer(sb)), { width: 34, height: 16 });
+  assert.notEqual(imageBuffer(sb).toString('base64'), logoImageBase64ForCells(view.cells, view.color));
+  assert.equal(pngDims(imageBuffer(sb)).height, 16);
+  assert.ok(pngDims(imageBuffer(sb)).width > 100, 'composite title contains mark, logos, and both window pairs');
   assert.deepEqual(firstVisibleRgb(imageBuffer(sb)), [255, 107, 107]);
 });
 

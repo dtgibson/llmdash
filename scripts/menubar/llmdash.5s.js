@@ -924,6 +924,7 @@ const AGG_TOOLS = [
 export function toolAggregates(shownViews) {
   const cells = AGG_TOOLS.map(({ source, match }) => {
     let best = null;          // { pct, band } — the tightest window with a reading
+    const windows = Object.fromEntries(WINDOWS.map(([key]) => [key, null]));
     let anyTracks = false;    // did any shown host even have this tool's block?
     let anyReachable = false; // is any host that tracks this tool reachable (has a badge)?
     for (const v of shownViews) {
@@ -932,8 +933,13 @@ export function toolAggregates(shownViews) {
         if (!match(tv.source)) continue;
         anyTracks = true;
         anyReachable = true;
-        for (const row of tv.rows) {
+        for (let i = 0; i < tv.rows.length; i += 1) {
+          const row = tv.rows[i];
           if (row.remaining == null) continue;
+          const key = WINDOWS[i] && WINDOWS[i][0];
+          if (key && (windows[key] == null || row.remaining < windows[key])) {
+            windows[key] = row.remaining;
+          }
           const band = tv.band || 'fresh'; // Codex has no freshness band → treat as fresh
           if (best == null || row.remaining < best.pct) best = { pct: row.remaining, band };
         }
@@ -942,7 +948,7 @@ export function toolAggregates(shownViews) {
     const mark = toolMark(source);
     if (best) {
       const state = best.band === 'stale' ? 'stale' : best.band === 'aging' ? 'aging' : 'fresh';
-      return { source, mark, state, pct: best.pct };
+      return { source, mark, state, pct: best.pct, windows };
     }
     // No reading for this tool across the selected hosts. Offline only when a host
     // TRACKS the tool but none are reachable; otherwise honest no-reading (—).
@@ -950,7 +956,7 @@ export function toolAggregates(shownViews) {
     // host with this tool block is present at all → no-reading. All-offline is
     // detected when the shown set has hosts but none carry a badge (below).
     void anyTracks; void anyReachable;
-    return { source, mark, state: 'no-reading', pct: null };
+    return { source, mark, state: 'no-reading', pct: null, windows };
   });
   // All-offline detection: if EVERY shown host is unreachable/no-badge, both tool
   // aggregates read offline (⊘) rather than no-reading (—). A shown set with at
@@ -958,7 +964,7 @@ export function toolAggregates(shownViews) {
   // just not for that tool).
   const anyBadge = shownViews.some((v) => v.badge);
   if (!anyBadge && shownViews.length) {
-    for (const c of cells) { c.state = 'offline'; c.pct = null; }
+    for (const c of cells) { c.state = 'offline'; c.pct = null; c.windows = Object.fromEntries(WINDOWS.map(([key]) => [key, null])); }
   }
   // Binding-first: the tighter-remaining aggregate first. A no-reading/offline
   // cell sorts AFTER a cell with a reading (it has no pct to bind on).
@@ -1047,7 +1053,9 @@ export function applyDisplay(multi, display, { epochMs = Date.now() } = {}) {
       const filtered = allViews.filter((v) => selected.has(v.addr));
       aggShown = filtered.length ? filtered : allViews;
     }
-    units = toolAggregates(aggShown).map((c) => ({ state: c.state, pct: c.pct, cue: '', mark: c.mark }));
+    units = toolAggregates(aggShown).map((c) => ({
+      source: c.source, state: c.state, pct: c.pct, windows: c.windows, cue: '', mark: c.mark,
+    }));
   } else {
     // Per-host: each unit a host, cued by the grow-prefix host cue (multi layouts).
     // Cues are position-indexed (two hosts can share a label — index, don't key).
@@ -1089,20 +1097,21 @@ export function applyDisplay(multi, display, { epochMs = Date.now() } = {}) {
   const showHostCue = d.group === 'host'
     && (effectiveLayout === 'side-by-side' || effectiveLayout === 'alternating');
   const cells = picked.map((u) => {
+    const keepMeta = (cell) => ({ ...cell, source: u.source, windows: u.windows });
     if (d.density === 'compact') {
       // Compact: host cue tight against the number in multi layouts; tool mark
       // leads in aggregate mode; single compact drops the host cue entirely.
       const cue = showHostCue ? (u._cue || '') : '';
-      return compactCell({ state: u.state, pct: u.pct, cue, mark: u.mark });
+      return keepMeta(compactCell({ state: u.state, pct: u.pct, cue, mark: u.mark }));
     }
     // Wide density in a multi layout: reuse the shipped truncateHostCue form for a
     // host cue; tool mark leads in aggregate mode. (Single wide default routes to
     // the shipped emit path — this handles wide + non-default group/hosts.)
     if (showHostCue && u._view) {
       const hc = truncateHostCue(u._view.label);
-      return wideCell({ state: u.state, pct: u.pct, cue: hc, mark: u._view.badge ? u._view.badge.cue : '' });
+      return keepMeta(wideCell({ state: u.state, pct: u.pct, cue: hc, mark: u._view.badge ? u._view.badge.cue : '' }));
     }
-    return wideCell({ state: u.state, pct: u.pct, cue: '', mark: u.mark || (u._view && u._view.badge ? u._view.badge.cue : '') });
+    return keepMeta(wideCell({ state: u.state, pct: u.pct, cue: '', mark: u.mark || (u._view && u._view.badge ? u._view.badge.cue : '') }));
   });
 
   // The line's single color = the BINDING (first) cell's (one color per SwiftBar
@@ -1157,6 +1166,7 @@ const LOGO_PAIR_ASSET = {
 const MARK_TO_LOGO_SOURCE = { [TOOL_MARK.claude]: 'claude-code', [TOOL_MARK.codex]: 'codex' };
 const _logoCache = new Map(); // asset filename → base64 | null (per-process)
 const _logoImageCache = new Map(); // asset filename + color → base64 | null
+const _logoTitleCache = new Map(); // title spec + color → base64 | null
 function logoAssetBase64(name, { read = _readFileSync } = {}) {
   if (!name) return null;
   if (_logoCache.has(name)) return _logoCache.get(name);
@@ -1334,6 +1344,145 @@ export function logoImageBase64ForCells(cells, color, options = {}) {
   return logoColorAssetBase64(logoAssetNameForCells(cells), color, options);
 }
 
+const TITLE_IMAGE_HEIGHT = 16;
+const TITLE_IMAGE_SCALE = 2;
+const TITLE_TOOL_ORDER = { 'claude-code': 0, codex: 1 };
+const TITLE_FONT = {
+  '0': ['11111', '10001', '10011', '10101', '11001', '10001', '11111'],
+  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  '2': ['11110', '00001', '00001', '11110', '10000', '10000', '11111'],
+  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  '4': ['10010', '10010', '10010', '11111', '00010', '00010', '00010'],
+  '5': ['11111', '10000', '10000', '11110', '00001', '00001', '11110'],
+  '6': ['01111', '10000', '10000', '11110', '10001', '10001', '01110'],
+  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  '9': ['01110', '10001', '10001', '01111', '00001', '00001', '11110'],
+  '/': ['00001', '00010', '00010', '00100', '01000', '01000', '10000'],
+  '-': ['00000', '00000', '00000', '11111', '00000', '00000', '00000'],
+};
+
+function titleToolOrder(source) {
+  return Object.prototype.hasOwnProperty.call(TITLE_TOOL_ORDER, source) ? TITLE_TOOL_ORDER[source] : 99;
+}
+
+function titleToolCells(cells) {
+  return (Array.isArray(cells) ? cells : [])
+    .map((cell) => ({ ...cell, source: cell.source || MARK_TO_LOGO_SOURCE[cell.mark] || '' }))
+    .filter((cell) => cell.source && MARK_TO_LOGO_SOURCE[cell.mark])
+    .sort((a, b) => titleToolOrder(a.source) - titleToolOrder(b.source));
+}
+
+function titleWindowText(cell) {
+  const windows = cell && cell.windows ? cell.windows : {};
+  const fmt = (v) => Number.isFinite(v) ? String(v) : '-';
+  return `${fmt(windows.five_hour)}/${fmt(windows.seven_day)}`;
+}
+
+function measureTitleText(text, scale = TITLE_IMAGE_SCALE) {
+  let w = 0;
+  for (const ch of String(text)) {
+    const glyph = TITLE_FONT[ch] || TITLE_FONT['-'];
+    if (w > 0) w += scale;
+    w += glyph[0].length * scale;
+  }
+  return w;
+}
+
+function drawPixel(rgba, width, height, x, y, rgb, alpha = 255) {
+  if (x < 0 || y < 0 || x >= width || y >= height) return;
+  const i = (y * width + x) * 4;
+  rgba[i] = rgb[0];
+  rgba[i + 1] = rgb[1];
+  rgba[i + 2] = rgb[2];
+  rgba[i + 3] = alpha;
+}
+
+function drawRect(rgba, width, height, x, y, w, h, rgb, alpha = 255) {
+  for (let yy = y; yy < y + h; yy += 1) {
+    for (let xx = x; xx < x + w; xx += 1) drawPixel(rgba, width, height, xx, yy, rgb, alpha);
+  }
+}
+
+function drawTitleText(rgba, width, height, x, y, text, rgb, scale = TITLE_IMAGE_SCALE) {
+  let cx = x;
+  for (const ch of String(text)) {
+    const glyph = TITLE_FONT[ch] || TITLE_FONT['-'];
+    for (let gy = 0; gy < glyph.length; gy += 1) {
+      for (let gx = 0; gx < glyph[gy].length; gx += 1) {
+        if (glyph[gy][gx] === '1') {
+          drawRect(rgba, width, height, cx + gx * scale, y + gy * scale, scale, scale, rgb);
+        }
+      }
+    }
+    cx += glyph[0].length * scale + scale;
+  }
+}
+
+function readLogoRgba(source, { read = _readFileSync } = {}) {
+  const name = LOGO_ASSET[source];
+  if (!name) return null;
+  try {
+    const url = new URL(`./assets/${name}`, import.meta.url);
+    return decodeRgbaPng(read(url));
+  } catch {
+    return null;
+  }
+}
+
+function drawLogo(rgba, width, height, x, y, logo, rgb) {
+  if (!logo) return;
+  for (let yy = 0; yy < logo.height; yy += 1) {
+    for (let xx = 0; xx < logo.width; xx += 1) {
+      const src = (yy * logo.width + xx) * 4;
+      const a = logo.rgba[src + 3];
+      if (a > 0) drawPixel(rgba, width, height, x + xx, y + yy, rgb, a);
+    }
+  }
+}
+
+export function logoTitleImageBase64ForView(view, options = {}) {
+  if (!view || view.group !== 'tool' || view.layout !== 'side-by-side' || view.density !== 'compact') return null;
+  const rgb = parseHexColor(view.color);
+  const cells = titleToolCells(view.cells);
+  if (!rgb || cells.length < 2) return null;
+  const key = `${view.color}|${cells.map((c) => `${c.source}:${titleWindowText(c)}`).join('|')}`;
+  if (_logoTitleCache.has(key)) return _logoTitleCache.get(key);
+  const logos = cells.map((c) => readLogoRgba(c.source, options));
+  if (logos.some((l) => !l)) {
+    _logoTitleCache.set(key, null);
+    return null;
+  }
+  const parts = cells.map((c, i) => ({ cell: c, logo: logos[i], text: titleWindowText(c) }));
+  const markW = 6;
+  const gapAfterMark = 4;
+  const gapLogoText = 3;
+  const gapTools = 7;
+  const padding = 1;
+  let width = padding + markW + gapAfterMark;
+  for (let i = 0; i < parts.length; i += 1) {
+    width += parts[i].logo.width + gapLogoText + measureTitleText(parts[i].text);
+    if (i < parts.length - 1) width += gapTools;
+  }
+  width += padding;
+  const height = TITLE_IMAGE_HEIGHT;
+  const rgba = Buffer.alloc(width * height * 4);
+  let x = padding;
+  drawRect(rgba, width, height, x, 5, markW, markW, rgb);
+  x += markW + gapAfterMark;
+  for (let i = 0; i < parts.length; i += 1) {
+    const logo = parts[i].logo;
+    drawLogo(rgba, width, height, x, Math.floor((height - logo.height) / 2), logo, rgb);
+    x += logo.width + gapLogoText;
+    drawTitleText(rgba, width, height, x, 1, parts[i].text, rgb);
+    x += measureTitleText(parts[i].text);
+    if (i < parts.length - 1) x += gapTools;
+  }
+  const b64 = encodeRgbaPng({ width, height, rgba }).toString('base64');
+  _logoTitleCache.set(key, b64);
+  return b64;
+}
+
 function textWithoutToolMark(cell) {
   const text = String(cell && cell.text ? cell.text : '');
   const mark = cell && cell.mark;
@@ -1346,6 +1495,7 @@ function textWithoutToolMark(cell) {
 export function _resetLogoCache() {
   _logoCache.clear();
   _logoImageCache.clear();
+  _logoTitleCache.clear();
 }
 
 // Is the menu-bar host SwiftBar? SwiftBar sets SWIFTBAR / SWIFTBAR_VERSION in the
@@ -1362,8 +1512,17 @@ export function isSwiftBar(env = process.env) {
 // visible ◆/▲ text only after the colored image has been generated successfully.
 export function emitDisplay(view, multi, { host = HOST, port = PORT, remotes = [], serviceState = 'not-installed', env = process.env } = {}) {
   let logoB64 = null;
-  if (view.toolMark === 'logo' && isSwiftBar(env) && view.group === 'tool') {
+  let logoTitleB64 = null;
+  const swiftBarLogoTool = view.toolMark === 'logo' && isSwiftBar(env) && view.group === 'tool';
+  const compositeLogoTitle = swiftBarLogoTool && view.layout === 'side-by-side' && view.density === 'compact';
+  if (compositeLogoTitle) {
+    logoTitleB64 = logoTitleImageBase64ForView(view);
+  } else if (swiftBarLogoTool) {
     logoB64 = logoImageBase64ForCells(view.cells, view.color);
+  }
+  if (logoTitleB64) {
+    const title = `${String.fromCharCode(8203)} | color=${view.color} image=${logoTitleB64}`;
+    return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState, view.display)].join('\n');
   }
   const parts = view.cells.map((c) => logoB64 ? textWithoutToolMark(c) : c.text);
   if (view.more > 0) parts.push(`+${view.more}`);
@@ -1499,7 +1658,7 @@ export function legendLines() {
     '-----',
     submenuLine('Tool', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('◆ — Claude Code.', { color: COLOR_DROPDOWN_TEXT }),
-    submenuLine('▲ — Codex. Logos replace these marks in SwiftBar; side-by-side uses a paired mark.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('▲ — Codex. Logos replace these marks in SwiftBar; side-by-side logo mode shows each tool as 5-hour/weekly.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
     submenuLine('Multi-host', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('St12 — host cue plus % in compact side-by-side mode.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),

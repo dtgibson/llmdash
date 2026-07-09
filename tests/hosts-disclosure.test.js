@@ -175,7 +175,7 @@ test('README documents the display axes, per-tool aggregate, tool marks, Legend,
   assert.match(readme, /OpenAI\s+blossom mark/);
   assert.match(readme, /Logos replace the tool glyphs/i);
   assert.match(readme, /same-color\s+logo art/i);
-  assert.match(readme, /paired 34x16 image/);
+  assert.match(readme, /Claude.*5-hour\/weekly.*Codex.*5-hour\/weekly/is);
   assert.match(readme, /one image slot per title\s+line/);
   assert.match(readme, /never\s+fetches logo art/i);
   // The Legend.

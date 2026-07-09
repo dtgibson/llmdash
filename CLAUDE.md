@@ -295,12 +295,13 @@
   opted in, and emitted as passive base64 image data. Bundled brand marks must be
   small monochrome local source images with source/license/trademark notes in the
   asset `LICENSE.md`; Codex uses the OpenAI mark because Codex is an OpenAI
-  product. Size single-tool marks for the status bar (currently 16x16), and when
-  SwiftBar side-by-side needs multiple tool logos on one title line, use one
-  paired local image in the same order as the text fallback because SwiftBar
-  provides one image slot per title line. Do not add a first-use fetch or runtime
-  logo download — the code's honesty invariants hold only when the fallback text
-  identity and local-only read stay structural.
+  product. Size single-tool marks for the status bar (currently 16x16). When
+  SwiftBar side-by-side needs multiple tool logos plus values on one title line,
+  compose the full compact title as one local PNG image because SwiftBar's single
+  title image slot is not inline; keep the visible order as `▪`, Claude logo,
+  Claude 5-hour/weekly, Codex logo, Codex 5-hour/weekly. Do not add a first-use
+  fetch or runtime logo download — the code's honesty invariants hold only when
+  the fallback text identity and local-only read stay structural.
 
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`

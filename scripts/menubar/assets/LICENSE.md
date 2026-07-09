@@ -4,11 +4,14 @@
 PNG template images. The badge recolors them to the current title color and emits
 the result with SwiftBar's `image=` parameter.
 
+SwiftBar provides one image slot per menu item line. In the Claude-vs-Codex
+side-by-side logo preset, the badge composes one title image at render time from
+the local marks plus the current 5-hour/weekly numbers so the visible order stays
+`▪`, Claude logo, Claude numbers, Codex logo, Codex numbers.
+
 `claude-codex-mark.png` and `codex-claude-mark.png` are paired 34x16 template
-images built from the same two marks. They are used when SwiftBar's side-by-side
-tool mode needs both logos on one title line. SwiftBar provides one image slot
-per menu item line, so the pair is a single image that matches the text cell
-order.
+images built from the same two marks and retained with the source set for compact
+paired-logo uses.
 
 ## Sources
 
