@@ -1,8 +1,8 @@
 # Menu-bar badge tool-mark assets
 
 `claude-mark.png` and `codex-mark.png` are bundled monochrome 16x16 transparent
-PNG template images for SwiftBar's `templateImage=` parameter. SwiftBar tints
-template images to the menu-bar foreground color.
+PNG template images. The badge recolors them to the current title color and emits
+the result with SwiftBar's `image=` parameter.
 
 `claude-codex-mark.png` and `codex-claude-mark.png` are paired 34x16 template
 images built from the same two marks. They are used when SwiftBar's side-by-side
@@ -30,8 +30,9 @@ Source pages:
 
 These marks are off by default and appear only when the user chooses **Tool marks
 -> Logos** in the menu-bar Display submenu. The neutral text glyphs (`◆` for
-Claude and `▲` for Codex) are always emitted too, so a logo is never the sole
-carrier of a reading or tool identity.
+Claude and `▲` for Codex) remain the fallback for xbar, non-SwiftBar hosts, or an
+image-render failure, so a logo is never the only available carrier of a reading
+or tool identity.
 
 The intended use is nominative: small, monochrome, local, opt-in, and not implying
 endorsement by Anthropic or OpenAI. The logos may still be protected as trademarks

@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
   computeMultiBadge, computeBadge, emit, emitMulti,
   applyDisplay, emitDisplay, displayFromConfig, isDefaultDisplay,
   displayActionLines, legendLines, DISPLAY_PRESETS, SIDE_BY_SIDE_CAP, ROTATE_MS,
-  toolAggregates, growPrefixCues, compactCell, logoBase64, logoBase64ForCells, _resetLogoCache, isSwiftBar,
+  toolAggregates, growPrefixCues, compactCell, logoBase64, logoBase64ForCells, logoImageBase64ForCells, _resetLogoCache, isSwiftBar,
   remotesFromCombined, TOOL_MARK,
 } from '../scripts/menubar/llmdash.5s.js';
 
@@ -43,8 +44,37 @@ function templateImageBuffer(line) {
   const m = line.match(/templateImage=([A-Za-z0-9+/=]+)/);
   return m ? Buffer.from(m[1], 'base64') : null;
 }
+function imageBuffer(line) {
+  const m = line.match(/(?:^| )image=([A-Za-z0-9+/=]+)/);
+  return m ? Buffer.from(m[1], 'base64') : null;
+}
 function pngDims(buf) {
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+function firstVisibleRgb(buf) {
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  const idats = [];
+  for (let off = 8; off + 12 <= buf.length;) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.toString('ascii', off + 4, off + 8);
+    if (type === 'IDAT') idats.push(buf.subarray(off + 8, off + 8 + len));
+    off += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idats));
+  const stride = width * 4;
+  let pos = 0;
+  for (let y = 0; y < height; y += 1) {
+    assert.equal(raw[pos++], 0, 'generated logo images use filter 0');
+    for (let x = 0; x < stride; x += 4) {
+      const r = raw[pos++];
+      const g = raw[pos++];
+      const b = raw[pos++];
+      const a = raw[pos++];
+      if (a > 0) return [r, g, b];
+    }
+  }
+  return null;
 }
 function preSeparatorLines(out) {
   const lines = out.split('\n');
@@ -305,7 +335,7 @@ test('tool alternating is a two-beat cycle', () => {
   assert.notEqual(at(0), at(ROTATE_MS));         // alternates
 });
 
-// ── Tool marks: neutral default, logo opt-in over the floor ───────────────────
+// ── Tool marks: neutral default, logo opt-in as a drop-in replacement ─────────
 test('tool mode single wide names the tool with ◆/▲ (neutral floor)', () => {
   const c = fleet();
   const multi = computeMultiBadge(c);
@@ -314,38 +344,41 @@ test('tool mode single wide names the tool with ◆/▲ (neutral floor)', () => 
   assert.match(glyph, /^▪ ◆ 12% \|/); // Claude aggregate binds (12), neutral ◆
 });
 
-test('toolMark=logo: the neutral glyph is STILL emitted (floor) AND a templateImage layered under SwiftBar', () => {
+test('toolMark=logo: SwiftBar logo replaces the visible glyph and matches the title color', () => {
   _resetLogoCache();
   const c = fleet();
   const multi = computeMultiBadge(c);
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'single', density: 'compact', toolMark: 'logo' }, { epochMs: 0 });
-  // Under SwiftBar: floor ◆ present AND templateImage layered.
   const sb = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: { SWIFTBAR: '1' } }));
-  assert.match(sb, /◆/);                  // neutral floor still present
-  assert.match(sb, /templateImage=[A-Za-z0-9+/=]+/); // the image layered
-  assert.deepEqual(pngDims(templateImageBuffer(sb)), { width: 16, height: 16 });
+  assert.match(sb, /^▪ 12 \| color=#ff6b6b image=[A-Za-z0-9+/=]+$/);
+  assert.doesNotMatch(sb, /[◆▲]/);
+  assert.doesNotMatch(sb, /templateImage=/);
+  assert.deepEqual(pngDims(imageBuffer(sb)), { width: 16, height: 16 });
+  assert.deepEqual(firstVisibleRgb(imageBuffer(sb)), [255, 107, 107]);
 });
 
-test('toolMark=logo: tool side-by-side gets a paired SwiftBar image plus the ◆/▲ floor', () => {
+test('toolMark=logo: tool side-by-side uses a paired color image instead of ◆/▲ text', () => {
   _resetLogoCache();
   const c = fleet();
   const multi = computeMultiBadge(c);
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact', toolMark: 'logo' }, { epochMs: 0 });
   const sb = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: { SWIFTBAR: '1' } }));
-  assert.match(sb, /◆12/);
-  assert.match(sb, /▲61/);
-  assert.match(sb, /templateImage=[A-Za-z0-9+/=]+/);
-  assert.equal(templateImageBuffer(sb).toString('base64'), logoBase64ForCells(view.cells));
-  assert.deepEqual(pngDims(templateImageBuffer(sb)), { width: 34, height: 16 });
+  assert.match(sb, /^▪ 12 61 \| color=#ff6b6b image=[A-Za-z0-9+/=]+$/);
+  assert.doesNotMatch(sb, /[◆▲]/);
+  assert.equal(imageBuffer(sb).toString('base64'), logoImageBase64ForCells(view.cells, view.color));
+  assert.notEqual(imageBuffer(sb).toString('base64'), logoBase64ForCells(view.cells));
+  assert.deepEqual(pngDims(imageBuffer(sb)), { width: 34, height: 16 });
+  assert.deepEqual(firstVisibleRgb(imageBuffer(sb)), [255, 107, 107]);
 });
 
-test('xbar / no-SwiftBar: toolMark=logo emits ◆/▲ ALONE — no templateImage (floor stands alone)', () => {
+test('xbar / no-SwiftBar: toolMark=logo emits ◆/▲ text fallback and no image', () => {
   _resetLogoCache();
   const c = fleet();
   const multi = computeMultiBadge(c);
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'single', density: 'compact', toolMark: 'logo' }, { epochMs: 0 });
   const xbar = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: {} }));
   assert.match(xbar, /◆/);
+  assert.doesNotMatch(xbar, / image=/);
   assert.doesNotMatch(xbar, /templateImage=/);
 });
 
@@ -363,12 +396,13 @@ test('the logo asset is read ONLY when toolMark=logo (no read on the neutral/def
   let reads = 0;
   const spyRead = (u) => { reads++; return fs.readFileSync(u); };
   // Neutral path: emitDisplay never calls logoBase64. Prove by asserting a neutral
-  // render adds no templateImage and, structurally, logoBase64 is only invoked by
+  // render adds no image and, structurally, logoBase64 is only invoked by
   // the logo branch. (A direct read via the spy confirms the encode path works.)
   const c = fleet();
   const multi = computeMultiBadge(c);
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'single', density: 'compact', toolMark: 'neutral' }, { epochMs: 0 });
   const neutral = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [], env: { SWIFTBAR: '1' } }));
+  assert.doesNotMatch(neutral, / image=/);
   assert.doesNotMatch(neutral, /templateImage=/);
   // The read spy is only exercised by the explicit logo path.
   const b64 = logoBase64('codex', { read: spyRead });

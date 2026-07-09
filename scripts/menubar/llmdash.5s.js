@@ -24,6 +24,7 @@
 // Node-builtins-only either way.
 
 import http from 'node:http';
+import zlib from 'node:zlib';
 // Builtins for the live launchd-state read (menubar-service-controls). All
 // node: builtins — the zero-dep / no-build constitution is preserved.
 import { existsSync as _existsSync, readFileSync as _readFileSync } from 'node:fs';
@@ -877,7 +878,7 @@ export function isDefaultDisplay(display) {
     && (d.density === 'wide' || d.density == null)
     && (d.group === 'host' || d.group == null);
   // (toolMark is orthogonal — it doesn't change the routing; the ◆/▲ cue is the
-  // default and the wide path already emits it. logo layering happens in the
+  // default and the wide path already emits it. Logo replacement happens in the
   // emit path regardless of the other axes.)
 }
 
@@ -1138,15 +1139,16 @@ function wideCell({ state, pct, cue = '', mark = '' }) {
   }
 }
 
-// ── The logo template-image (opt-in, SwiftBar-only, neutral floor always) ──────
-// SwiftBar exposes one image slot per menu item line (`templateImage=`), not
-// arbitrary inline images. Single tool cells use the matching 16x16 mark; a
-// two-cell tool side-by-side title uses one paired 34x16 mark in the same order
-// as the text cells. The neutral ◆/▲ floor is always emitted too, so xbar, or a
-// failed image, still names every tool. Read + encode ONLY when opted in (no cost
-// on the default path), cached per process (the plugin re-spawns each tick).
-// Resolve assets from THIS file via import.meta.url (ESM de-symlinks it → works
-// under the wrapper/symlink). If an asset is missing/unreadable → return null.
+// ── The logo image (opt-in, SwiftBar-only, neutral fallback) ───────────────────
+// SwiftBar exposes one image slot per menu item line, not arbitrary inline images.
+// When a logo image is available, it replaces the visible ◆/▲ text marks in the
+// title; if the image is missing or the host is xbar, the neutral text marks stay.
+// Use `image=` instead of `templateImage=` so the PNG can be recolored to the same
+// status color as the text glyph it replaces. Read + encode ONLY when opted in
+// (no cost on the default path), cached per process (the plugin re-spawns each
+// tick). Resolve assets from THIS file via import.meta.url (ESM de-symlinks it →
+// works under the wrapper/symlink). If an asset is missing/unreadable → return
+// null and let the text fallback stand.
 const LOGO_ASSET = { 'claude-code': 'claude-mark.png', claude: 'claude-mark.png', codex: 'codex-mark.png' };
 const LOGO_PAIR_ASSET = {
   'claude-code|codex': 'claude-codex-mark.png',
@@ -1154,6 +1156,7 @@ const LOGO_PAIR_ASSET = {
 };
 const MARK_TO_LOGO_SOURCE = { [TOOL_MARK.claude]: 'claude-code', [TOOL_MARK.codex]: 'codex' };
 const _logoCache = new Map(); // asset filename → base64 | null (per-process)
+const _logoImageCache = new Map(); // asset filename + color → base64 | null
 function logoAssetBase64(name, { read = _readFileSync } = {}) {
   if (!name) return null;
   if (_logoCache.has(name)) return _logoCache.get(name);
@@ -1176,7 +1179,174 @@ export function logoBase64ForCells(cells, options = {}) {
   if (sources.length === 2) return logoAssetBase64(LOGO_PAIR_ASSET[sources.join('|')], options);
   return null;
 }
-export function _resetLogoCache() { _logoCache.clear(); }
+
+function logoAssetNameForCells(cells) {
+  const sources = (Array.isArray(cells) ? cells : [])
+    .map((c) => MARK_TO_LOGO_SOURCE[c && c.mark])
+    .filter(Boolean);
+  if (sources.length === 1) return LOGO_ASSET[sources[0]] || null;
+  if (sources.length === 2) return LOGO_PAIR_ASSET[sources.join('|')] || null;
+  return null;
+}
+
+function parseHexColor(color) {
+  const m = String(color || '').match(/^#([0-9a-f]{6})$/i);
+  if (!m) return null;
+  return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+}
+
+let _crcTable = null;
+function crc32(buf) {
+  if (!_crcTable) {
+    _crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      _crcTable[n] = c >>> 0;
+    }
+  }
+  let c = 0xffffffff;
+  for (const b of buf) c = _crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data = Buffer.alloc(0)) {
+  const typeBuf = Buffer.from(type, 'ascii');
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
+  return Buffer.concat([len, typeBuf, data, crc]);
+}
+
+function paeth(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+
+function decodeRgbaPng(buf) {
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (!Buffer.isBuffer(buf) || buf.length < 33 || !buf.subarray(0, 8).equals(sig)) return null;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idat = [];
+  for (let off = 8; off + 12 <= buf.length;) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.toString('ascii', off + 4, off + 8);
+    const data = buf.subarray(off + 8, off + 8 + len);
+    off += 12 + len;
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+    } else if (type === 'IDAT') {
+      idat.push(data);
+    } else if (type === 'IEND') {
+      break;
+    }
+  }
+  if (bitDepth !== 8 || colorType !== 6 || width <= 0 || height <= 0 || !idat.length) return null;
+  const inflated = zlib.inflateSync(Buffer.concat(idat));
+  const bpp = 4;
+  const stride = width * bpp;
+  const rgba = Buffer.alloc(height * stride);
+  let pos = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[pos++];
+    const row = y * stride;
+    for (let x = 0; x < stride; x += 1) {
+      const raw = inflated[pos++];
+      const left = x >= bpp ? rgba[row + x - bpp] : 0;
+      const up = y > 0 ? rgba[row - stride + x] : 0;
+      const upLeft = y > 0 && x >= bpp ? rgba[row - stride + x - bpp] : 0;
+      let val = raw;
+      if (filter === 1) val = raw + left;
+      else if (filter === 2) val = raw + up;
+      else if (filter === 3) val = raw + Math.floor((left + up) / 2);
+      else if (filter === 4) val = raw + paeth(left, up, upLeft);
+      else if (filter !== 0) return null;
+      rgba[row + x] = val & 0xff;
+    }
+  }
+  return { width, height, rgba };
+}
+
+function encodeRgbaPng({ width, height, rgba }) {
+  const stride = width * 4;
+  const raw = Buffer.alloc(height * (stride + 1));
+  for (let y = 0; y < height; y += 1) {
+    raw[y * (stride + 1)] = 0;
+    rgba.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;  // bit depth
+  ihdr[9] = 6;  // RGBA
+  ihdr[10] = 0; // compression
+  ihdr[11] = 0; // filter
+  ihdr[12] = 0; // interlace
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND'),
+  ]);
+}
+
+function recolorPngBase64(buf, color) {
+  const rgb = parseHexColor(color);
+  const decoded = rgb ? decodeRgbaPng(buf) : null;
+  if (!decoded) return null;
+  const rgba = Buffer.from(decoded.rgba);
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3] > 0) {
+      rgba[i] = rgb[0];
+      rgba[i + 1] = rgb[1];
+      rgba[i + 2] = rgb[2];
+    }
+  }
+  return encodeRgbaPng({ ...decoded, rgba }).toString('base64');
+}
+
+function logoColorAssetBase64(name, color, { read = _readFileSync } = {}) {
+  if (!name) return null;
+  const key = `${name}|${color}`;
+  if (_logoImageCache.has(key)) return _logoImageCache.get(key);
+  let b64 = null;
+  try {
+    const url = new URL(`./assets/${name}`, import.meta.url);
+    b64 = recolorPngBase64(read(url), color);
+  } catch { b64 = null; }
+  _logoImageCache.set(key, b64);
+  return b64;
+}
+
+export function logoImageBase64ForCells(cells, color, options = {}) {
+  return logoColorAssetBase64(logoAssetNameForCells(cells), color, options);
+}
+
+function textWithoutToolMark(cell) {
+  const text = String(cell && cell.text ? cell.text : '');
+  const mark = cell && cell.mark;
+  if ((mark === TOOL_MARK.claude || mark === TOOL_MARK.codex) && text.startsWith(mark)) {
+    return text.slice(mark.length).replace(/^ +/, '');
+  }
+  return text;
+}
+
+export function _resetLogoCache() {
+  _logoCache.clear();
+  _logoImageCache.clear();
+}
 
 // Is the menu-bar host SwiftBar? SwiftBar sets SWIFTBAR / SWIFTBAR_VERSION in the
 // plugin env; xbar does not. Template images are SwiftBar-only polish.
@@ -1188,20 +1358,18 @@ export function isSwiftBar(env = process.env) {
 // Composes the cells into ONE menu-bar line: `▪ <cell> <cell> … [+M] | color=…`.
 // A single cell → `▪ <cell>`. offline/no-reading cells carry no number (structural
 // — compactCell/wideCell never emit one for those states). The dropdown is the
-// FULL multi.hostViews (multiDropdownLines) — unchanged. logo layering is additive
-// over the neutral floor (SwiftBar-only, opt-in); the ◆/▲ text is always present.
+// FULL multi.hostViews (multiDropdownLines) — unchanged. Logo mode replaces the
+// visible ◆/▲ text only after the colored image has been generated successfully.
 export function emitDisplay(view, multi, { host = HOST, port = PORT, remotes = [], serviceState = 'not-installed', env = process.env } = {}) {
-  const parts = view.cells.map((c) => c.text);
-  if (view.more > 0) parts.push(`+${view.more}`);
-  const glyphText = parts.join(' ');
-  let title = `${MARK} ${glyphText} | color=${view.color}`;
-  // Opt-in logo template image (SwiftBar-only, additive over the ◆/▲ floor). Read
-  // assets ONLY here and ONLY when opted in; single-cell tool glyphs get one mark,
-  // two-cell tool glyphs get the paired mark matching the cell order.
+  let logoB64 = null;
   if (view.toolMark === 'logo' && isSwiftBar(env) && view.group === 'tool') {
-    const b64 = logoBase64ForCells(view.cells);
-    if (b64) title += ` templateImage=${b64}`;
+    logoB64 = logoImageBase64ForCells(view.cells, view.color);
   }
+  const parts = view.cells.map((c) => logoB64 ? textWithoutToolMark(c) : c.text);
+  if (view.more > 0) parts.push(`+${view.more}`);
+  const glyphText = parts.filter(Boolean).join(' ');
+  let title = `${MARK}${glyphText ? ` ${glyphText}` : ''} | color=${view.color}`;
+  if (logoB64) title += ` image=${logoB64}`;
   return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState, view.display)].join('\n');
 }
 
@@ -1289,7 +1457,7 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
     lines.push(`--${activeMark(on)}${lbl} | ${act('density', val)}${activeFont(on)}`);
   }
   lines.push('-----');
-  // Tool marks (radio) — neutral floor · logos opt-in.
+  // Tool marks (radio) — neutral fallback · logos opt-in.
   lines.push(submenuLine('Tool marks', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const [val, lbl] of [['neutral', 'Neutral (◆ / ▲)'], ['logo', 'Logos']]) {
     const on = d.toolMark === val;
@@ -1331,7 +1499,7 @@ export function legendLines() {
     '-----',
     submenuLine('Tool', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('◆ — Claude Code.', { color: COLOR_DROPDOWN_TEXT }),
-    submenuLine('▲ — Codex. Logos use Claude/OpenAI marks; side-by-side uses a paired mark.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('▲ — Codex. Logos replace these marks in SwiftBar; side-by-side uses a paired mark.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
     submenuLine('Multi-host', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('St12 — host cue plus % in compact side-by-side mode.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
