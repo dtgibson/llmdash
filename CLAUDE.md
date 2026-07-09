@@ -162,8 +162,11 @@
   tool, carrying that window's freshness state. Honesty is structural: no reading
   on any selected host → `—`, every contributing host offline → `⊘`, **never a
   fabricated zero**; exactly two units (Claude / Codex), so no cap in tool mode.
-  The Hosts view-filter still scopes which machines feed the aggregate (grouping by
-  tool never discards the host selection).
+  In compact side-by-side tool mode, the title keeps a fixed Claude-then-Codex
+  order and shows each tool's `five_hour/seven_day` remaining pair (`◆ 12/38 ▲
+  63/61`); binding/color still come from the tightest aggregate. The Hosts
+  view-filter still scopes which machines feed the aggregate (grouping by tool
+  never discards the host selection).
 - Read live limits off the interval poller, never per HTTP request (Codex spawns a
   subprocess; keep that off the request path). The Claude reading is also refreshed
   there: when it goes stale **and** Claude has been active, the poller spawns a
@@ -298,8 +301,8 @@
   product. Size single-tool marks for the status bar (currently 16x16). When
   SwiftBar side-by-side needs multiple tool logos plus values on one title line,
   compose the full compact title as one local PNG image because SwiftBar's single
-  title image slot is not inline; keep the visible order as `▪`, Claude logo,
-  Claude 5-hour/weekly, Codex logo, Codex 5-hour/weekly. Do not add a first-use
+  title image slot is not inline; keep the same order as neutral side-by-side:
+  `▪`, Claude logo, Claude 5-hour/weekly, Codex logo, Codex 5-hour/weekly. Do not add a first-use
   fetch or runtime logo download — the code's honesty invariants hold only when
   the fallback text identity and local-only read stay structural.
 

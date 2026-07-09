@@ -321,8 +321,8 @@ test('a tool with NO reading on any selected host ⇒ — (never a fabricated ze
   const multi = computeMultiBadge(c);
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact' }, { epochMs: 0 });
   const glyph = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [] }));
-  assert.match(glyph, /◆20/);   // Claude aggregate
-  assert.match(glyph, /▲—/);    // Codex has no reading anywhere → dash, no zero
+  assert.match(glyph, /◆ 20\/40/); // Claude aggregate, 5-hour/weekly
+  assert.match(glyph, /▲ —\/—/);   // Codex has no reading anywhere → dash, no zero
   assert.doesNotMatch(glyph, /▲0/);
 });
 
@@ -334,17 +334,20 @@ test('every contributing host offline ⇒ the aggregate reads ⊘ (no digit)', (
   const multi = computeMultiBadge(c);
   const cells = toolAggregates(multi.hostViews);
   assert.ok(cells.every((x) => x.state === 'offline' && x.pct == null));
+  const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact' }, { epochMs: 0 });
+  const glyph = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [] }));
+  assert.match(glyph, /^▪ ◆ ⊘ ▲ ⊘ \|/);
 });
 
 test('the Hosts axis SCOPES the aggregate in tool mode', () => {
   const c = fleet();
   const multi = computeMultiBadge(c);
   // Select only Laptop (Codex 5h 88 / weekly 61) — the aggregate takes the TIGHTEST
-  // window (61); the Claude aggregate then has no reading.
+  // window for color/binding (61); the title still shows Claude then Codex with
+  // each tool's 5-hour/weekly pair. The Claude aggregate then has no reading.
   const view = applyDisplay(multi, { ...DEF, group: 'tool', hosts: ['laptop:8787'], layout: 'side-by-side', density: 'compact' }, { epochMs: 0 });
   const glyph = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [] }));
-  assert.match(glyph, /▲61/);   // Codex from the selected Laptop, tightest window
-  assert.match(glyph, /◆—/);    // Claude scoped out (Studio not selected) → dash
+  assert.match(glyph, /^▪ ◆ —\/— ▲ 88\/61 \|/); // fixed Claude-then-Codex title order
 });
 
 test('tool mode: exactly two units, NO cap / NO +M', () => {
@@ -353,6 +356,14 @@ test('tool mode: exactly two units, NO cap / NO +M', () => {
   const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact' }, { epochMs: 0 });
   assert.equal(view.cells.length, 2);
   assert.equal(view.more, 0);
+});
+
+test('tool side-by-side neutral glyph shows llmdash, Claude pair, then Codex pair', () => {
+  const c = fleet();
+  const multi = computeMultiBadge(c);
+  const view = applyDisplay(multi, { ...DEF, group: 'tool', layout: 'side-by-side', density: 'compact' }, { epochMs: 0 });
+  const glyph = glyphOf(emitDisplay(view, multi, { host: 'x', port: '1', remotes: [] }));
+  assert.match(glyph, /^▪ ◆ 12\/38 ▲ 63\/61 \| color=#ff6b6b$/);
 });
 
 test('tool alternating is a two-beat cycle', () => {
@@ -559,6 +570,7 @@ test('the Legend enumerates every badge/menu symbol with readable dropdown color
   // Both tool marks.
   assert.match(legend, /◆ — Claude Code/);
   assert.match(legend, /▲ — Codex/);
+  assert.match(legend, /12\/38 — tool side-by-side/);
   // The three colors.
   assert.match(legend, /good/);
   assert.match(legend, /warn/);

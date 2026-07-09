@@ -282,7 +282,7 @@ test('QA: display submenu marks the active axes/preset live in both modes', () =
 test('QA: legend is complete and static', () => {
   const lines = legendLines();
   const joined = lines.join('\n');
-  for (const sym of ['▪', '·', '▸ binding', '46', '◷46', '⚠12', '—', '⊘', '◆', '▲', 'St12', '+2', '✓', '＋', '－', '☰', '🖥', '🛈', '▬']) {
+  for (const sym of ['▪', '·', '▸ binding', '46', '12/38', '◷46', '⚠12', '—', '⊘', '◆', '▲', 'St12', '+2', '✓', '＋', '－', '☰', '🖥', '🛈', '▬']) {
     assert.ok(joined.includes(sym), `legend missing ${sym}`);
   }
   for (const color of ['good', 'warn', 'crit']) assert.ok(joined.includes(color), `legend missing color ${color}`);

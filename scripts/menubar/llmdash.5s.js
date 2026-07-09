@@ -1378,10 +1378,25 @@ function titleToolCells(cells) {
     .sort((a, b) => titleToolOrder(a.source) - titleToolOrder(b.source));
 }
 
-function titleWindowText(cell) {
+function windowPairText(cell, dash) {
   const windows = cell && cell.windows ? cell.windows : {};
-  const fmt = (v) => Number.isFinite(v) ? String(v) : '-';
+  const fmt = (v) => Number.isFinite(v) ? String(v) : dash;
   return `${fmt(windows.five_hour)}/${fmt(windows.seven_day)}`;
+}
+
+function titleWindowText(cell) {
+  return windowPairText(cell, '-');
+}
+
+function menuWindowText(cell) {
+  if (cell && cell.state === 'offline') return '⊘';
+  return windowPairText(cell, DASH);
+}
+
+function toolWindowPairParts(cells) {
+  const ordered = titleToolCells(cells);
+  if (!ordered.length) return null;
+  return ordered.map((c) => `${c.mark} ${menuWindowText(c)}`);
 }
 
 function titleGlyph(ch) {
@@ -1544,7 +1559,10 @@ export function emitDisplay(view, multi, { host = HOST, port = PORT, remotes = [
     const title = `${String.fromCharCode(8203)} | color=${view.color} image=${logoTitleB64}`;
     return [title, ...multiDropdownLines(multi, host, port, remotes, serviceState, view.display)].join('\n');
   }
-  const parts = view.cells.map((c) => logoB64 ? textWithoutToolMark(c) : c.text);
+  const pairTitle = !logoB64 && view.group === 'tool' && view.layout === 'side-by-side' && view.density === 'compact'
+    ? toolWindowPairParts(view.cells)
+    : null;
+  const parts = pairTitle || view.cells.map((c) => logoB64 ? textWithoutToolMark(c) : c.text);
   if (view.more > 0) parts.push(`+${view.more}`);
   const glyphText = parts.filter(Boolean).join(' ');
   let title = `${MARK}${glyphText ? ` ${glyphText}` : ''} | color=${view.color}`;
@@ -1675,10 +1693,11 @@ export function legendLines() {
     '-----',
     submenuLine('Number', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('12 — % remaining in the tightest tracked window (5-hour or weekly).', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('12/38 — tool side-by-side: 5-hour/weekly remaining.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
     submenuLine('Tool', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('◆ — Claude Code.', { color: COLOR_DROPDOWN_TEXT }),
-    submenuLine('▲ — Codex. Logos replace these marks in SwiftBar; side-by-side logo mode shows each tool as 5-hour/weekly.', { color: COLOR_DROPDOWN_TEXT }),
+    submenuLine('▲ — Codex. Tool side-by-side uses ◆ then ▲; Logos replace these marks in SwiftBar.', { color: COLOR_DROPDOWN_TEXT }),
     '-----',
     submenuLine('Multi-host', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('St12 — host cue plus % in compact side-by-side mode.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),

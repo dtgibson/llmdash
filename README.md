@@ -306,8 +306,10 @@ point, then fine-tune any axis underneath:
 - **Group** — **Host** (the default; each unit is a machine) or **Tool** (each unit
   is a **per-tool aggregate** across the machines you watch). Grouped by tool,
   *all-Claude* = the tightest Claude window anywhere in the (selected) fleet and
-  *all-Codex* likewise — `▪ ◆12 ▲63`. A tool with no reading on any selected machine
-  reads `—` (never a fabricated zero); every contributing machine offline reads `⊘`.
+  *all-Codex* likewise. In compact side-by-side, it shows the llmdash mark, then
+  Claude's 5-hour/weekly pair, then Codex's 5-hour/weekly pair — `▪ ◆ 12/38 ▲ 63/61`.
+  A tool with no reading on any selected machine reads `—/—` there (never a fabricated
+  zero); every contributing machine offline reads `⊘`.
 - **Hosts** — a multi-select of which machines feed the **glyph**. This is a **view
   filter, not a monitoring change**: your llmdash still polls every host, the
   **dropdown still lists every host in full**, and a *selected* offline machine still
