@@ -31,7 +31,7 @@ Some Claude models have their own limits. Without a separate model-limit channel
 - Restarted `com.llmdash.dashboard`.
 - Relaunched SwiftBar.
 - `/api/state` and `/api/hosts` returned successfully and include `modelLimits` arrays.
-- The current live Claude reading has no active model cap, so `modelLimits` is empty until a future `/usage` capture includes one.
+- Final live check found a Claude Fable model cap: weekly, 96% used / 4% remaining, reset `2026-07-11T05:59:00.000Z`.
 - Existing remote host `SRDev VM` remains unreachable; this is unrelated pre-existing state.
 
 ## Remaining Notes
