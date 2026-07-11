@@ -203,6 +203,49 @@ function normalizeLimits(limits) {
   return { five_hour: normalizeWindow(src.five_hour), seven_day: normalizeWindow(src.seven_day) };
 }
 
+function modelSlug(v) {
+  const slug = String(v == null ? '' : v).trim().toLowerCase()
+    .replace(/^claude-model:/, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || null;
+}
+
+function normalizeModelWindow(v) {
+  if (v === 'five_hour' || v === 'five-hour' || v === '5h') return 'five_hour';
+  return 'seven_day';
+}
+
+function normalizeModelSource(v, model, toolSource) {
+  const raw = typeof v === 'string' ? v.replace(/[^A-Za-z0-9:._-]/g, '') : '';
+  if (raw) return raw.slice(0, 96);
+  const prefix = toolSource === 'claude-code' ? 'claude-model' : `${toolSource.replace(/[^A-Za-z0-9._-]/g, '')}-model`;
+  return `${prefix}:${model}`;
+}
+
+function normalizeModelLimit(m, toolSource) {
+  if (!m || typeof m !== 'object') return null;
+  const model = modelSlug(m.model ?? m.label ?? m.source);
+  if (!model) return null;
+  const usedPct = clampPct(m.usedPct ?? m.used_percentage ?? m.usedPercentage ?? m.utilization);
+  if (usedPct == null) return null;
+  return {
+    source: normalizeModelSource(m.source, model, toolSource),
+    provider: typeof m.provider === 'string' ? m.provider : toolSource,
+    model,
+    label: typeof m.label === 'string' ? m.label : model, // raw; esc()'d at render
+    window: normalizeModelWindow(m.window),
+    usedPct,
+    remainingPct: Math.max(0, 100 - usedPct),
+    resetsAt: normalizeIso(m.resetsAt ?? m.resets_at),
+    capturedAt: normalizeIso(m.capturedAt ?? m.captured_at),
+  };
+}
+
+function normalizeModelLimits(modelLimits, toolSource) {
+  if (!Array.isArray(modelLimits)) return [];
+  return modelLimits.map((m) => normalizeModelLimit(m, toolSource)).filter(Boolean);
+}
+
 // Projection is derived pacing data; pass through the booleans/numbers we use,
 // clamped to plain finite numbers. Missing → null (honest "not available").
 function normalizeProjection(proj) {
@@ -295,6 +338,7 @@ function normalizeTool(t) {
     plan: typeof t.plan === 'string' ? t.plan : '',
     haveLimits: !!(limits.five_hour || limits.seven_day),
     limits,
+    modelLimits: normalizeModelLimits(t.modelLimits, source),
     projection: normalizeProjection(t.projection),
     activity: normalizeActivity(t.activity),
     freshness: normalizeFreshness(t.freshness),

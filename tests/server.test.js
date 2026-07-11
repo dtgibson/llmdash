@@ -155,3 +155,39 @@ test('a window with no reset time yields a null projection for that window only'
   assert.ok(t.projection.five_hour); // has a reading + reset → projected
   assert.equal(t.projection.seven_day, null); // no reset → honest null, not a guess
 });
+
+test('toolWrap exposes model-specific limits without affecting account windows', () => {
+  const now = Date.UTC(2026, 0, 4, 0, 0, 0);
+  const reset = iso(now + 2 * 24 * 3600_000);
+  const live = {
+    capturedAt: iso(now),
+    windows: {
+      five_hour: { usedPct: 40, resetsAt: iso(now + 3 * 3600_000) },
+      seven_day: { usedPct: 20, resetsAt: reset },
+    },
+    modelLimits: [{
+      source: 'claude-model:sonnet',
+      provider: 'claude-code',
+      model: 'sonnet',
+      label: 'Sonnet',
+      window: 'seven_day',
+      usedPct: 95,
+      remainingPct: 999,
+      resetsAt: reset,
+      capturedAt: iso(now),
+    }],
+  };
+  const t = toolWrap('claude-code', 'Claude Code', 'Max', live, { hasData: false }, now);
+  assert.equal(t.limits.seven_day.usedPct, 20, 'account-wide weekly reading stays account-wide');
+  assert.deepEqual(t.modelLimits, [{
+    source: 'claude-model:sonnet',
+    provider: 'claude-code',
+    model: 'sonnet',
+    label: 'Sonnet',
+    window: 'seven_day',
+    usedPct: 95,
+    remainingPct: 5,
+    resetsAt: reset,
+    capturedAt: iso(now),
+  }]);
+});

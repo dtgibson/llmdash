@@ -31,13 +31,22 @@ fs.writeFileSync(config.rateLimitsFile, JSON.stringify({
     five_hour: { used_percentage: 62, resets_at: new Date(FIXED + 3 * 3600_000).toISOString() },
     seven_day: { used_percentage: 36, resets_at: new Date(FIXED + 3 * 86400_000).toISOString() },
   },
+  model_limits: [{
+    source: 'claude-model:fable',
+    provider: 'claude-code',
+    model: 'fable',
+    label: 'Fable',
+    window: 'seven_day',
+    used_percentage: 49,
+    resets_at: new Date(FIXED + 3 * 86400_000).toISOString(),
+  }],
   capturedAt: new Date(FIXED).toISOString(),
 }));
 
 // The frozen contract: the exact top-level keys, per-tool keys, window keys, and
 // meanings /api/state has shipped. Locking the KEY SET (not the volatile values)
 // is the byte-identical-shape guard; a new key here would be a contract change.
-const TOOL_KEYS = ['source', 'label', 'plan', 'haveLimits', 'limits', 'projection', 'activity', 'dataAt', 'freshness', 'limitsDiagnostic'];
+const TOOL_KEYS = ['source', 'label', 'plan', 'haveLimits', 'limits', 'modelLimits', 'projection', 'activity', 'dataAt', 'freshness', 'limitsDiagnostic'];
 const STATE_KEYS = ['tools', 'headroom', 'generatedAt'];
 const WINDOW_KEYS = ['usedPct', 'remainingPct', 'resetsAt', 'capturedAt'];
 
@@ -74,6 +83,25 @@ test('the Claude freshness object still carries the server-supplied thresholds u
   assert.deepEqual(Object.keys(claude.freshness).sort(), ['capturedAt', 'freshForMs', 'staleAfterMs']);
   const codex = s.tools.find((t) => t.source === 'codex');
   assert.equal(codex.freshness, null); // Codex is still no-band
+});
+
+test('model-specific limits are explicit supplemental tool data', () => {
+  const s = buildState(FIXED);
+  const claude = s.tools.find((t) => t.source === 'claude-code');
+  assert.equal(claude.modelLimits.length, 1);
+  assert.deepEqual(claude.modelLimits[0], {
+    source: 'claude-model:fable',
+    provider: 'claude-code',
+    model: 'fable',
+    label: 'Fable',
+    window: 'seven_day',
+    usedPct: 49,
+    remainingPct: 51,
+    resetsAt: new Date(FIXED + 3 * 86400_000).toISOString(),
+    capturedAt: new Date(FIXED).toISOString(),
+  });
+  const codex = s.tools.find((t) => t.source === 'codex');
+  assert.deepEqual(codex.modelLimits, []);
 });
 
 test('/api/state handler response is byte-identical whether or not peers are configured (FR-16)', async () => {

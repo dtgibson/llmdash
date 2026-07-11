@@ -34,15 +34,36 @@ test('fixture 2 parses: the independent capture (live window drained 77→76)', 
   assert.equal(r.windows.seven_day.usedPct, 25);
 });
 
-test('the Fable/promo meter (49%) and the contributing section are never scraped', () => {
+test('the Fable model meter is parsed separately, never as an account-wide window', () => {
   for (const n of [1, 2]) {
     const r = parseUsagePane(fixture(n));
-    // Only the two contract windows exist in the result…
+    // Only the two account-wide windows exist in the account result…
     assert.deepEqual(Object.keys(r.windows).sort(), ['five_hour', 'seven_day']);
     // …and neither carries the Fable meter's 49%.
     assert.notEqual(r.windows.five_hour.usedPct, 49);
     assert.notEqual(r.windows.seven_day.usedPct, 49);
+    const fable = r.modelLimits.find((m) => m.model === 'fable');
+    assert.ok(fable, 'Fable cap is present as a model-specific limit');
+    assert.equal(fable.source, 'claude-model:fable');
+    assert.equal(fable.label, 'Fable');
+    assert.equal(fable.window, 'seven_day');
+    assert.equal(fable.usedPct, 49);
+    assert.equal(fable.resetText, 'Jul 3 at 11pm');
+    assert.equal(fable.zone, 'America/Los_Angeles');
   }
+});
+
+test('a Sonnet-style model cap parses after the contributing section', () => {
+  const pane = 'Current session 42% used Resets 3:05pm (America/Los_Angeles)\n'
+    + 'Current week (all models) 10% used Resets Jul 9 at 1am (America/Los_Angeles)\n'
+    + "What's contributing to your weekly usage?\n"
+    + 'Current week (Sonnet 4.5) 88% used Resets Jul 9 at 1am (America/Los_Angeles)\n';
+  const r = parseUsagePane(pane);
+  assert.equal(r.ok, true);
+  assert.equal(r.windows.seven_day.usedPct, 10);
+  assert.deepEqual(r.modelLimits.map((m) => [m.model, m.label, m.usedPct]), [
+    ['sonnet-4-5', 'Sonnet 4.5', 88],
+  ]);
 });
 
 test('reset epochs match the authoritative statusline epochs exactly (the spike cross-check)', () => {
@@ -130,6 +151,25 @@ test('the payload is the exact statusline shape; capturedAt = the given evidence
     },
     capturedAt: '2026-07-02T06:42:00.000Z',
   });
+});
+
+test('model-specific caps are written as an optional statusline extension', () => {
+  const windows = {
+    five_hour: { usedPct: 77, resetText: '12:20am', zone: 'America/Los_Angeles' },
+    seven_day: { usedPct: 25, resetText: 'Jul 3 at 11pm', zone: 'America/Los_Angeles' },
+  };
+  const p = buildReadingPayload(windows, CAPTURE_MS, [
+    { model: 'fable', label: 'Fable', window: 'seven_day', usedPct: 49, resetText: 'Jul 3 at 11pm', zone: 'America/Los_Angeles' },
+  ]);
+  assert.deepEqual(p.model_limits, [{
+    source: 'claude-model:fable',
+    provider: 'claude-code',
+    model: 'fable',
+    label: 'Fable',
+    window: 'seven_day',
+    used_percentage: 49,
+    resets_at: 1783144800,
+  }]);
 });
 
 test('a failed reset conversion ships the reading with resets_at null — never drops it', () => {

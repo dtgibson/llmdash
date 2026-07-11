@@ -1,19 +1,21 @@
 {
-  "activeFeature": null,
-  "sessionType": "maintain",
+  "activeFeature": "model-specific-limits",
+  "sessionType": "feature",
   "entryPath": "new",
-  "currentStage": null,
-  "lastCompletedStage": 6,
+  "currentStage": 8,
+  "lastCompletedStage": 7,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
-    "pipeline/menubar-logo-drop-in/change-brief.md",
-    "pipeline/menubar-logo-drop-in/deployment-report.md",
-    "pipeline/menubar-logo-drop-in/pr-description.md",
-    "pipeline/menubar-logo-drop-in/qa-report.md",
-    "pipeline/menubar-logo-drop-in/security-report.md"
+    "pipeline/model-specific-limits/design-spec.md",
+    "pipeline/model-specific-limits/pr-description.md",
+    "pipeline/model-specific-limits/prd.md",
+    "pipeline/model-specific-limits/qa-report.md",
+    "pipeline/model-specific-limits/schema.md",
+    "pipeline/model-specific-limits/security-report.md",
+    "pipeline/model-specific-limits/strategic-brief.md"
   ],
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-09T04:17:35Z"
+  "updatedAt": "2026-07-11T04:04:41Z"
 }

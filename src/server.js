@@ -77,7 +77,24 @@ export function toolWrap(source, label, plan, live, activity, nowMs) {
   const caps = ['five_hour', 'seven_day']
     .map(w => windows[w] && windows[w].capturedAt).filter(Boolean).map(Date.parse);
   const dataAt = caps.length ? new Date(Math.max(...caps)).toISOString() : null;
-  return { source, label, plan, haveLimits: !!(windows.five_hour || windows.seven_day), limits: windows, projection, activity, dataAt };
+  const modelLimits = [];
+  for (const m of Array.isArray(live && live.modelLimits) ? live.modelLimits : []) {
+    if (!m || typeof m !== 'object') continue;
+    const usedPct = Number(m.usedPct);
+    if (!m.source || !m.model || !Number.isFinite(usedPct)) continue;
+    modelLimits.push({
+      source: m.source,
+      provider: m.provider || source,
+      model: m.model,
+      label: m.label || m.model,
+      window: m.window === 'five_hour' ? 'five_hour' : 'seven_day',
+      usedPct: Math.min(100, Math.max(0, usedPct)),
+      remainingPct: Math.max(0, 100 - Math.min(100, Math.max(0, usedPct))),
+      resetsAt: m.resetsAt || null,
+      capturedAt: m.capturedAt || (live && live.capturedAt) || null,
+    });
+  }
+  return { source, label, plan, haveLimits: !!(windows.five_hour || windows.seven_day), limits: windows, modelLimits, projection, activity, dataAt };
 }
 
 // The cross-tool "where do I switch" cue: fires when a tool's tightest window

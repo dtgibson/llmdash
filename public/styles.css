@@ -135,6 +135,47 @@ main { display: grid; grid-template-columns: 1fr; gap: 16px; }
 .tool-name { font-size: 0.95rem; font-weight: 600; font-family: var(--mono); }
 .tool-sub { font-size: 0.74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
 .gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.model-limits { margin: 16px 0 14px; }
+.model-limit-grid { display: grid; gap: 10px; }
+.model-limit {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px 13px;
+}
+.model-limit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.model-limit-namewrap { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.model-name {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.model-window {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.model-limit-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+.model-remaining { font-family: var(--mono); font-size: 1.35rem; line-height: 1; font-weight: 600; }
+.model-remaining .unit { font-size: 0.76rem; color: var(--muted); margin-left: 1px; }
+.model-reset { font-size: 0.7rem; color: var(--faint); white-space: nowrap; }
+.model-limit-sub { font-size: 0.72rem; color: var(--muted); margin: 7px 0 7px; }
+.model-bar { height: 6px; }
+.model-limit-note { font-size: 0.74rem; color: var(--muted); margin: 8px 2px 0; }
 .empty-note { font-size: 0.78rem; color: var(--faint); margin-top: 12px; font-style: italic; }
 /* Reading-age status pill — joins the age in the tool header's sub line.
    Same chip vocabulary as the pacing pills (.burn-pill / pill-warn /

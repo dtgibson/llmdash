@@ -105,6 +105,37 @@ function burnHtml(tool) {
   return `<div class="burn">${rateHtml}<div class="burn-proj">${lines}</div></div>`;
 }
 
+function windowLabel(key) {
+  if (key === 'five_hour') return '5-hour cap';
+  if (key === 'seven_day') return 'Weekly cap';
+  return 'Model cap';
+}
+
+function modelLimitsHtml(tool) {
+  const caps = Array.isArray(tool.modelLimits) ? tool.modelLimits : [];
+  const items = caps.filter((m) => m && Number.isFinite(Number(m.usedPct)));
+  if (!items.length) return '';
+  const rows = items.map((m) => {
+    const usedPct = Math.min(100, Math.max(0, Number(m.usedPct)));
+    const remainingPct = Math.min(100, Math.max(0, Number.isFinite(Number(m.remainingPct)) ? Number(m.remainingPct) : 100 - usedPct));
+    const rem = Math.floor(remainingPct), used = Math.ceil(usedPct), cls = statusClass(rem);
+    const maxed = remainingPct <= 0;
+    const resetMs = m.resetsAt ? Date.parse(m.resetsAt) : NaN;
+    const resetIn = Number.isFinite(resetMs) ? fmtDur(resetMs - Date.now()) : '—';
+    const barWidth = maxed ? 100 : remainingPct;
+    const sub = maxed ? `<span class="is-crit">limit reached</span>` : `${used}% used`;
+    return `<div class="model-limit"><div class="model-limit-head"><div class="model-limit-namewrap">`
+      + `<span class="model-name">${esc(m.label || m.model || 'Model')}</span>`
+      + `<span class="model-window">${esc(windowLabel(m.window))}</span></div>`
+      + `<div class="model-limit-metric"><span class="model-remaining is-${cls}">${rem}<span class="unit">%</span></span>`
+      + `<span class="model-reset">resets in ${resetIn}</span></div></div>`
+      + `<div class="model-limit-sub">${sub}</div><div class="bar model-bar"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
+  }).join('');
+  return `<div class="model-limits"><div class="section-label">model-specific limits</div>`
+    + `<div class="model-limit-grid">${rows}</div>`
+    + `<div class="model-limit-note">These caps are specific to ${esc(tool.label)} models; they do not add account-wide budget.</div></div>`;
+}
+
 const tile = (label, valHtml, note) =>
   `<div class="tile"><div class="tile-label">${label}</div><div class="tile-val">${valHtml}</div><div class="tile-note">${note}</div></div>`;
 
@@ -225,7 +256,7 @@ function toolHtml(tool) {
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + limitsNoteHtml(tool) + burnHtml(tool) + activityBlock + `</section>`;
+    + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + activityBlock + `</section>`;
 }
 
 function renderHeadroom(h) {
@@ -301,7 +332,7 @@ function limitsOnlyHtml(tool) {
   return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span>`
     + `<span class="tool-sub">${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}</span></div>`
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + limitsNoteHtml(tool) + burnHtml(tool) + `</section>`;
+    + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + `</section>`;
 }
 
 // A tool block showing ONLY activity (tiles + mix), NO gauges — for a same-
@@ -471,7 +502,7 @@ function fullHostToolHtml(tool, host) {
   return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
     + acctCaption
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + limitsNoteHtml(tool) + burnHtml(tool) + activityBlock + `</section>`;
+    + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + activityBlock + `</section>`;
 }
 
 const LEGEND_HTML = `<div class="legend-strip">`

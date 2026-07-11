@@ -280,7 +280,7 @@ async function attemptRefresh({ cfg = config } = {}) {
       if (!parsed.ok) return;
       const capturedAtMs = Date.now(); // the pane renders live data — the hit moment IS evidence time (FR-09)
       try {
-        writeReadingIfNewer(buildReadingPayload(parsed.windows, capturedAtMs), cfg);
+        writeReadingIfNewer(buildReadingPayload(parsed.windows, capturedAtMs, parsed.modelLimits), cfg);
         finish({ ok: true }); // a skipped write means a newer organic capture won — still a produced reading
       } catch {
         finish({ ok: false, cause: 'no-reading-produced' });
@@ -307,12 +307,14 @@ function deAnsi(s) {
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' '); // stray control bytes
 }
 
-// The two contract anchors, plus the sections that are NEVER scraped: the
-// per-model promo meter and the local-analysis block (decisions 2026-06-16 /
-// spike finding 7). Loose \s+ tolerates pty-dropped or padded characters.
+// The two account-wide contract anchors, plus the sections that must never be
+// treated as account-wide windows: per-model meters and local-analysis blocks.
+// Model meters are parsed separately below so Fable/Sonnet caps can be shown
+// without contaminating the weekly account-wide reading.
 const SESSION_ANCHOR = /Current\s+session/g;
 const WEEK_ANCHOR = /Current\s+week\s+\(all models\)/g;
 const STOP_ANCHORS = [/Current\s+week\s+\((?!all models\))/g, /What'?s\s+contributing/g];
+const MODEL_WEEK_ANCHOR = /Current\s+week\s+\((?!all models\))([^)]+)\)/g;
 
 function lastMatchIndex(re, s, from = 0) {
   re.lastIndex = from;
@@ -329,14 +331,15 @@ function firstMatchIndex(re, s, from = 0) {
 }
 
 // One window segment: "NN% used" (tolerant of dropped spacing) and the
-// "Resets <text> (<IANA zone>)" clause — real captures drop characters
-// ("Resets" → "Rests"), so the verb matches on its Res… stem. A window with a
+// "Resets <text> (<IANA zone>)" clause — real captures drop characters and
+// cursor-overwrite the verb ("Resets" → "Rests" or "Res ts"), so the verb
+// matches on its Res… stem and skips a split "ts" residue. A window with a
 // readable used% but an unreadable reset still ships (resets_at null) rather
 // than dropping the reading (spike finding 5).
 function parseWindowSeg(seg) {
   const pct = seg.match(/(\d{1,3})\s*%\s*used/);
   if (!pct) return null;
-  const reset = seg.match(/\bRes[a-z]*\s+([^()\n]+?)\s*\(([A-Za-z][A-Za-z0-9_+/-]*)\)/);
+  const reset = seg.match(/\bRes[a-z]*\s+(?:ts\s+)?([^()\n]+?)\s*\(([A-Za-z][A-Za-z0-9_+/-]*)\)/);
   return {
     usedPct: Math.min(100, Math.max(0, Number(pct[1]))), // clamp 0–100 at ingest
     resetText: reset ? reset[1].trim() : null,
@@ -344,8 +347,47 @@ function parseWindowSeg(seg) {
   };
 }
 
-// Parse a raw pty typescript into the two contract windows. Returns
-// { ok: true, windows } or { ok: false, sawPane } — sawPane distinguishes "a
+function modelSlug(label) {
+  const slug = String(label == null ? '' : label).trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || null;
+}
+
+function parseModelLimits(plain, fromIdx) {
+  const matches = [];
+  MODEL_WEEK_ANCHOR.lastIndex = Math.max(0, fromIdx);
+  let m;
+  while ((m = MODEL_WEEK_ANCHOR.exec(plain))) {
+    const label = (m[1] || '').trim();
+    const model = modelSlug(label);
+    if (!model) continue;
+    matches.push({ index: m.index, label, model });
+  }
+  const byModel = new Map();
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i];
+    let end = matches[i + 1] ? matches[i + 1].index : plain.length;
+    const nextSession = firstMatchIndex(SESSION_ANCHOR, plain, cur.index + 1);
+    const nextAllModels = firstMatchIndex(WEEK_ANCHOR, plain, cur.index + 1);
+    if (nextSession >= 0 && nextSession < end) end = nextSession;
+    if (nextAllModels >= 0 && nextAllModels < end) end = nextAllModels;
+    const parsed = parseWindowSeg(plain.slice(cur.index, end));
+    if (!parsed) continue;
+    byModel.set(cur.model, {
+      source: `claude-model:${cur.model}`,
+      provider: 'claude-code',
+      model: cur.model,
+      label: cur.label,
+      window: 'seven_day',
+      ...parsed,
+    });
+  }
+  return [...byModel.values()];
+}
+
+// Parse a raw pty typescript into the two account-wide contract windows plus
+// any model-specific weekly caps. Returns { ok: true, windows, modelLimits } or
+// { ok: false, sawPane } — sawPane distinguishes "a
 // usage pane rendered but didn't parse" (parse-failed) from "nothing usage-
 // shaped ever appeared" (timeout / no-reading-produced).
 export function parseUsagePane(text) {
@@ -356,10 +398,9 @@ export function parseUsagePane(text) {
   const weekIdx = sessIdx >= 0 ? firstMatchIndex(WEEK_ANCHOR, plain, sessIdx) : -1;
   const sawPane = sessIdx >= 0 || weekIdx >= 0 || /\d{1,3}\s*%\s*used/.test(plain);
   if (sessIdx < 0 || weekIdx < 0) return { ok: false, sawPane };
-  // The weekly segment ends at the first excluded section (the Fable/promo
-  // meter or the "What's contributing" analysis) so those are structurally
-  // unreachable; without a stop match, first-match-wins still lands on the
-  // all-models meter (it renders first).
+  // The account-wide weekly segment ends at the first excluded section (a
+  // model-specific meter or the "What's contributing" analysis) so model caps
+  // are structurally unreachable from the account-wide reading.
   let weekEnd = plain.length;
   for (const stop of STOP_ANCHORS) {
     const i = firstMatchIndex(stop, plain, weekIdx);
@@ -368,7 +409,7 @@ export function parseUsagePane(text) {
   const five = parseWindowSeg(plain.slice(sessIdx, weekIdx));
   const seven = parseWindowSeg(plain.slice(weekIdx, weekEnd));
   if (!five || !seven) return { ok: false, sawPane: true }; // both windows required — else the pane changed
-  return { ok: true, windows: { five_hour: five, seven_day: seven } };
+  return { ok: true, windows: { five_hour: five, seven_day: seven }, modelLimits: parseModelLimits(plain, sessIdx) };
 }
 
 // ---------------------------------------------------------------------------
@@ -450,7 +491,7 @@ export function resetTextToEpoch(text, zone, nowMs = Date.now()) {
 
 let warnedResetConversion = false; // once per process (spike finding 5)
 
-export function buildReadingPayload(windows, capturedAtMs) {
+export function buildReadingPayload(windows, capturedAtMs, modelLimits = []) {
   const rl = {};
   for (const key of ['five_hour', 'seven_day']) {
     const w = windows[key];
@@ -464,7 +505,31 @@ export function buildReadingPayload(windows, capturedAtMs) {
       resets_at: epoch, // epoch seconds, or null when conversion failed
     };
   }
-  return { rate_limits: rl, capturedAt: new Date(capturedAtMs).toISOString() };
+  const payload = { rate_limits: rl, capturedAt: new Date(capturedAtMs).toISOString() };
+  const modelRows = [];
+  for (const raw of Array.isArray(modelLimits) ? modelLimits : []) {
+    const label = String(raw && (raw.label || raw.model) || '').trim();
+    const model = modelSlug(raw && (raw.model || raw.label || raw.source));
+    if (!model) continue;
+    const usedPct = Number(raw?.usedPct ?? raw?.used_percentage ?? raw?.usedPercentage ?? raw?.utilization);
+    if (!Number.isFinite(usedPct)) continue;
+    const epoch = resetTextToEpoch(raw?.resetText, raw?.zone, capturedAtMs);
+    if (epoch == null && raw?.resetText && !warnedResetConversion) {
+      warnedResetConversion = true;
+      console.error(`claude auto-refresh: couldn't convert a reset time ("${raw.resetText}" in ${raw.zone}) — the reading ships without it; reset countdowns for that window will show "—" until a statusline capture.`);
+    }
+    modelRows.push({
+      source: `claude-model:${model}`,
+      provider: 'claude-code',
+      model,
+      label: label || model,
+      window: raw?.window === 'five_hour' ? 'five_hour' : 'seven_day',
+      used_percentage: Math.min(100, Math.max(0, usedPct)),
+      resets_at: epoch,
+    });
+  }
+  if (modelRows.length) payload.model_limits = modelRows;
+  return payload;
 }
 
 // Newest-capturedAt-wins, atomically (temp + rename): a probe capture must

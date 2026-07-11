@@ -102,6 +102,31 @@ test('freshness with non-finite thresholds → null (no band), a valid one is pr
   assert.deepEqual(Object.keys(good.tools[0].freshness).sort(), ['capturedAt', 'freshForMs', 'staleAfterMs']);
 });
 
+test('model-specific limits from peers are clamped, timestamp-normalized, and raw-label safe', () => {
+  const s = normalizePeerState({ tools: [{ source: 'claude-code', limits: {}, modelLimits: [{
+    source: 'claude-model:fable<script>',
+    provider: 'claude-code',
+    model: 'Fable',
+    label: '<img src=x onerror=alert(1)>',
+    window: 'weekly',
+    usedPct: 150,
+    remainingPct: 999,
+    resetsAt: '2026-07-02T05:00:00-07:00',
+    capturedAt: 'not-a-date',
+    extra: '<script>',
+  }] }] });
+  const m = s.tools[0].modelLimits[0];
+  assert.equal(m.source, 'claude-model:fablescript');
+  assert.equal(m.model, 'fable');
+  assert.equal(m.label, '<img src=x onerror=alert(1)>'); // raw; the CLIENT esc()s it
+  assert.equal(m.window, 'seven_day');
+  assert.equal(m.usedPct, 100);
+  assert.equal(m.remainingPct, 0);
+  assert.equal(m.resetsAt, '2026-07-02T12:00:00.000Z');
+  assert.equal(m.capturedAt, null);
+  assert.ok(!('extra' in m), 'unknown peer model-limit fields are dropped');
+});
+
 // ── getCombined / the /api/hosts payload — per-host independence (FR-13) ──────
 
 test('getCombined carries every host\'s full per-tool picture + freshness/offline state (QA-06)', () => {

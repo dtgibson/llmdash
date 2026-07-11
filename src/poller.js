@@ -12,8 +12,18 @@ import { readHostsConfig } from './host-config.js';
 function snapshot(live) {
   if (!live) return 0;
   let n = 0;
-  for (const [window, w] of Object.entries(live.windows)) {
+  for (const [window, w] of Object.entries(live.windows || {})) {
     if (insertSnapshot({ capturedAt: live.capturedAt, source: live.source, window, usedPct: w.usedPct, resetsAt: w.resetsAt })) n++;
+  }
+  for (const m of Array.isArray(live.modelLimits) ? live.modelLimits : []) {
+    if (!m || !m.source || !m.window || m.usedPct == null) continue;
+    if (insertSnapshot({
+      capturedAt: m.capturedAt || live.capturedAt,
+      source: m.source,
+      window: m.window,
+      usedPct: m.usedPct,
+      resetsAt: m.resetsAt,
+    })) n++;
   }
   return n;
 }

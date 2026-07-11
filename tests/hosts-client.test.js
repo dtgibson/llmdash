@@ -72,6 +72,7 @@ const claudeTool = (fhReset, sdReset) => ({
     five_hour: { usedPct: 62, remainingPct: 38, resetsAt: iso(fhReset), capturedAt: iso(-30_000) },
     seven_day: { usedPct: 36, remainingPct: 64, resetsAt: iso(sdReset), capturedAt: iso(-30_000) },
   },
+  modelLimits: [],
   projection: { five_hour: null, seven_day: null },
   activity: { hasData: true, tokens: { last5h: 18.4e6, week: 72e6, today: 44.1e6 }, sessionsToday: 9, cacheHitRate: 0.88, estValueWeek: 214.6, estValueToday: 52.3, cacheSavingsWeek: 61.2, tokenMix: { input: 10.1e6, output: 8.6e6, cacheRead: 45.4e6, cacheWrite: 7.9e6 } },
   freshness: { capturedAt: iso(-30_000), freshForMs: 300_000, staleAfterMs: 600_000 },
@@ -87,6 +88,28 @@ test('single-host mode (1 self host) renders via #tools with NO host chrome (QA-
   assert.equal(els.hosts.innerHTML, '', 'no host chrome in single-host mode');
   assert.doesNotMatch(els.hosts.innerHTML, /acct|host-head/, 'no banner, no host header');
   assert.match(footer._spans[0].textContent, /Activity: local session logs/, 'single-host footer');
+});
+
+test('single-host mode renders model-specific caps and escapes model labels', async () => {
+  const tool = claudeTool(3 * 3600_000, 3 * 86400_000);
+  tool.modelLimits = [{
+    source: 'claude-model:fable',
+    provider: 'claude-code',
+    model: 'fable',
+    label: '<img src=x onerror=alert(1)>',
+    window: 'seven_day',
+    usedPct: 49,
+    remainingPct: 51,
+    resetsAt: iso(2 * 86400_000),
+    capturedAt: iso(-30_000),
+  }];
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]) }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const h = els.tools.innerHTML;
+  assert.match(h, /model-specific limits/);
+  assert.match(h, /51<span class="unit">%</);
+  assert.doesNotMatch(h, /<img src=x onerror/, 'raw model label must not reach innerHTML');
+  assert.match(h, /&lt;img src=x onerror/, 'model label is escaped');
 });
 
 test('multi-host same-account: ONE account banner, activity per host, no duplicated meter (QA-15/QA-17)', async () => {
@@ -182,6 +205,7 @@ test('no peer-supplied field is interpolated into a style or raw HTML (NFR-04)',
   assert.match(appJs, /esc\(host\.label\)/);
   assert.match(appJs, /esc\(String\(host\.port\)\)/);
   assert.match(appJs, /esc\(d\.detail\)/); // diagnostic detail escaped
+  assert.match(appJs, /esc\(m\.label \|\| m\.model \|\| 'Model'\)/); // model labels escaped
   // The account-cause map is an OWN-KEY (hasOwnProperty) lookup, never raw.
   assert.match(appJs, /Object\.prototype\.hasOwnProperty\.call\(PEER_CAUSE_FRAGMENTS/);
   // No style attribute interpolates a host/label/detail field.
