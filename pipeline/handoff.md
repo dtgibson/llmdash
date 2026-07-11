@@ -1,37 +1,40 @@
-# Handoff — Menu-Bar Logo Drop-In
+# Handoff — Model-Specific Limits
 
-Feature: `menubar-logo-drop-in`
-Lane: `maintain`
-Date: 2026-07-09
+Feature: `model-specific-limits`
+Lane: `feature`
+Date: 2026-07-10
 
 ## What Changed
-- SwiftBar Logos mode now replaces visible `◆` / `▲` tool glyphs with logo image data instead of adding logo art beside the glyphs.
-- Logo PNGs are recolored to the current title color before emission, so the logo follows the same state color as the glyph it replaces.
-- Single-tool logo mode emits a 16x16 image; side-by-side tool mode emits one paired 34x16 image in cell order.
-- xbar, non-SwiftBar output, and image read/decode/encode failures keep the neutral text glyphs.
-- README, asset notes, Legend copy, tests, and context files now describe the replacement/fallback split.
+
+- Claude `/usage` model caps such as `Current week (Fable)` now parse into `modelLimits` instead of being discarded.
+- Account-wide `five_hour` and `seven_day` limits remain separate and cannot be replaced by model-specific caps.
+- The Claude statusline reading can include optional `model_limits`.
+- `/api/state` and `/api/hosts` expose `modelLimits` arrays for every tool.
+- Peer-provided model caps are normalized and clamped before rendering.
+- The dashboard renders a compact `model-specific limits` section wherever tool account limits are shown.
 
 ## Why
-The user expected the Logos option to be a true drop-in for the tool glyphs. The prior implementation made Logos additive and left duplicate identity marks in the title. The new behavior keeps the recognizable logo cue without losing the honest text fallback.
+
+Some Claude models have their own limits. Without a separate model-limit channel, llmdash could show healthy account-wide headroom while hiding a constrained model-specific cap.
 
 ## Verification
-- Focused menu-bar suite passed: 83 passing, 0 failing, 2 skipped.
-- Full `npm test` passed: 468 passing, 0 failing, 2 skipped.
-- Deployment verified from `/Users/developer/llmdash` at commit `17d4ed3`.
-- Installed SwiftBar output emitted `▪ 3 56 | color=#ff6b6b image=<base64>`.
-- The installed title line contains `image=`, does not contain `templateImage=`, and does not contain visible `◆` / `▲` tool glyphs.
-- The emitted paired image decoded as 34x16, and its first visible pixel matched the title color `#ff6b6b`.
+
+- Full `npm test` passed: 477 total, 475 passing, 2 skipped, 0 failed.
+- Real Fable fixtures prove model caps parse separately from account-wide windows.
+- Browser render tests verify model labels are escaped before `innerHTML`.
+- Security review found no blocking issues.
 
 ## Deployment
-- Pushed `17d4ed3` to `origin/main`.
-- Fast-forwarded `/Users/developer/llmdash`.
+
+- Runtime commit deployed: `dfc0c1e Add model-specific limit display`.
+- Source, `origin/main`, and installed checkout were confirmed at `dfc0c1e`.
 - Restarted `com.llmdash.dashboard`.
 - Relaunched SwiftBar.
-- `/api/state` and `/api/hosts` returned successfully.
-- Existing remote host `SRDev VM` remains unreachable; this is unrelated existing state.
+- `/api/state` and `/api/hosts` returned successfully and include `modelLimits` arrays.
+- The current live Claude reading has no active model cap, so `modelLimits` is empty until a future `/usage` capture includes one.
+- Existing remote host `SRDev VM` remains unreachable; this is unrelated pre-existing state.
 
-## Context Updates
-- `DECISIONS.md` logs the logo replacement behavior as an explicit modification of the earlier neutral-floor/paired-image decisions.
-- `CLAUDE.md` records the convention: successful SwiftBar logo mode may hide text marks only after same-color local image generation succeeds; all other paths keep text fallback.
-- `PRODUCT_CONTEXT.md` now describes opt-in logo marks as same-color SwiftBar replacements with neutral text fallback.
-- `ROADMAP.md` shipped count is updated to 18 with this work as the latest shipped item.
+## Remaining Notes
+
+- No database migration was needed.
+- No menu-bar title behavior changed in this feature.

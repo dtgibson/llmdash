@@ -1,11 +1,12 @@
 {
-  "activeFeature": "model-specific-limits",
+  "activeFeature": null,
   "sessionType": "feature",
   "entryPath": "new",
-  "currentStage": 8,
-  "lastCompletedStage": 7,
+  "currentStage": null,
+  "lastCompletedStage": 9,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
+    "pipeline/model-specific-limits/deployment-report.md",
     "pipeline/model-specific-limits/design-spec.md",
     "pipeline/model-specific-limits/pr-description.md",
     "pipeline/model-specific-limits/prd.md",
@@ -17,5 +18,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-11T04:04:41Z"
+  "updatedAt": "2026-07-11T05:41:35Z"
 }
