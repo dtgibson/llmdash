@@ -5,9 +5,8 @@
 // renders the status line. We capture the `rate_limits` block to a file the
 // dashboard reads (the sanctioned way to get the authoritative 5-hour / weekly
 // numbers), then print a concise status line back to stdout.
-import fs from 'node:fs';
 import path from 'node:path';
-import { config } from '../config.js';
+import { writeReadingIfNewer } from '../src/claude-refresh.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -19,11 +18,7 @@ process.stdin.on('end', () => {
   // Side effect: capture rate limits for the dashboard.
   if (data && data.rate_limits) {
     try {
-      fs.mkdirSync(config.dataDir, { recursive: true });
-      fs.writeFileSync(
-        config.rateLimitsFile,
-        JSON.stringify({ rate_limits: data.rate_limits, capturedAt: new Date().toISOString() })
-      );
+      writeReadingIfNewer({ rate_limits: data.rate_limits, capturedAt: new Date().toISOString() });
     } catch { /* never break the status line on a write error */ }
   }
 

@@ -169,6 +169,7 @@ test('model-specific caps are written as an optional statusline extension', () =
     window: 'seven_day',
     used_percentage: 49,
     resets_at: 1783144800,
+    captured_at: '2026-07-02T06:42:00.000Z',
   }]);
 });
 
@@ -206,6 +207,104 @@ test('newest-capturedAt-wins: older evidence never regresses the reading (FR-10,
   assert.equal(cur.rate_limits.five_hour.used_percentage, 77);
   // No temp-file droppings left behind (atomic temp+rename).
   assert.deepEqual(fs.readdirSync(tmp), ['claude-ratelimits.json']);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('newer account-only writes preserve active model caps without restamping them', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-refresh-merge-'));
+  const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  fs.writeFileSync(cfg.rateLimitsFile, JSON.stringify({
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: null }, seven_day: { used_percentage: 1, resets_at: null } },
+    capturedAt: '2026-07-02T06:00:00.000Z',
+    model_limits: [{
+      source: 'claude-model:fable',
+      provider: 'claude-code',
+      model: 'fable',
+      label: 'Fable',
+      window: 'seven_day',
+      used_percentage: 49,
+      resets_at: Date.parse('2026-07-03T06:00:00.000Z') / 1000,
+    }],
+  }));
+
+  assert.equal(writeReadingIfNewer({
+    rate_limits: { five_hour: { used_percentage: 20, resets_at: null }, seven_day: { used_percentage: 2, resets_at: null } },
+    capturedAt: '2026-07-02T07:00:00.000Z',
+  }, cfg), true);
+
+  const cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+  assert.equal(cur.rate_limits.five_hour.used_percentage, 20);
+  assert.deepEqual(cur.model_limits, [{
+    source: 'claude-model:fable',
+    provider: 'claude-code',
+    model: 'fable',
+    label: 'Fable',
+    window: 'seven_day',
+    used_percentage: 49,
+    resets_at: Date.parse('2026-07-03T06:00:00.000Z') / 1000,
+    captured_at: '2026-07-02T06:00:00.000Z',
+  }]);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('new model rows replace matching old rows while other active model caps remain', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-refresh-model-merge-'));
+  const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  fs.writeFileSync(cfg.rateLimitsFile, JSON.stringify({
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: null }, seven_day: { used_percentage: 1, resets_at: null } },
+    capturedAt: '2026-07-02T06:00:00.000Z',
+    model_limits: [
+      { source: 'claude-model:fable', provider: 'claude-code', model: 'fable', label: 'Fable', window: 'seven_day', used_percentage: 49, resets_at: Date.parse('2026-07-03T06:00:00.000Z') / 1000 },
+      { source: 'claude-model:sonnet-4-5', provider: 'claude-code', model: 'sonnet-4-5', label: 'Sonnet 4.5', window: 'seven_day', used_percentage: 88, resets_at: Date.parse('2026-07-03T06:00:00.000Z') / 1000 },
+    ],
+  }));
+
+  assert.equal(writeReadingIfNewer({
+    rate_limits: { five_hour: { used_percentage: 20, resets_at: null }, seven_day: { used_percentage: 2, resets_at: null } },
+    capturedAt: '2026-07-02T07:00:00.000Z',
+    model_limits: [{
+      source: 'claude-model:fable',
+      provider: 'claude-code',
+      model: 'fable',
+      label: 'Fable',
+      window: 'seven_day',
+      used_percentage: 52,
+      resets_at: Date.parse('2026-07-03T06:00:00.000Z') / 1000,
+    }],
+  }, cfg), true);
+
+  const cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+  assert.deepEqual(cur.model_limits.map((m) => [m.model, m.used_percentage, m.captured_at]), [
+    ['fable', 52, '2026-07-02T07:00:00.000Z'],
+    ['sonnet-4-5', 88, '2026-07-02T06:00:00.000Z'],
+  ]);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('expired preserved model caps are dropped on the next newer write', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-refresh-expired-model-'));
+  const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  fs.writeFileSync(cfg.rateLimitsFile, JSON.stringify({
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: null }, seven_day: { used_percentage: 1, resets_at: null } },
+    capturedAt: '2026-07-02T06:00:00.000Z',
+    model_limits: [{
+      source: 'claude-model:fable',
+      provider: 'claude-code',
+      model: 'fable',
+      label: 'Fable',
+      window: 'seven_day',
+      used_percentage: 49,
+      resets_at: Date.parse('2026-07-02T06:30:00.000Z') / 1000,
+    }],
+  }));
+
+  assert.equal(writeReadingIfNewer({
+    rate_limits: { five_hour: { used_percentage: 20, resets_at: null }, seven_day: { used_percentage: 2, resets_at: null } },
+    capturedAt: '2026-07-02T07:00:00.000Z',
+  }, cfg), true);
+
+  const cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+  assert.equal(cur.model_limits, undefined);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

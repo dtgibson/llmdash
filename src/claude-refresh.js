@@ -156,6 +156,9 @@ export function newestTranscriptMtimeMs(cfg = config) {
 // dwell just keeps the pipe open past any allowed timeout; capture or
 // teardown always ends the session long before it drains.
 const RUNNER_SRC = '(sleep 6; printf \'/usage\'; sleep 1; printf \'\\r\'; sleep 300) | /usr/bin/script -q -t 0 "$1" "$2"';
+// Account windows can render before lower model-specific meters. After the
+// first parseable reading, pause briefly so later redraws can add Fable/Sonnet.
+const MODEL_LIMIT_SETTLE_MS = 1500;
 
 // Explicit allowlist env — the parent's CLAUDECODE*/ANTHROPIC_* vars are
 // never inherited (allowlist construction makes that structural). PATH is
@@ -214,9 +217,10 @@ async function teardown(child, claudePid) {
 }
 
 // One refresh attempt: spawn → poll the typescript for a parseable /usage
-// pane every 500ms → capturedAt = the hit moment → immediate teardown →
-// convert + clamp + newest-wins write. Resolves { ok: true } or
-// { ok: false, cause }; never throws, never leaves the process tree running.
+// pane every 500ms → briefly settle for late model meters → capturedAt = the
+// hit moment → teardown → convert + clamp + newest-wins write. Resolves
+// { ok: true } or { ok: false, cause }; never throws, never leaves the process
+// tree running.
 async function attemptRefresh({ cfg = config } = {}) {
   const claudePath = resolveCommand(cfg.claudeCmd);
   if (!claudePath) return { ok: false, cause: 'spawn-error' }; // never a blind spawn (FR-26)
@@ -245,6 +249,8 @@ async function attemptRefresh({ cfg = config } = {}) {
   return await new Promise((resolve) => {
     let settled = false;
     let sawPane = false;
+    let bestParsed = null;
+    let firstParsedAtMs = 0;
     let claudePid = null;
     const timers = [];
 
@@ -257,10 +263,32 @@ async function attemptRefresh({ cfg = config } = {}) {
       resolve(result);
     };
 
+    const modelLimitCount = (parsed) => Array.isArray(parsed?.modelLimits) ? parsed.modelLimits.length : 0;
+    const rememberParsed = (parsed) => {
+      const now = Date.now();
+      if (!firstParsedAtMs) firstParsedAtMs = now;
+      if (!bestParsed || modelLimitCount(parsed) >= modelLimitCount(bestParsed)) bestParsed = parsed;
+      return now;
+    };
+
+    const completeWithBestParsed = () => {
+      if (!bestParsed) return false;
+      const capturedAtMs = Date.now(); // the pane renders live data — the hit moment IS evidence time (FR-09)
+      try {
+        writeReadingIfNewer(buildReadingPayload(bestParsed.windows, capturedAtMs, bestParsed.modelLimits), cfg);
+        finish({ ok: true }); // a skipped write means a newer organic capture won — still a produced reading
+      } catch {
+        finish({ ok: false, cause: 'no-reading-produced' });
+      }
+      return true;
+    };
+
     child.on('error', () => { finish({ ok: false, cause: 'spawn-error' }); });
     child.on('exit', () => {
       // The pipeline EOF'd or died before a reading parsed.
-      if (!settled) finish({ ok: false, cause: sawPane ? 'parse-failed' : 'no-reading-produced' });
+      if (!settled && !completeWithBestParsed()) {
+        finish({ ok: false, cause: sawPane ? 'parse-failed' : 'no-reading-produced' });
+      }
     });
 
     // Record the claude pid early (the TUI is up within a few seconds); a
@@ -269,7 +297,7 @@ async function attemptRefresh({ cfg = config } = {}) {
     timers.push(setTimeout(notePid, 2000), setTimeout(notePid, 6000));
 
     timers.push(setTimeout(() => {
-      finish({ ok: false, cause: sawPane ? 'parse-failed' : 'timeout' });
+      if (!completeWithBestParsed()) finish({ ok: false, cause: sawPane ? 'parse-failed' : 'timeout' });
     }, cfg.claudeRefreshTimeoutMs));
 
     timers.push(setInterval(() => {
@@ -278,13 +306,9 @@ async function attemptRefresh({ cfg = config } = {}) {
       const parsed = parseUsagePane(text);
       if (parsed.sawPane) sawPane = true;
       if (!parsed.ok) return;
-      const capturedAtMs = Date.now(); // the pane renders live data — the hit moment IS evidence time (FR-09)
-      try {
-        writeReadingIfNewer(buildReadingPayload(parsed.windows, capturedAtMs, parsed.modelLimits), cfg);
-        finish({ ok: true }); // a skipped write means a newer organic capture won — still a produced reading
-      } catch {
-        finish({ ok: false, cause: 'no-reading-produced' });
-      }
+      const now = rememberParsed(parsed);
+      if (now - firstParsedAtMs < MODEL_LIMIT_SETTLE_MS) return;
+      completeWithBestParsed();
     }, 500));
   });
 }
@@ -349,6 +373,7 @@ function parseWindowSeg(seg) {
 
 function modelSlug(label) {
   const slug = String(label == null ? '' : label).trim().toLowerCase()
+    .replace(/^claude-model:/, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return slug || null;
 }
@@ -526,10 +551,61 @@ export function buildReadingPayload(windows, capturedAtMs, modelLimits = []) {
       window: raw?.window === 'five_hour' ? 'five_hour' : 'seven_day',
       used_percentage: Math.min(100, Math.max(0, usedPct)),
       resets_at: epoch,
+      captured_at: new Date(capturedAtMs).toISOString(),
     });
   }
   if (modelRows.length) payload.model_limits = modelRows;
   return payload;
+}
+
+function resetValueToMs(v) {
+  if (v == null) return NaN;
+  if (typeof v === 'string') {
+    const t = Date.parse(v);
+    return Number.isFinite(t) ? t : NaN;
+  }
+  const n = Number(v);
+  if (!Number.isFinite(n)) return NaN;
+  return n < 1e12 ? n * 1000 : n;
+}
+
+function modelWindowKey(v) {
+  if (v === 'five_hour' || v === 'five-hour' || v === '5h') return 'five_hour';
+  return 'seven_day';
+}
+
+function modelLimitKey(row) {
+  const model = modelSlug(row?.model ?? row?.label ?? row?.source);
+  return model ? `${model}:${modelWindowKey(row?.window)}` : null;
+}
+
+function rowsFromModelLimitPayload(payload) {
+  if (!payload || typeof payload !== 'object') return [];
+  if (Array.isArray(payload.model_limits)) return payload.model_limits;
+  if (Array.isArray(payload.modelLimits)) return payload.modelLimits;
+  return [];
+}
+
+function mergeActiveModelLimits(payload, current, newTs) {
+  const merged = new Map();
+  const add = (row, fallbackCapturedAt, requireUnexpired) => {
+    if (!row || typeof row !== 'object') return;
+    const key = modelLimitKey(row);
+    if (!key) return;
+    if (requireUnexpired) {
+      const resetMs = resetValueToMs(row.resets_at ?? row.resetsAt);
+      if (!Number.isFinite(resetMs) || resetMs <= newTs) return;
+    }
+    const next = { ...row };
+    if (next.captured_at == null && next.capturedAt == null && fallbackCapturedAt) {
+      next.captured_at = fallbackCapturedAt;
+    }
+    merged.set(key, next);
+  };
+
+  for (const row of rowsFromModelLimitPayload(current)) add(row, current?.capturedAt, true);
+  for (const row of rowsFromModelLimitPayload(payload)) add(row, payload?.capturedAt, false);
+  return [...merged.values()];
 }
 
 // Newest-capturedAt-wins, atomically (temp + rename): a probe capture must
@@ -539,14 +615,20 @@ export function writeReadingIfNewer(payload, cfg = config) {
   const newTs = Date.parse(payload.capturedAt);
   if (!Number.isFinite(newTs)) return false;
   let currentTs = NaN;
+  let current = null;
   try {
-    const cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
-    if (cur && cur.capturedAt) currentTs = Date.parse(cur.capturedAt);
+    current = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+    if (current && current.capturedAt) currentTs = Date.parse(current.capturedAt);
   } catch { /* absent or unreadable — any real reading is an improvement */ }
   if (Number.isFinite(currentTs) && currentTs >= newTs) return false;
+  const nextPayload = { ...payload };
+  delete nextPayload.modelLimits;
+  const mergedModels = mergeActiveModelLimits(payload, current, newTs);
+  if (mergedModels.length) nextPayload.model_limits = mergedModels;
+  else delete nextPayload.model_limits;
   fs.mkdirSync(cfg.dataDir, { recursive: true });
   const tmp = `${cfg.rateLimitsFile}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(payload));
+  fs.writeFileSync(tmp, JSON.stringify(nextPayload));
   fs.renameSync(tmp, cfg.rateLimitsFile);
   return true;
 }
