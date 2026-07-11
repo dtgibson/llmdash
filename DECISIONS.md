@@ -1,5 +1,29 @@
 # Decisions — llmdash
 
+## Model-limit detection — preserve active model caps across statusline writes — 2026-07-11 (fix)
+**Decision:** Claude model-specific caps (`model_limits`) are now treated as active
+sidecar evidence in the shared Claude reading writer. Organic statusline captures
+still update account-wide `rate_limits`, but they no longer delete still-active
+model rows; newer `/usage` captures replace matching model/window rows and carry
+forward other active model caps until their reset time. Each model row keeps its
+own `captured_at`, and the `/usage` probe waits briefly after the account windows
+first parse so lower-rendered model sections such as Fable or Sonnet can arrive.
+**Rationale:** The first model-limit implementation wrote Fable/Sonnet caps from
+the `/usage` probe, but the normal Claude statusline script wrote the same file
+directly with only account windows, erasing `model_limits` on the next organic
+statusline render. The probe also stopped as soon as account windows parsed, which
+could miss model sections rendered lower in the TUI.
+**Implications:** Future Claude reading extensions must go through the shared
+newest-wins writer rather than replacing the reading file directly. Optional
+sub-readings need their own evidence timestamp and an expiry rule, so newer
+account-only captures do not either delete active sidecar evidence or falsely
+restamp it as newly observed. QA PASSED: focused regression tests and full
+`npm test` passed (479 passing, 0 failing, 2 skipped). Security PASSED: no new
+endpoint, dependency, shell interpolation, network call, or credential surface was
+added. Shipped as commit `66507d9`; installed `~/llmdash` was fast-forwarded,
+`com.llmdash.dashboard` restarted, SwiftBar relaunched, and live `/api/state`
+verified a Fable model cap after deploy.
+
 ## Menu-bar logos as glyph replacements — colored SwiftBar image, text fallback — 2026-07-09 (improve)
 **Decision:** The **Tool marks -> Logos** option now treats successful SwiftBar
 logo rendering as a replacement for the visible `◆` / `▲` tool glyphs, not an

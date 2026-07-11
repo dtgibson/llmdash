@@ -7,10 +7,11 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 
 ## Shipped Capabilities
 - **Claude Code live dashboard** — the 5-hour and weekly limit windows (remaining
-  %, reset countdowns, status colors), pacing predictors for **both** windows
-  (on pace / at risk / limit reached, with status pills), and activity stats from
-  local logs: tokens (5h / week / today), cache hit rate, estimated value, weekly
-  token mix, cache savings, and today's value. Limit snapshots are logged to SQLite.
+  %, reset countdowns, status colors), model-specific weekly caps when Claude
+  reports them, pacing predictors for **both** windows (on pace / at risk / limit
+  reached, with status pills), and activity stats from local logs: tokens (5h /
+  week / today), cache hit rate, estimated value, weekly token mix, cache
+  savings, and today's value. Limit snapshots are logged to SQLite.
 - **Codex usage** — Codex's 5-hour and weekly limits beside Claude Code, with a
   headroom cue (across both windows) that points you to the tool with room left
   when one is low or maxed. Codex token activity is read from its local session
@@ -77,7 +78,9 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   reads. Readings also refresh on their own: when the reading goes stale and
   Claude has been active, the interval poller spawns a short-lived session, sends
   `/usage`, and scrapes that pane into the same reading file (the statusline
-  render itself never carries limits for a desktop-app user). Activity stats are
+  render itself never carries limits for a desktop-app user). The `/usage` scrape
+  can also add model-specific caps, and account-only statusline captures preserve
+  those active model caps until reset instead of deleting them. Activity stats are
   computed on demand from `~/.claude/projects/**/*.jsonl`.
 - Codex limits come from `codex app-server` (polled on the interval, not per
   request) with a rollout-file fallback; Codex activity from
@@ -135,7 +138,7 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
   Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding, the
-  auto-refresh teardown follow-up, the Fable per-model weekly meter).
+  auto-refresh teardown follow-up).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

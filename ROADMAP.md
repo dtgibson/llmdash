@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-18 features shipped.
+19 features shipped.
 
-- **Last shipped:** Menu-bar logo drop-in — the macOS badge's opt-in Logos mode
+- **Last shipped:** Model-limit detection — Claude model-specific caps now stay
+  visible across ordinary statusline updates and late-rendered `/usage` model
+  sections get a capture window.
+- **Previously:** Menu-bar logo drop-in — the macOS badge's opt-in Logos mode
   now replaces visible tool glyphs with same-color local logo art in SwiftBar
   while preserving neutral text fallback elsewhere.
-- **Previously:** Menu-bar logo side-by-side — the macOS badge's opt-in Logos
-  mode now uses status-bar-sized single marks and a paired Claude/Codex image for
-  side-by-side tool glyphs.
 
 ---
 
@@ -52,6 +52,3 @@ peer can be offline — rather than blindly trust an old reading.
     can orphan one probe session and leave a stale typescript; a SIGTERM/exit
     teardown hook plus a startup stale-typescript sweep would close it (accepted
     OPEN security follow-up, a deliberate engineering change).
-  - **Fable per-model weekly meter** — `/usage` renders a third *Current week
-    (Fable)* promotional cap beyond the two contract windows; a possible future
-    source-aware addition if per-model caps become worth surfacing.

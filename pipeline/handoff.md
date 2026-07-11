@@ -1,40 +1,41 @@
-# Handoff — Model-Specific Limits
+# Handoff — Model Limit Detection
 
-Feature: `model-specific-limits`
-Lane: `feature`
-Date: 2026-07-10
+Feature: `model-limit-detection`
+Lane: `fix`
+Date: 2026-07-11
 
 ## What Changed
 
-- Claude `/usage` model caps such as `Current week (Fable)` now parse into `modelLimits` instead of being discarded.
-- Account-wide `five_hour` and `seven_day` limits remain separate and cannot be replaced by model-specific caps.
-- The Claude statusline reading can include optional `model_limits`.
-- `/api/state` and `/api/hosts` expose `modelLimits` arrays for every tool.
-- Peer-provided model caps are normalized and clamped before rendering.
-- The dashboard renders a compact `model-specific limits` section wherever tool account limits are shown.
+- Claude's organic statusline capture now uses the shared newest-wins writer instead of replacing `data/claude-ratelimits.json` directly.
+- Still-active Claude `model_limits` rows are preserved across newer account-only captures until their reset time.
+- Incoming `/usage` model rows replace older rows for the same model/window while other active model rows remain.
+- Model rows now keep per-row `captured_at`, so account-only writes do not falsely restamp old model evidence.
+- The `/usage` probe now waits briefly after the account windows parse so lower-rendered model sections such as Fable or Sonnet can appear before the reading is written.
 
 ## Why
 
-Some Claude models have their own limits. Without a separate model-limit channel, llmdash could show healthy account-wide headroom while hiding a constrained model-specific cap.
+Fable appeared only sometimes because a normal Claude statusline render erased the optional `model_limits` extension. Sonnet-style caps could also be missed if the probe finished before lower sections rendered.
 
 ## Verification
 
-- Full `npm test` passed: 477 total, 475 passing, 2 skipped, 0 failed.
-- Real Fable fixtures prove model caps parse separately from account-wide windows.
-- Browser render tests verify model labels are escaped before `innerHTML`.
-- Security review found no blocking issues.
+- `node --test tests/claude-refresh-parse.test.js` passed: 20 tests.
+- `node --test tests/statusline-model-merge.test.js` passed: 1 test.
+- Full `npm test` passed: 481 total, 479 passing, 2 skipped, 0 failed.
+- `git diff --check` passed.
+- Security review passed with no findings.
 
 ## Deployment
 
-- Runtime commit deployed: `dfc0c1e Add model-specific limit display`.
-- Source, `origin/main`, and installed checkout were confirmed at `dfc0c1e`.
+- Runtime commit deployed: `66507d9 Fix Claude model limit persistence`.
+- Pushed `66507d9` to `origin/main`.
+- Fast-forwarded installed checkout `/Users/developer/llmdash` from `bc639f2` to `66507d9`.
 - Restarted `com.llmdash.dashboard`.
 - Relaunched SwiftBar.
-- `/api/state` and `/api/hosts` returned successfully and include `modelLimits` arrays.
-- Final live check found a Claude Fable model cap: weekly, 96% used / 4% remaining, reset `2026-07-11T05:59:00.000Z`.
+- `/api/state` and `/api/hosts` returned successfully.
+- Final live check found a Claude Fable model cap: weekly, 16% used / 84% remaining, reset `2026-07-18T06:00:00.000Z`.
 - Existing remote host `SRDev VM` remains unreachable; this is unrelated pre-existing state.
 
 ## Remaining Notes
 
+- The app only shows model-specific caps that Claude reports through `/usage` or that remain active from a prior captured `/usage` reading; it does not fabricate a Sonnet cap when Claude does not expose one.
 - No database migration was needed.
-- No menu-bar title behavior changed in this feature.

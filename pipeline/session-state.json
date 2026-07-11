@@ -1,12 +1,13 @@
 {
-  "activeFeature": "model-limit-detection",
+  "activeFeature": null,
   "sessionType": "fix",
   "entryPath": "new",
-  "currentStage": 5,
-  "lastCompletedStage": 4,
+  "currentStage": null,
+  "lastCompletedStage": 6,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/model-limit-detection/bug-brief.md",
+    "pipeline/model-limit-detection/deployment-report.md",
     "pipeline/model-limit-detection/pr-description.md",
     "pipeline/model-limit-detection/qa-report.md",
     "pipeline/model-limit-detection/security-report.md"
@@ -14,5 +15,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-11T20:55:09Z"
+  "updatedAt": "2026-07-11T21:01:50Z"
 }
