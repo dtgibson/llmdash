@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-19 features shipped.
+20 features shipped.
 
-- **Last shipped:** Model-limit detection — Claude model-specific caps now stay
+- **Last shipped:** Menu-bar model limits — the macOS badge dropdown now shows
+  Claude model-specific caps such as Fable and Sonnet beneath the account-wide
+  Claude rows when those caps are present.
+- **Previously:** Model-limit detection — Claude model-specific caps now stay
   visible across ordinary statusline updates and late-rendered `/usage` model
   sections get a capture window.
-- **Previously:** Menu-bar logo drop-in — the macOS badge's opt-in Logos mode
-  now replaces visible tool glyphs with same-color local logo art in SwiftBar
-  while preserving neutral text fallback elsewhere.
 
 ---
 

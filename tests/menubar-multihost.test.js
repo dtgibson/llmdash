@@ -83,6 +83,32 @@ test('single-host mode still offers ＋ Add host… so the first machine is adda
   assert.match(out, /^Refresh \| refresh=true$/m);
 });
 
+test('multi-host dropdown renders Claude model-specific limits within the host Claude section', () => {
+  const desktopClaude = tool('claude-code', 46, 61);
+  desktopClaude.modelLimits = [
+    { source: 'claude-model:fable', provider: 'claude-code', model: 'fable', label: 'Fable', window: 'seven_day', usedPct: 16, remainingPct: 84, resetsAt: iso(2 * 86400_000), capturedAt: iso(-60000) },
+    { source: 'claude-model:sonnet-4-5', provider: 'claude-code', model: 'sonnet-4-5', label: 'Sonnet 4.5', window: 'seven_day', usedPct: 81, remainingPct: 19, resetsAt: iso(2 * 86400_000), capturedAt: iso(-60000) },
+  ];
+  const c = combined([
+    host('This machine', { self: true, tools: [tool('claude-code', 80, 90), tool('codex', 88, 72)] }),
+    host('Desktop', { tools: [desktopClaude, tool('codex', 71, 64)] }),
+  ]);
+  const multi = computeMultiBadge(c);
+  const out = emitMulti(multi, { host: '127.0.0.1', port: '8787', remotes: remotesFromCombined(c) });
+
+  assert.doesNotMatch(titleLine(out), /Fable|Sonnet|Model/);
+  const desktopIndex = out.indexOf('Desktop  ▸ binding');
+  const modelIndex = out.indexOf('Model limits |');
+  const fableIndex = out.indexOf('Fable:  84%');
+  const codexIndex = out.indexOf('Codex | size=13');
+  assert.ok(desktopIndex >= 0, 'Desktop binding section rendered');
+  assert.ok(modelIndex > desktopIndex, 'model label appears inside Desktop section');
+  assert.ok(fableIndex > modelIndex, 'Fable row follows the model label');
+  assert.ok(codexIndex > fableIndex, 'model rows appear before Desktop Codex rows');
+  assert.match(out, /^Fable: {2}84% · resets .+ \| font=Menlo color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^Sonnet 4\.5: {2}19% · resets .+ \| font=Menlo color=#b3261e bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+});
+
 // ── Glyph = min across HOST × tool × window with a reading (QA-07) ─────────────
 test('multi glyph = floor(min remainingPct) across host × tool × window with a reading (QA-07)', () => {
   const c = combined([

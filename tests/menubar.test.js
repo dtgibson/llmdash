@@ -292,6 +292,39 @@ test('emit: the dropdown lists all four tool×window rows', () => {
   assert.equal((out.match(/^Weekly: /gm) || []).length, 2);
 });
 
+test('emit: Claude model-specific limits render under the account windows only in the dropdown', () => {
+  const now = Date.now();
+  const state = loadFixture('state-fresh', now);
+  state.tools[0].modelLimits = [
+    { source: 'claude-model:fable', provider: 'claude-code', model: 'fable', label: 'Fable', window: 'seven_day', usedPct: 16, remainingPct: 84, resetsAt: new Date(now + 2 * 86400_000).toISOString(), capturedAt: new Date(now - 60_000).toISOString() },
+    { source: 'claude-model:sonnet-4-5', provider: 'claude-code', model: 'sonnet-4-5', label: 'Sonnet 4.5', window: 'seven_day', usedPct: 66, remainingPct: 34, resetsAt: new Date(now + 2 * 86400_000).toISOString(), capturedAt: new Date(now - 60_000).toISOString() },
+  ];
+
+  const out = emit(computeBadge(state));
+  assert.match(titleLine(out), /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
+  assert.doesNotMatch(titleLine(out), /Fable|Sonnet|Model/);
+
+  const claudeIndex = out.indexOf('Claude Code |');
+  const modelIndex = out.indexOf('Model limits |');
+  const codexIndex = out.indexOf('Codex |');
+  assert.ok(claudeIndex >= 0, 'Claude section rendered');
+  assert.ok(modelIndex > claudeIndex, 'model label appears inside Claude section');
+  assert.ok(codexIndex > modelIndex, 'model rows appear before Codex section');
+  assert.equal((out.match(/^Model limits \|/gm) || []).length, 1);
+  assert.match(out, /^Fable: {2}84% · resets .+ \| font=Menlo color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^Sonnet 4\.5: {2}34% · resets .+ \| font=Menlo color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+});
+
+test('emit: a model-specific limit with a malformed reset degrades to a dash', () => {
+  const state = loadFixture('state-fresh');
+  state.tools[0].modelLimits = [
+    { source: 'claude-model:fable', provider: 'claude-code', model: 'fable', label: 'Fable', window: 'seven_day', usedPct: 56, remainingPct: 44, resetsAt: 'not-a-date', capturedAt: new Date().toISOString() },
+  ];
+
+  const out = emit(computeBadge(state));
+  assert.match(out, /^Fable: {2}44% · resets — \| font=Menlo color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // statusClass — verbatim thresholds from public/app.js.
 // ─────────────────────────────────────────────────────────────────────────────

@@ -30,11 +30,12 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   rendering the last capture) and costs no usage quota.
 - **macOS menu-bar badge** — a glanceable badge in the menu bar (via SwiftBar/xbar)
   showing the most-constrained remaining % across Claude Code and Codex (both
-  windows), with a dropdown carrying the full per-tool picture and a link to the
-  dashboard. It is a pure consumer of the local instance's data (no second data
-  path, no recomputed limits), honest about freshness and offline state (five
-  honesty states mirroring the dashboard, with `◷` for aging and `⚠` for stale),
-  and names the binding tool (◆ Claude / ▲ Codex). Its dropdown keeps summary,
+  windows), with a dropdown carrying the full per-tool picture, including Claude
+  model-specific caps when present, and a link to the dashboard. It is a pure
+  consumer of the local instance's data (no second data path, no recomputed
+  limits), honest about freshness and offline state (five honesty states
+  mirroring the dashboard, with `◷` for aging and `⚠` for stale), and names the
+  binding tool (◆ Claude / ▲ Codex). Its dropdown keeps summary,
   detail, diagnostics, Display controls, and Legend copy readable as explicit
   high-contrast rows instead of faint default-gray menu text, and the Legend
   explains every visible badge/menu mark, including the `▪` llmdash mark. It can

@@ -141,6 +141,24 @@ export function diagLine(d) {
 const WINDOWS = [['five_hour', '5-hour'], ['seven_day', 'Weekly']];
 const BAND_RANK = { fresh: 0, aging: 1, stale: 2 };
 
+function modelLimitRows(t) {
+  if (!t || !Array.isArray(t.modelLimits)) return [];
+  const rows = [];
+  for (const lim of t.modelLimits) {
+    if (!lim || typeof lim !== 'object') continue;
+    const remainingRaw = Number(lim.remainingPct);
+    if (!Number.isFinite(remainingRaw)) continue;
+    const remaining = Math.floor(remainingRaw);
+    rows.push({
+      label: lim.label || lim.model || 'Model',
+      remaining: Math.max(0, Math.min(100, remaining)),
+      resetsAt: lim.resetsAt || null,
+      maxed: remainingRaw <= 0,
+    });
+  }
+  return rows;
+}
+
 export function computeBadge(state) {
   const tools = (state && Array.isArray(state.tools)) ? state.tools : [];
 
@@ -162,7 +180,7 @@ export function computeBadge(state) {
         maxed: win.remainingPct <= 0,
       };
     });
-    return { label: t.label, source: t.source, cue, band, rows, diag: diagLine(t.limitsDiagnostic) };
+    return { label: t.label, source: t.source, cue, band, rows, modelRows: modelLimitRows(t), diag: diagLine(t.limitsDiagnostic) };
   });
 
   // The binding window: lowest remainingPct across ALL windows-with-a-reading,
@@ -467,6 +485,21 @@ function wrappedMenuLines(text, opts = {}, { max = DROPDOWN_WRAP_CHARS } = {}) {
   return wrapMenuText(text, max).map((line, idx) => menuLine(idx === 0 ? line : `  ${line}`, opts));
 }
 
+function modelLimitLine(row) {
+  const resetMs = row.resetsAt ? Date.parse(row.resetsAt) : NaN;
+  const resetIn = Number.isFinite(resetMs) ? fmtDur(resetMs - Date.now()) : fmtDur(null);
+  if (row.maxed) return `${row.label}:  limit reached · resets ${resetIn}`;
+  return `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
+}
+
+function pushModelLimitLines(lines, tv) {
+  if (!Array.isArray(tv.modelRows) || tv.modelRows.length === 0) return;
+  lines.push(menuLine('Model limits', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
+  for (const row of tv.modelRows) {
+    lines.push(menuLine(modelLimitLine(row), { font: 'Menlo', color: DROPDOWN_STATE_COLOR[statusClass(row.remaining)] }));
+  }
+}
+
 export function baseUrl(host, port) {
   return `http://${sanitizeHostPort(host)}:${sanitizeHostPort(port)}/`;
 }
@@ -506,6 +539,7 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
       }
       lines.push(menuLine(text, { font: 'Menlo', color: COLOR_DROPDOWN_TEXT }));
     }
+    pushModelLimitLines(lines, tv);
     if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_BODY_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
   }
 
@@ -672,6 +706,7 @@ function hostSectionLines(view, { isBinding = false } = {}) {
       }
       lines.push(menuLine(text, { font: 'Menlo', color: COLOR_DROPDOWN_TEXT }));
     }
+    pushModelLimitLines(lines, tv);
     if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_NOTE_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
   }
   for (const dl of diagBlock) lines.push(dl);

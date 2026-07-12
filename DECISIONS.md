@@ -1,5 +1,28 @@
 # Decisions — llmdash
 
+## Menu-bar model limits — model caps are supplemental dropdown detail, not glyph inputs — 2026-07-11 (improve)
+**Decision:** Claude model-specific caps from `modelLimits` now render in the
+macOS SwiftBar/xbar dropdown under the Claude Code section, after the account-wide
+5-hour and weekly rows. They are supplemental detail only: they do not participate
+in the status-bar title glyph, binding calculation, display presets, host grouping,
+polling, or API contracts, and the block is omitted entirely when no model caps are
+present.
+**Rationale:** The dashboard already exposes Fable/Sonnet-style model caps, and
+the menu dropdown is the quickest place to check them without opening the
+dashboard. Keeping them out of the glyph preserves the badge's existing compact
+"most constrained account/tool window" grammar and avoids silently changing the
+meaning of side-by-side Claude/Codex presets.
+**Implications:** Future model-cap work should treat model limits as explicit
+supplemental rows unless the user ratifies a separate glyph/binding semantics
+change. Menu-bar model rows should stay inert display rows, use the existing
+SwiftBar text sanitization/no-op action path, and degrade malformed reset times to
+`—` rather than fabricating a countdown. QA PASSED: focused menu-bar tests and
+full `npm test` passed (482 passing, 0 failing, 2 skipped). Security PASSED: no
+new endpoint, dependency, shell/action parameter, peer fetch, persistence, or
+credential surface was added. Deployed to the live macOS checkout
+`/Users/developer/llmdash`; the launchd service is running and installed plugin
+output shows the current Fable cap under `Model limits`.
+
 ## Model-limit detection — preserve active model caps across statusline writes — 2026-07-11 (fix)
 **Decision:** Claude model-specific caps (`model_limits`) are now treated as active
 sidecar evidence in the shared Claude reading writer. Organic statusline captures
