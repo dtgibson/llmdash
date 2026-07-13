@@ -1,5 +1,20 @@
 # Decisions — llmdash
 
+## Cross-surface reading hierarchy — account limits first, native actions last — 2026-07-12 (improve)
+**Decision:** The dashboard's durable reading order is account-window gauges first,
+pacing second, and quieter activity, provenance, and trends after them. The native
+menu follows binding summary → host/tool readings → attached diagnostics → settings
+and actions. Strong elevation is reserved for account gauges; tool marks and rails,
+spacing, indentation, and semantic color carry the rest of the hierarchy. The page
+uses an 860px maximum reading width with automatic light/dark atmospheric tokens.
+**Rationale:** Equal-weight bordered containers made mature usage, host, and trend
+content slower to scan, while native menu constraints reward a clear text hierarchy
+instead of simulated web cards.
+**Implications:** Future dashboard and menu work should preserve this shared order,
+keep status words and symbols load-bearing, and add depth only when a metric belongs
+to the primary account-limit layer. Deeper Codex usage analysis remains a separate
+future feature rather than being folded into presentation refinement.
+
 ## Menu-bar model limits — model caps are supplemental dropdown detail, not glyph inputs — 2026-07-11 (improve)
 **Decision:** Claude model-specific caps from `modelLimits` now render in the
 macOS SwiftBar/xbar dropdown under the Claude Code section, after the account-wide

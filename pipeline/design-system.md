@@ -1,29 +1,36 @@
 # Design System — llmdash
 
-Established at the first feature (Claude Code live dashboard). Every later feature
-inherits this. Evolve it deliberately; never let it drift silently.
+Reusable visual and interaction reference for every llmdash surface. Evolve it
+deliberately; never let it drift silently.
 
 ## Feel
 Simple, functional, fast. A focused data readout for personal use. Library-light
 (no framework, no component kit), glanceable, and honest about where each number
-comes from. Mobile-first; at home on a phone over Tailscale.
+comes from. Mobile-first; at home on a phone over Tailscale. Account-window gauges
+lead, pacing follows as the actionable layer, and supporting activity, provenance,
+and trends stay quieter. The native menu mirrors that order in text instead of
+imitating web cards.
 
 ## Tokens
 
 Colors (light / dark):
-- bg `#fafafa` / `#0e1013`
-- panel `#ffffff` / `#161a1f`
-- border `#e6e6e6` / `#262b32`
-- text `#15171a` / `#e7eaee`
-- muted `#6b7280` / `#9aa3ad`
-- faint `#9ca3af` / `#6b7480`
-- track (bar background) `#eceef0` / `#232830`
-- status pill backgrounds: good-bg `#e7f6ec` / `#122a1b`; crit-bg `#fdeaea` / `#2c1517` (warn pill reuses warn-bg)
-- accent `#2563eb` / `#6b9bff`; accent-bg `#eef2ff` / `#18203a`
-- warn-bg (warn-tinted callouts) `#fef3e7` / `#2a1f12`
-- grid (chart gridlines) `#eef0f2` / `#21262d`
-- Status (both themes): good `#16a34a`, warn `#d97706`, crit `#dc2626`
+- bg `#f5f7fa` / `#0c1015`
+- panel `#ffffff` / `#151b22`; panel-soft `#f8fafc` / `#11171e`
+- border `#dfe5ec` / `#27303b`; border-strong `#cfd7e2` / `#34404e`
+- text `#151a21` / `#edf1f5`
+- muted `#667181` / `#a0aab6`; faint `#8994a3` / `#75808d`
+- track (bar background) `#e8edf3` / `#252e39`
+- status pill backgrounds: good-bg `#e8f6ed` / `#14291d`; crit-bg
+  `#fdebec` / `#32191c` (warn pill reuses warn-bg)
+- accent `#2563eb` / `#7ea4ff`; accent-bg `#eaf0ff` / `#18243e`
+- warn-bg (warn-tinted callouts) `#fff2df` / `#2b2114`
+- grid (chart gridlines) `#e9edf2` / `#232b34`
+- tool identity: Claude `#b85d43` / `#e18468`; Codex reuses accent
+- Status: good `#168a45` / `#55cb7b`, warn `#b96807` / `#e8a54e`, crit
+  `#cc3434` / `#ff7777`
 - Status thresholds (remaining %): ≥50 good, 20–49 warn, <20 crit
+- Depth: `--gauge-shadow` is reserved for primary account gauges; focus uses
+  `--focus-ring`; page atmosphere uses low-opacity accent/good glows.
 - Theme: automatic via `prefers-color-scheme`
 
 Type:
@@ -34,19 +41,25 @@ Type:
   with 0.07–0.09em tracking for group labels).
 
 Spacing & shape:
-- Page max-width 720px, centered, 16–20px gutters.
-- Radius: 12px panels, 10px tiles, 999px bars.
-- Generous internal padding (16–20px). Whitespace is intentional.
+- Page max-width 860px, centered, with 16px desktop gutters and 11px phone
+  gutters.
+- Radius: 16px tool sections, 13px gauges, 10–12px supporting groups and
+  callouts, 999px bars and pills.
+- Generous internal padding (16–21px). Whitespace is intentional.
 
 ## Patterns
+- **Cross-surface reading order:** dashboard = account-window gauges → pacing →
+  supporting activity/provenance → trends; native menu = binding summary →
+  host/tool readings → attached diagnostics → settings/actions. Preserve this
+  order as either surface gains content.
 - **Primary metric panel** (`.panel`): headline figure + label + status bar + meta
-  line. For the most important live numbers (e.g. limit windows).
+  line. Account-window gauges are the only strongly elevated metric layer.
 - **Stat tile** (`.tile`): compact secondary stat (label + figure + small note),
-  used in grids.
+  grouped into a flat divided band rather than a grid of elevated cards.
 - **Status bar** (`.bar` / `.bar-fill`): thin rounded bar; fill width = the
   positive value (remaining), colored by status threshold.
-- **Featured callout** (`.burn`): accent-tinted panel for the single most
-  actionable insight. Stacks vertically: a rate line, then one row per window.
+- **Pacing band** (`.burn`): compact accent-tinted second layer immediately below
+  the account gauges. It stacks a rate line and one aligned row per window.
 - **Pacing pill** (`.burn-pill` + `.pill-good` / `.pill-warn` / `.pill-crit`): a
   small status-tinted chip (ON PACE / AT RISK / LIMIT REACHED) in each window's
   pacing row inside the burn callout. Color by remaining-% status, backed by
@@ -69,9 +82,9 @@ Spacing & shape:
 - **Freshness indicator:** pulse dot + "updated Ns ago", tabular-nums.
 - **Honesty line:** when a number's source or scope differs from the headline
   data, say so plainly (e.g. footer).
-- **Tool block** (`.tool` + `.tool-head`): groups one tool's gauges and activity
-  under a labeled header. The grouping is how multi-source views stay
-  unambiguous — every number sits under its tool's name.
+- **Tool block** (`.tool` + `.tool-head`): the principal grouping surface for one
+  tool's gauges and activity. A slim `--tool-color` rail plus `◆` / `▲` mark
+  establishes identity; avoid nested equal-weight card shells inside it.
 - **Host group** (`.host-head` + `.host-pill`): the machine-scoped wrapper for
   multi-host views — one host's tool blocks sit under a header carrying its
   escaped label and a right-aligned status pill (`binding` / `you` accent or muted
@@ -96,8 +109,8 @@ Spacing & shape:
   identity never depends on an image rendering.
 - **Compact glyph cell** (menu-bar badge): the five-state honesty vocabulary
   miniaturized to a marker + number for a menu-bar line. `fresh` = bare `<pct>` in
-  its status hue; `aging` = `<pct>·` (trailing dot, dimmed); `stale` = `⚠<pct>`
-  (leading warning, amber); `no-reading` = `—` and `offline` = `⊘` (both carry
+  its status hue; `aging` = `◷<pct>`; `stale` = `⚠<pct>`; `no-reading` = `—`
+  and `offline` = `⊘` (the latter two carry
   **no number** — the never-a-fabricated-number floor is structural). The marker is
   the load-bearing carrier (reads in a monochrome bar even with color stripped);
   color reinforces, never carries alone. A leading `▪` marks identity once. Layout
@@ -105,21 +118,35 @@ Spacing & shape:
   cell, per-cell state on the marker, capped with `+M more`) / alternating (one
   cell per ~5s tick, stateless clock rotation). A **grow-prefix host cue**
   (`St`/`La`/`De`) restores per-host identity in multi-cell layouts. This is the
-  text/`color=` floor that holds on xbar; `sfimage=`/logos are additive SwiftBar
-  polish on top, never the sole carrier of a state.
+  text/`color=` floor that holds on xbar. In SwiftBar logo mode, a successfully
+  generated local image may replace the visible tool mark; neutral marks remain
+  the fallback whenever image rendering is unavailable.
 - **Headroom strip** (`.headroom`): a top-of-page cross-tool cue (warn-tinted,
   left accent border). Shown only when a tool is low or maxed; it names the
   depleted tool and points to the one with the most remaining headroom. Hidden
   when everything is comfortable.
-- **Chart card** (`.card`): a panel holding a title, a source/scope note, and a
-  responsive SVG chart (`width:100%`, fixed viewBox). For time-series.
+- **Chart group** (`.charts` + `.card`): responsive SVG plots (`width:100%`, fixed
+  viewBox) sit in a lightly divided soft-surface group beneath one Trends header.
+  They stay visually quieter than live gauges and form two columns only when the
+  reading width supports it.
 - **Range switch** (`.range` / `.pill`): a pill toggle for time ranges; the
-  active pill uses the accent color.
+  active pill uses the accent color and exposes matching hover, focus-visible,
+  pressed, and `aria-pressed` states.
 - **Chart empty state** (`.empty`): a dashed card reading "not enough data yet"
   when a series is too thin to plot.
 - **SVG charts:** plain SVG, minimal gridlines (`--grid`) + small mono labels,
   series colored from existing tokens (accent/teal for lines, mix colors for
   stacked bars). No chart library.
+- **Native dropdown hierarchy:** keep the status-bar title to one line, then use
+  SwiftBar/xbar separators, font size, indentation, `◆` / `▲`, and semantic text
+  color to structure the dropdown. Diagnostics sit directly beneath the tool
+  readings they qualify. Display, Legend, service, host, uninstall, dashboard,
+  and refresh controls form the final quieter action region; action rows remain
+  distinct from inert text rows.
+- **Motion:** meter/segment widths may transition for 220ms with
+  `cubic-bezier(.2,.8,.2,1)`; range state may transition for 160ms ease-out and
+  focus for 120ms. Disable effective motion under `prefers-reduced-motion`; use
+  no entrance, stagger, bounce, hover-scale, or continuous decoration.
 
 ## References
 None supplied by the user; the direction is anchored to "vanilla, basic, fast,
@@ -129,5 +156,6 @@ plain text" — a clean monospace data readout.
 A personal, single-user tool that values speed and zero build friction over visual
 flourish. No framework keeps it instant to load and trivial to run as a background
 process. Monospace numerals plus status color make it scannable at a glance, which
-is the entire point of the product. Auto light/dark and a narrow centered column
-make it equally usable on phone and laptop.
+is the entire point of the product. Automatic light/dark themes and a centered
+reading column make it equally usable on phone and laptop; the same hierarchy
+survives in the native menu through text and spacing rather than web chrome.

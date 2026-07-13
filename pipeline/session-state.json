@@ -1,12 +1,13 @@
 {
-  "activeFeature": "cross-surface-visual-refinement",
+  "activeFeature": null,
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": 6,
-  "lastCompletedStage": 5,
+  "currentStage": null,
+  "lastCompletedStage": 7,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/cross-surface-visual-refinement/change-brief.md",
+    "pipeline/cross-surface-visual-refinement/deployment.md",
     "pipeline/cross-surface-visual-refinement/design-refinement.md",
     "pipeline/cross-surface-visual-refinement/implementation.md",
     "pipeline/cross-surface-visual-refinement/qa-report.md",
@@ -15,5 +16,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-13T04:20:33Z"
+  "updatedAt": "2026-07-13T04:30:03Z"
 }

@@ -10,14 +10,15 @@ Implemented the approved cross-surface visual refinement for llmdash. The dashbo
 - pipeline/cross-surface-visual-refinement/how-to-see.md
 - pipeline/cross-surface-visual-refinement/qa-report.md
 - pipeline/cross-surface-visual-refinement/security-report.md
+- pipeline/cross-surface-visual-refinement/deployment.md
 
 ## Where We Are
-Step 5 is complete and Step 6 pre-deploy reconciliation is ready. Security passed with zero findings and QA is fully green. The source checkout is `main` at `965ba02` plus this uncommitted feature; it is synchronized with `origin/main` and has no conflicts. The production checkout `/Users/developer/llmdash` is clean at the same base commit, its launchd service is healthy on port 8787, and the SwiftBar wrapper points there. This local-only project has no CI workflow or deployment environment; the passing 486-test local suite is the release gate, and existing launchd command paths are configured. Deployment will commit and push the feature, fast-forward the production checkout, reload the launchd service, refresh the marker-gated SwiftBar wrapper, and run dashboard/menu health checks. Rollback is a revert commit followed by the same fast-forward/reload path. No commit, push, pull, service reload, wrapper change, or deployment has occurred; explicit approval is required next.
+The full seven-step Improve run is complete. Release `2925489` is live and healthy; QA passed 486 tests with no failures, security found no issues, launchd and SwiftBar run the installed release, and dashboard/API/native-output health checks pass. Durable context now records the shared account-limits-first hierarchy, the current design tokens/patterns, the 21st shipped item, and the separately deferred deeper Codex-insights direction. No new engineering convention or product capability was introduced.
 
 ## Resume Prompt
 
-To resume this session: run `$weft` in this project. It reads the saved state and picks up exactly here.
+For the next feature or improvement, run `$weft` in this project.
 
 ---
 
-Resume llmdash's `cross-surface-visual-refinement` improvement at the Step 6 deployment gate. Steps 1–5 passed, and pre-deploy reconciliation is complete. If the user confirms, commit and push the feature from `/Users/developer/devwork/llmdash`, fast-forward `/Users/developer/llmdash`, reload the existing launchd service, refresh the marker-gated SwiftBar wrapper, then verify the dashboard on port 8787 and the live menu output/UI. If they cancel, make no deployment mutation and preserve this checkpoint. No deployment has occurred yet.
+The `cross-surface-visual-refinement` improvement is complete and deployed. The next `$weft` run should begin from the current product context and roadmap; deeper Codex usage insights are already captured as a separate future idea rather than unfinished scope in this visual release.

@@ -8,14 +8,13 @@ product. Update it freely.
 
 ## Shipped
 
-20 features shipped.
+21 features shipped.
 
-- **Last shipped:** Menu-bar model limits — the macOS badge dropdown now shows
-  Claude model-specific caps such as Fable and Sonnet beneath the account-wide
-  Claude rows when those caps are present.
-- **Previously:** Model-limit detection — Claude model-specific caps now stay
-  visible across ordinary statusline updates and late-rendered `/usage` model
-  sections get a capture window.
+- **Last shipped:** Cross-surface visual refinement — the dashboard and native
+  menu now share a calmer account-limits-first reading hierarchy across desktop,
+  phone, and menu-bar use.
+- **Previously:** Menu-bar model limits — the macOS badge dropdown shows Claude
+  model-specific caps beneath the account-wide Claude rows when present.
 
 ---
 
@@ -44,6 +43,9 @@ peer can be offline — rather than blindly trust an old reading.
   parity guard for any `public/app.js` helper it must copy.
 - Optional strict tailnet-only binding by default
 - A fourth source slots in via the source-aware path if ever wanted
+- **Deeper Codex usage insights** — reasoning share, context pressure and
+  compactions, tokens per turn, latency, model/effort and tool breakdowns, plus
+  plan, credit, session, busiest-day, and trend views.
 - **Auto-refresh — settled:** the statusline/payload avenue is closed for good
   (neither `/status` nor `/usage` populates `rate_limits`); the `/usage`
   screen-scrape shipped instead (DECISIONS.md 2026-07-02). Two open threads
