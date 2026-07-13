@@ -112,7 +112,7 @@ export const config = {
   // ~/.claude.json. Disclosed in the startup log and README.
   claudeRefreshCwd: path.join(home, '.llmdash', 'claude-refresh-cwd'),
 
-  // Codex (ChatGPT Plus) — local data + how to read its limits.
+  // Codex (account plan read live) — local data + how to read its limits.
   codexDir: process.env.LLMDASH_CODEX_DIR || path.join(home, '.codex'),
   get codexSessionsDir() { return path.join(this.codexDir, 'sessions'); },
   // Command to launch the Codex app-server (the live rate-limits read).

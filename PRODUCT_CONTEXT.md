@@ -3,7 +3,7 @@
 ## What It Is
 A personal, self-hosted dashboard showing your remaining AI coding usage. It runs
 on your own machine and is viewable on phone or laptop over Tailscale. It covers
-Claude Code (Max) and Codex (ChatGPT Plus) side by side.
+Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
 
 ## Shipped Capabilities
 - **Claude Code live dashboard** — the 5-hour and weekly limit windows (remaining
@@ -12,12 +12,12 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   reached, with status pills), and activity stats from local logs: tokens (5h /
   week / today), cache hit rate, estimated value, weekly token mix, cache
   savings, and today's value. Limit snapshots are logged to SQLite.
-- **Codex usage** — Codex's 5-hour and weekly limits beside Claude Code, with a
-  headroom cue (across both windows) that points you to the tool with room left
-  when one is low or maxed. Codex token activity is read from its local session
-  logs too (tokens, cache hit rate, estimated value, token mix); its cached tokens
-  are a subset of input, so the totals stay honest. A maxed window reads "limit
-  reached."
+- **Codex usage and diagnostics** — Codex's live 5-hour and weekly limits sit
+  beside Claude with cross-tool headroom, account-wide plan/credit facts, and
+  range-aware local diagnostics for tokens, reasoning, turns, sessions, models,
+  effort, tools, context/compactions, latency, busiest day, and daily patterns,
+  while cache-subset accounting and explicit unavailable states keep every total
+  honest.
 - **Usage trends** — a Trends section below the gauges charts usage over time per
   tool (limit burn, tokens per day, cache rate, estimated value) in vanilla SVG,
   with a 24h / 7d / 30d range switch.
@@ -83,16 +83,19 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
   can also add model-specific caps, and account-only statusline captures preserve
   those active model caps until reset instead of deleting them. Activity stats are
   computed on demand from `~/.claude/projects/**/*.jsonl`.
-- Codex limits come from `codex app-server` (polled on the interval, not per
-  request) with a rollout-file fallback; Codex activity from
-  `~/.codex/sessions`. Both tools flow through one source-aware path and the same
-  UI components; each is a `source` value in `usage_snapshots`.
+- Codex limits and account facts come from `codex app-server` (polled on the
+  interval, not per request) with a rollout-file fallback; a bounded local scanner
+  reduces `~/.codex/sessions` into cached aggregate activity and 24h/7d/30d
+  diagnostics for `/api/codex-insights`, never returning raw session content or
+  identifiers. Both tools still flow through the source-aware limit path; deeper
+  insight history is re-derived from logs and never written to `usage_snapshots`.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Static assets are served `no-store`; the CSP allows inline styles while
   scripts stay locked to `'self'`.
-- Served on `0.0.0.0:8787`, reachable over the tailnet. Runs as a systemd user
-  service (`llmdash.service`) with lingering enabled, so it survives reboots.
+- Served on `0.0.0.0:8787`, reachable over the tailnet. This Mac runs it as the
+  `com.llmdash.dashboard` user LaunchAgent; Linux installs can use the documented
+  systemd user service.
 - The menu-bar badge is a zero-dependency Node plugin that only does a loopback
   read of its local instance's combined `GET /api/hosts` (no outbound peer fetch
   of its own — the local instance does the fan-out). SwiftBar is a user-installed
@@ -138,8 +141,8 @@ Claude Code (Max) and Codex (ChatGPT Plus) side by side.
 
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
-  Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding, the
-  auto-refresh teardown follow-up).
+  Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding,
+  LaunchAgent reload hardening, and the auto-refresh teardown follow-up).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

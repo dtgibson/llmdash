@@ -8,13 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-21 features shipped.
+22 features shipped.
 
-- **Last shipped:** Cross-surface visual refinement — the dashboard and native
-  menu now share a calmer account-limits-first reading hierarchy across desktop,
-  phone, and menu-bar use.
-- **Previously:** Menu-bar model limits — the macOS badge dropdown shows Claude
-  model-specific caps beneath the account-wide Claude rows when present.
+- **Last shipped:** Deeper Codex insights — the dashboard now explains local
+  reasoning, turn/session size, work mix, context/compaction pressure, latency,
+  and daily patterns while keeping live plan and credit facts account-wide.
+- **Previously:** Cross-surface visual refinement — the dashboard and native
+  menu share a calmer account-limits-first hierarchy across desktop, phone, and
+  menu-bar use.
 
 ---
 
@@ -43,9 +44,9 @@ peer can be offline — rather than blindly trust an old reading.
   parity guard for any `public/app.js` helper it must copy.
 - Optional strict tailnet-only binding by default
 - A fourth source slots in via the source-aware path if ever wanted
-- **Deeper Codex usage insights** — reasoning share, context pressure and
-  compactions, tokens per turn, latency, model/effort and tool breakdowns, plus
-  plan, credit, session, busiest-day, and trend views.
+- **macOS LaunchAgent reload hardening** — deployment exposed a transient
+  `bootout` → `bootstrap` error-5 race; make the installer wait or retry narrowly
+  after confirming the old user-domain service is fully removed.
 - **Auto-refresh — settled:** the statusline/payload avenue is closed for good
   (neither `/status` nor `/usage` populates `rate_limits`); the `/usage`
   screen-scrape shipped instead (DECISIONS.md 2026-07-02). Two open threads

@@ -1,5 +1,25 @@
 # Decisions — llmdash
 
+## Deeper Codex insights — local aggregate diagnostics, explicit availability, account-wide facts — 2026-07-13 (feature)
+**Decision:** Codex now has one secondary, independently ranged diagnostic section
+beneath the limits-first dashboard hierarchy. It reduces structured local rollout
+metadata into bounded aggregates for reasoning, turns, sessions, models, effort,
+tools, context pressure, compactions, explicit completion latency, busiest day,
+and daily patterns; live plan and credit facts remain visibly account-wide while
+activity remains `This machine`. The menu bar, peer contracts, snapshot schema,
+and existing state/trend endpoints stay unchanged.
+**Rationale:** Token totals showed volume without explaining what drove it, but
+shipping raw session records or guessed metrics would violate the product's
+tailnet-safe honesty model. Capability detection, aggregate-only normalization,
+and a poller-owned cache provide diagnostic depth without exposing prompts,
+commands, paths, IDs, or moving log scans onto the request path.
+**Implications:** Future local-log insights must preserve unavailable versus zero,
+use explicit structured evidence only, keep finite atomic scan/cache budgets, and
+serve bounded cache results. Range changes affect local activity only; sparse
+account facts expire and clear across explicit plan changes. No new persistence,
+cloud processing, remote insight fan-out, runtime dependency, or menu-bar metric
+was introduced.
+
 ## Cross-surface reading hierarchy — account limits first, native actions last — 2026-07-12 (improve)
 **Decision:** The dashboard's durable reading order is account-window gauges first,
 pacing second, and quieter activity, provenance, and trends after them. The native

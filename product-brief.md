@@ -2,7 +2,8 @@
 
 ## What This Is
 A personal dashboard that shows, in one place, how much of your AI coding
-usage you have left. It tracks Claude Code (Max) and Codex (ChatGPT Plus):
+usage you have left. It tracks Claude Code (Max) and Codex using the plan from
+the live quota response:
 remaining allowance in the 5-hour and weekly windows, when each resets, and
 how your usage trends over time. It runs on your machine and is viewable from
 your phone or computer over your Tailscale network.
@@ -34,7 +35,8 @@ resets and stop getting cut off unexpectedly. Over weeks, the trend charts
 reveal your real usage patterns.
 
 ## Founding Decisions
-- Two services at launch: Claude Code (Max) and Codex (ChatGPT Plus). Kagi dropped.
+- Two services at launch: Claude Code (Max) and Codex; Codex's plan label comes
+  from the live quota response rather than a hardcoded tier. Kagi dropped.
 - Use each tool's sanctioned interface for the data, not credential workarounds.
 - Track 5-hour and weekly windows with remaining percentage and reset countdowns.
 - History is self-logged from launch; the dashboard records its own snapshots. No backfill.

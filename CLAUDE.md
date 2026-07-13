@@ -208,6 +208,20 @@
   (non-cached input at the input rate). The Anthropic-style additive sum inflates
   tokens ~2x and cost ~6.6x. Bucket Codex per-day data by **UTC** timestamps (its
   session directories are named in local time).
+- **Structured-log analytics are aggregate-only, capability-gated, bounded, and
+  cache-served.** Raw content, paths, payloads, and identifiers may exist only as
+  ephemeral parser keys; API records carry normalized aggregates and bounded
+  labels. A structurally valid timestamped observation proves support, an explicit
+  zero remains zero, and absent/malformed evidence remains unavailable. Scanners
+  need finite traversal/byte/event/result/cache budgets and atomic last-good cache
+  replacement; a missing root is authoritative empty while transient read failures
+  retain the prior complete view. Parse caches shared by several ranges retain the
+  widest active horizon, and HTTP handlers never trigger a scan.
+- **Sparse account facts carry evidence age.** Plan/credit fields observed on a
+  live account response expire after a bounded TTL, and an explicit plan change or
+  unknown plan clears facts that could belong to the prior account. Display-bound
+  external strings must strip Unicode control/format/line-separator characters in
+  addition to HTML escaping; adjacent account facts use bidi isolation.
 - Empty/error limit states cross the wire as **enum reason codes**
   (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
   the few free-form fields. The server knows the cause — the client never guesses.
