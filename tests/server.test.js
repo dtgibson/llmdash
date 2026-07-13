@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import net from 'node:net';
 import { toolWrap, server } from '../src/server.js';
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -20,6 +21,28 @@ function hit(pathname, method = 'GET') {
     });
   });
 }
+
+// Send an exact request over a socket so malformed request-targets are not
+// normalized or rejected by the higher-level HTTP client first.
+function rawHit(request) {
+  return new Promise((resolve, reject) => {
+    const srv = server.listen(0, '127.0.0.1', () => {
+      const socket = net.createConnection({ host: '127.0.0.1', port: srv.address().port });
+      let response = '';
+      socket.setEncoding('utf8');
+      socket.on('connect', () => socket.end(request));
+      socket.on('data', (chunk) => { response += chunk; });
+      socket.on('end', () => srv.close(() => resolve(response)));
+      socket.on('error', (error) => srv.close(() => reject(error)));
+    });
+  });
+}
+
+test('malformed request targets return 400 instead of escaping the request callback', async () => {
+  const response = await rawHit('GET http://[::1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+  assert.match(response, /^HTTP\/1\.1 400 Bad Request\r\n/);
+  assert.match(response.toLowerCase(), /x-content-type-options: nosniff/);
+});
 
 test('/api/hosts carries the baseline security headers and is no-store (QA-26)', async () => {
   const r = await hit('/api/hosts');
@@ -42,6 +65,32 @@ test('/api/hosts returns the combined shape (hosts[] + generatedAt), a pure cach
   const body = JSON.parse(r.body);
   assert.ok(Array.isArray(body.hosts));
   assert.equal(typeof body.generatedAt, 'string');
+});
+
+test('/api/codex-insights is a bounded local-machine cache endpoint', async () => {
+  const r = await hit('/api/codex-insights?range=24h');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers['x-content-type-options'], 'nosniff');
+  assert.equal(r.headers['referrer-policy'], 'no-referrer');
+  assert.match(r.headers['content-security-policy'], /object-src 'none'/);
+  assert.match(r.headers['content-security-policy'], /form-action 'none'/);
+  assert.equal(r.headers['cache-control'], 'no-store');
+  assert.match(r.headers['content-type'], /application\/json/);
+  const body = JSON.parse(r.body);
+  assert.equal(body.source, 'codex');
+  assert.equal(body.scope, 'local-machine');
+  assert.equal(body.range, '24h');
+  assert.equal(typeof body.hasData, 'boolean');
+  assert.equal(body.account.scope, 'account-wide');
+  assert.ok(body.summary && body.mix && body.context && body.latency);
+});
+
+test('/api/codex-insights normalizes unknown ranges and supports HEAD', async () => {
+  const bad = await hit('/api/codex-insights?range=constructor');
+  assert.equal(JSON.parse(bad.body).range, '7d');
+  const head = await hit('/api/codex-insights?range=30d', 'HEAD');
+  assert.equal(head.status, 200);
+  assert.equal(head.body, '');
 });
 
 // ── HTTP stays read-only: NO config-write endpoint (NFR-01 / QA-22) ───────────

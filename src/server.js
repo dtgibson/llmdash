@@ -9,7 +9,7 @@ import { getRefreshState } from './claude-refresh.js';
 import { codexLimitsDiagnostic, codexPlanLabel } from './codex-limits.js';
 import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
-import { computeCodexActivity } from './codex-stats.js';
+import { computeCodexActivity, getCodexInsights, refreshCodexAnalytics } from './codex-stats.js';
 import { buildTrends } from './trends.js';
 import { startPoller } from './poller.js';
 import { tailnetIPv4 } from './net.js';
@@ -32,7 +32,7 @@ const SECURITY_HEADERS = {
   'referrer-policy': 'no-referrer',
   // style-src allows inline styles (dynamic bar widths / chart colors); script
   // stays locked to 'self' and no user input reaches style values.
-  'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+  'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
 };
 
 function serveStatic(res, file, head = false) {
@@ -178,8 +178,17 @@ export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://localhost');
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+
+  // Node accepts a few malformed request-targets that the WHATWG URL parser
+  // rejects. Treat them as bad input instead of letting the parser exception
+  // escape the request callback and terminate the process.
+  let url;
+  try { url = new URL(req.url, 'http://localhost'); }
+  catch {
+    res.writeHead(400);
+    return res.end('bad request');
+  }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { allow: 'GET, HEAD' });
@@ -198,6 +207,17 @@ const server = http.createServer((req, res) => {
     const range = url.searchParams.get('range') || '7d';
     let body;
     try { body = JSON.stringify(buildTrends(range)); }
+    catch (e) { res.writeHead(500); return res.end('error'); }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(head ? undefined : body);
+  }
+  // Deeper Codex activity is local-machine scoped and precomputed by the
+  // poller/startup refresh. This handler is a pure bounded cache read: no rollout
+  // scan, subprocess, peer fan-out, or database write on the request path.
+  if (url.pathname === '/api/codex-insights') {
+    const range = url.searchParams.get('range') || '7d';
+    let body;
+    try { body = JSON.stringify(getCodexInsights(range)); }
     catch (e) { res.writeHead(500); return res.end('error'); }
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(head ? undefined : body);
@@ -222,6 +242,9 @@ const server = http.createServer((req, res) => {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   getDb();
+  // Prime local analytics before the first state is published. Later refreshes
+  // are poller-owned; HTTP getters never touch the session tree.
+  refreshCodexAnalytics();
   // Data-source health readout: which sources are feeding the dashboard and,
   // when one isn't, why and how to fix it. Startup-only cheap fs checks —
   // never on the HTTP request path.

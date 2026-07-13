@@ -2,6 +2,8 @@
 # personal usage data, never secrets).
 node_modules/
 data/
+.env
+.env.local
 *.db
 *.db-journal
 *.log

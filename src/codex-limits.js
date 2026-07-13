@@ -16,6 +16,19 @@ let diag = resolveCommand(config.codexCmd)
 let loggedKey = '';
 let spawnFailedThisRead = false;
 let observedPlanType = null;
+let observedPlanAtMs = null;
+let observedCreditUnlimited;
+let observedCreditUnlimitedAtMs = null;
+let observedHasCredits;
+let observedHasCreditsAtMs = null;
+let observedCreditBalance;
+let observedCreditBalanceAtMs = null;
+let observedResetCreditsAvailable;
+let observedResetCreditsAvailableAtMs = null;
+
+const configuredPollMs = Number(config.pollIntervalMs);
+const ACCOUNT_FACT_TTL_MS = Math.min(30 * 60_000, Math.max(5 * 60_000,
+  Number.isFinite(configuredPollMs) && configuredPollMs > 0 ? configuredPollMs * 5 : 5 * 60_000));
 
 const PLAN_LABELS = {
   free: 'ChatGPT Free',
@@ -32,8 +45,57 @@ const PLAN_LABELS = {
 };
 
 export function codexLimitsDiagnostic() { return diag; }
-export function codexPlanLabel() {
-  return observedPlanType ? PLAN_LABELS[observedPlanType] : 'Plan unavailable';
+function fresh(value, observedAtMs, nowMs) {
+  return observedAtMs !== null && nowMs - observedAtMs <= ACCOUNT_FACT_TTL_MS ? value : undefined;
+}
+
+function clearObservedCredits() {
+  observedCreditUnlimited = undefined;
+  observedCreditUnlimitedAtMs = null;
+  observedHasCredits = undefined;
+  observedHasCreditsAtMs = null;
+  observedCreditBalance = undefined;
+  observedCreditBalanceAtMs = null;
+  observedResetCreditsAvailable = undefined;
+  observedResetCreditsAvailableAtMs = null;
+}
+
+export function codexPlanLabel(nowMs = Date.now()) {
+  const planType = fresh(observedPlanType, observedPlanAtMs, nowMs);
+  return planType ? PLAN_LABELS[planType] : 'Plan unavailable';
+}
+
+// Account-wide facts observed on the live app-server response. Callers get a
+// fresh, bounded object so the module-level sparse-update cache cannot be
+// mutated from outside this module.
+export function codexAccountFacts(nowMs = Date.now()) {
+  const planType = fresh(observedPlanType, observedPlanAtMs, nowMs);
+  const unlimited = fresh(observedCreditUnlimited, observedCreditUnlimitedAtMs, nowMs);
+  const hasCredits = fresh(observedHasCredits, observedHasCreditsAtMs, nowMs);
+  const balance = fresh(observedCreditBalance, observedCreditBalanceAtMs, nowMs);
+  const resetCreditsAvailable = fresh(observedResetCreditsAvailable, observedResetCreditsAvailableAtMs, nowMs);
+  const status = unlimited === true
+    ? 'unlimited'
+    : hasCredits === true
+      ? 'available'
+      : hasCredits === false
+        ? 'none'
+        : null;
+  return {
+    scope: 'account-wide',
+    plan: {
+      available: planType != null,
+      label: planType ? PLAN_LABELS[planType] : null,
+    },
+    credits: {
+      available: status !== null
+        || balance != null
+        || resetCreditsAvailable != null,
+      status,
+      balance: balance ?? null,
+      resetCreditsAvailable: resetCreditsAvailable ?? null,
+    },
+  };
 }
 
 // The rate-limit response is the authority for the plan attached to these
@@ -44,9 +106,62 @@ function observePlanType(rl) {
   if (!rl || typeof rl !== 'object') return null;
   const raw = rl.planType ?? rl.plan_type;
   const normalized = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  // A missing/null/empty value is a sparse update and preserves the last known
+  // tier. A nonempty unknown enum is an explicit value, so clear the stale tier
+  // instead of continuing to present it as current.
+  if (!normalized) return null;
   const recognized = Object.hasOwn(PLAN_LABELS, normalized);
-  if (recognized) observedPlanType = normalized;
+  if (recognized) {
+    if (observedPlanType !== null && observedPlanType !== normalized) clearObservedCredits();
+    observedPlanType = normalized;
+    observedPlanAtMs = Date.now();
+  } else {
+    observedPlanType = null;
+    observedPlanAtMs = null;
+    clearObservedCredits();
+  }
   return recognized ? normalized : null;
+}
+
+function boundedBalance(raw) {
+  if (typeof raw !== 'string') return undefined;
+  // Control, format/bidi, and Unicode line-separator characters have no
+  // semantic value in an opaque balance and can visually reorder neighboring
+  // account facts even after correct HTML escaping.
+  const cleaned = raw.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim();
+  if (!cleaned) return null;
+  return [...cleaned].slice(0, 64).join('');
+}
+
+function observeAccountFacts(result, rl) {
+  const observedAtMs = Date.now();
+  if (rl && typeof rl === 'object') {
+    const credits = rl.credits;
+    if (credits && typeof credits === 'object' && !Array.isArray(credits)) {
+      if (credits.unlimited === true || credits.unlimited === false) {
+        observedCreditUnlimited = credits.unlimited;
+        observedCreditUnlimitedAtMs = observedAtMs;
+      }
+      if (credits.hasCredits === true || credits.hasCredits === false) {
+        observedHasCredits = credits.hasCredits;
+        observedHasCreditsAtMs = observedAtMs;
+      }
+      const balance = boundedBalance(credits.balance);
+      if (balance !== undefined) {
+        observedCreditBalance = balance;
+        observedCreditBalanceAtMs = observedAtMs;
+      }
+    }
+  }
+
+  if (!result || typeof result !== 'object') return;
+  const resetCredits = result.rateLimitResetCredits ?? result.rate_limit_reset_credits;
+  if (!resetCredits || typeof resetCredits !== 'object' || Array.isArray(resetCredits)) return;
+  const count = resetCredits.availableCount ?? resetCredits.available_count;
+  if (typeof count === 'number' && Number.isFinite(count) && Number.isInteger(count) && count >= 0) {
+    observedResetCreditsAvailable = Math.min(1_000_000, count);
+    observedResetCreditsAvailableAtMs = observedAtMs;
+  }
 }
 
 // Record a spawn failure and log it ONCE per distinct cause (not every poll
@@ -122,6 +237,7 @@ function readViaAppServer() {
         const result = msg && msg.result;
         const rl = result && (result.rateLimits || result.rate_limits || result);
         const planType = observePlanType(rl);
+        observeAccountFacts(result, rl);
         const windows = windowsFromRateLimits(rl);
         if (windows) {
           finish({ source: 'codex', capturedAt: new Date().toISOString(), windows, ...(planType ? { planType } : {}) });

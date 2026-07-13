@@ -612,6 +612,395 @@ setInterval(() => { if (state) render(); }, 1000);
 setInterval(refresh, REFRESH_MS);
 refresh();
 
+// --- Deeper Codex insights (this machine only) ---
+// This section is deliberately independent from both the host fan-out and the
+// global Trends range. The endpoint contains normalized aggregates only; the
+// client still treats every field as untrusted before it reaches HTML or a
+// data-driven width.
+const INSIGHTS_REFRESH_MS = 120_000;
+const INSIGHT_RANGE_COPY = Object.freeze({
+  '24h': 'last 24 hours',
+  '7d': 'last 7 days',
+  '30d': 'last 30 days',
+});
+const CREDIT_STATUS_COPY = Object.freeze({
+  unlimited: 'Unlimited',
+  available: 'Credits available',
+  none: 'No credits',
+});
+let INSIGHT_RANGE = '7d';
+let insightRequestSequence = 0;
+let insightHasRendered = false;
+let insightHasFailed = false;
+
+function safeInsightNumber(value, max = Number.MAX_SAFE_INTEGER) {
+  return Number.isFinite(value) && value >= 0 ? Math.min(value, max) : null;
+}
+
+function safeInsightCount(value) {
+  const n = safeInsightNumber(value);
+  return n == null ? null : Math.floor(n);
+}
+
+function safeInsightRatio(value) {
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+}
+
+function boundedInsightLabel(value, fallback = 'Other') {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').trim();
+  const clean = [...normalized].slice(0, 64).join('');
+  return clean || fallback;
+}
+
+function fmtInsightNumber(value) {
+  const n = safeInsightNumber(value);
+  if (n == null) return null;
+  if (n >= 1e9) return (n / 1e9).toFixed(n >= 10e9 ? 0 : 1).replace(/\.0$/, '') + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 10e6 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 10e3 ? 0 : 1).replace(/\.0$/, '') + 'k';
+  return Math.round(n).toLocaleString();
+}
+
+function fmtInsightDuration(value) {
+  const ms = safeInsightNumber(value);
+  if (ms == null) return null;
+  if (ms > 86_400_000) return '≥24h';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}s`;
+  const roundedSeconds = Math.round(ms / 1000);
+  if (roundedSeconds < 60) return `${roundedSeconds}s`;
+  if (roundedSeconds >= 3600) {
+    const roundedMinutes = Math.round(roundedSeconds / 60);
+    const hours = Math.floor(roundedMinutes / 60);
+    const minutes = roundedMinutes % 60;
+    return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = roundedSeconds % 60;
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function insightDayMs(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/.test(value)) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString() !== value) return null;
+  return ms;
+}
+
+function fmtInsightDay(value) {
+  const ms = insightDayMs(value);
+  if (ms == null) return null;
+  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function plural(value, singular, many = `${singular}s`) {
+  return value === 1 ? singular : many;
+}
+
+function insightAccountHtml(account) {
+  const plan = account && account.plan && account.plan.available === true
+    ? boundedInsightLabel(account.plan.label, '') : '';
+  const credits = account && account.credits;
+  const creditStatus = credits && credits.available === true
+    && Object.prototype.hasOwnProperty.call(CREDIT_STATUS_COPY, credits.status)
+    ? CREDIT_STATUS_COPY[credits.status] : 'Credit status unavailable';
+  const bits = [`<strong>Account-wide</strong>`, `<span>${esc(plan || 'Plan unavailable')}</span>`, `<span>${creditStatus}</span>`];
+  if (credits && credits.available === true && typeof credits.balance === 'string') {
+    const balance = boundedInsightLabel(credits.balance, '');
+    if (balance) bits.push(`<span>Balance ${esc(balance)}</span>`);
+  }
+  const resetCount = credits && credits.available === true
+    ? safeInsightCount(credits.resetCreditsAvailable) : null;
+  if (resetCount != null) bits.push(`<span>${resetCount.toLocaleString()} reset ${plural(resetCount, 'credit')}</span>`);
+  return `<div class="insights-account">${bits.join('')}</div>`;
+}
+
+function insightMetricHtml(label, available, value, note, unavailableCopy) {
+  if (!available) {
+    return `<div class="insight-metric"><div class="insight-metric-label">${label}</div>`
+      + `<div class="insight-metric-value insight-unavailable">Unavailable</div>`
+      + `<div class="insight-metric-note">${unavailableCopy}</div></div>`;
+  }
+  return `<div class="insight-metric"><div class="insight-metric-label">${label}</div>`
+    + `<div class="insight-metric-value">${value}</div><div class="insight-metric-note">${note}</div></div>`;
+}
+
+function insightSummaryHtml(summary) {
+  const s = summary || {};
+  const reasoning = s.reasoning || {};
+  const reasoningShare = safeInsightRatio(reasoning.share);
+  const reasoningTokens = safeInsightNumber(reasoning.tokens);
+  const outputTokens = safeInsightNumber(reasoning.outputTokens);
+  const reasoningAvailable = reasoning.available === true && reasoningShare != null
+    && reasoningTokens != null && outputTokens != null;
+
+  const turns = s.turns || {};
+  const turnCount = safeInsightCount(turns.count);
+  const turnAverage = safeInsightNumber(turns.averageTokens);
+  const turnsAvailable = turns.available === true && turnCount != null && turnAverage != null;
+
+  const sessions = s.sessions || {};
+  const sessionCount = safeInsightCount(sessions.count);
+  const sessionAverage = safeInsightNumber(sessions.averageTokens);
+  const sessionsAvailable = sessions.available === true && sessionCount != null && sessionAverage != null;
+
+  const busiest = s.busiestDay || {};
+  const busiestDay = fmtInsightDay(busiest.day);
+  const busiestTokens = safeInsightNumber(busiest.tokens);
+  const busiestAvailable = busiest.available === true && busiestDay != null && busiestTokens != null;
+
+  return `<div class="insights-summary">`
+    + insightMetricHtml('Reasoning share', reasoningAvailable,
+      `${Math.round((reasoningShare || 0) * 100)}%`,
+      `${fmtInsightNumber(reasoningTokens) || '0'} of ${fmtInsightNumber(outputTokens) || '0'} output tokens`,
+      `Reasoning/output counts weren't recorded by this Codex version.`)
+    + insightMetricHtml('Tokens / turn', turnsAvailable,
+      fmtInsightNumber(turnAverage) || '0',
+      `${turnCount == null ? 0 : turnCount.toLocaleString()} recorded ${plural(turnCount, 'turn')}`,
+      `Supported turn boundaries weren't recorded for this range.`)
+    + insightMetricHtml('Sessions', sessionsAvailable,
+      sessionCount == null ? '0' : sessionCount.toLocaleString(),
+      `${fmtInsightNumber(sessionAverage) || '0'} avg / session`,
+      `Supported session usage wasn't recorded for this range.`)
+    + insightMetricHtml('Busiest day', busiestAvailable,
+      esc(busiestDay || ''),
+      `${fmtInsightNumber(busiestTokens) || '0'} tokens · UTC`,
+      `Daily token totals weren't recorded for this range.`)
+    + `</div>`;
+}
+
+function insightMixGroupHtml(kind, group) {
+  const specs = {
+    models: { title: 'Models · token share', max: 6, countKey: 'turns', shareKey: 'tokenShare', noun: 'tagged turn' },
+    effort: { title: 'Effort · turns', max: 5, countKey: 'turns', shareKey: 'share', noun: 'tagged turn' },
+    tools: { title: 'Tools · invocations', max: 6, countKey: 'invocations', shareKey: 'share', noun: 'recorded invocation' },
+  };
+  const spec = specs[kind];
+  if (!spec) return '';
+  if (!group || group.available !== true || !Array.isArray(group.items)) {
+    return `<div class="insight-mix-group"><div class="insight-mix-head"><strong>${spec.title}</strong><span>Unavailable</span></div>`
+      + `<div class="insight-mix-empty">This metadata wasn't recorded by this Codex version.</div></div>`;
+  }
+  const items = group.items.slice(0, spec.max).map((item) => {
+    const count = item && safeInsightCount(item[spec.countKey]);
+    const share = item && safeInsightRatio(item[spec.shareKey]);
+    if (count == null || share == null) return null;
+    return { label: boundedInsightLabel(item.label), count, share };
+  }).filter(Boolean);
+  const total = items.reduce((sum, item) => Math.min(Number.MAX_SAFE_INTEGER, sum + item.count), 0);
+  const head = `<div class="insight-mix-head"><strong>${spec.title}</strong><span>${total.toLocaleString()} ${plural(total, spec.noun)}</span></div>`;
+  if (!items.length) return `<div class="insight-mix-group">${head}<div class="insight-mix-empty">0 recorded</div></div>`;
+  const rows = items.map((item) => {
+    const pct = Math.round(item.share * 100);
+    const value = kind === 'tools' ? item.count.toLocaleString()
+      : `${pct}%<small>${item.count.toLocaleString()} ${plural(item.count, 'turn')}</small>`;
+    return `<div class="insight-mix-row"><b title="${esc(item.label)}">${esc(item.label)}</b>`
+      + `<div class="insight-mini" aria-hidden="true"><i style="width:${pct}%"></i></div>`
+      + `<span class="insight-mix-value">${value}</span></div>`;
+  }).join('');
+  return `<div class="insight-mix-group">${head}${rows}</div>`;
+}
+
+function insightFactHtml(label, note, available, value, sub, unavailableCopy) {
+  return `<div><dt>${label}<small>${available ? note : unavailableCopy}</small></dt>`
+    + `<dd class="${available ? '' : 'insight-unavailable'}">${available ? value : 'Unavailable'}`
+    + (available && sub ? `<small>${sub}</small>` : '') + `</dd></div>`;
+}
+
+function insightDetailsHtml(data) {
+  const mix = data.mix || {};
+  const context = data.context || {};
+  const pressure = context.pressure || {};
+  const peak = safeInsightRatio(pressure.peak);
+  const supportedTurns = safeInsightCount(pressure.supportedTurns);
+  const highTurns = safeInsightCount(pressure.turnsAtOrAbove80Pct);
+  const pressureAvailable = pressure.available === true && peak != null
+    && supportedTurns != null && highTurns != null;
+
+  const compactions = context.compactions || {};
+  const compactionCount = safeInsightCount(compactions.count);
+  const compactedSessions = safeInsightCount(compactions.sessionsAffected);
+  const compactionsAvailable = compactions.available === true && compactionCount != null
+    && compactedSessions != null;
+
+  const latency = data.latency || {};
+  const totalLatency = latency.total || {};
+  const totalMedian = fmtInsightDuration(totalLatency.medianMs);
+  const totalP95 = fmtInsightDuration(totalLatency.p95Ms);
+  const totalSamples = safeInsightCount(totalLatency.samples);
+  const totalAvailable = totalLatency.available === true && totalMedian != null
+    && totalP95 != null && totalSamples != null;
+
+  const firstLatency = latency.firstToken || {};
+  const firstMedian = fmtInsightDuration(firstLatency.medianMs);
+  const firstP95 = fmtInsightDuration(firstLatency.p95Ms);
+  const firstSamples = safeInsightCount(firstLatency.samples);
+  const firstAvailable = firstLatency.available === true && firstMedian != null
+    && firstP95 != null && firstSamples != null;
+
+  return `<div class="insights-detail-grid">`
+    + `<section class="insights-detail"><div class="insights-detail-title">Work mix</div>`
+    + insightMixGroupHtml('models', mix.models)
+    + insightMixGroupHtml('effort', mix.effort)
+    + insightMixGroupHtml('tools', mix.tools) + `</section>`
+    + `<section class="insights-detail"><div class="insights-detail-title">Context &amp; timing</div><dl class="insights-facts">`
+    + insightFactHtml('Peak context pressure', `${supportedTurns || 0} ${plural(supportedTurns, 'turn')} had explicit windows`, pressureAvailable,
+      `${Math.round((peak || 0) * 100)}%`, `${highTurns || 0} ${plural(highTurns, 'turn')} ≥80%`,
+      `An explicit context window wasn't recorded.`)
+    + insightFactHtml('Compactions', 'across affected sessions', compactionsAvailable,
+      (compactionCount || 0).toLocaleString(), `${compactedSessions || 0} affected ${plural(compactedSessions, 'session')}`,
+      `Compaction events weren't recorded.`)
+    + insightFactHtml('Total duration', `${totalSamples || 0} completed ${plural(totalSamples, 'turn')}`, totalAvailable,
+      `${totalMedian} median`, `${totalP95} p95`,
+      `Completed-task timing wasn't recorded by this Codex version.`)
+    + insightFactHtml('Time to first token', `${firstSamples || 0} completed ${plural(firstSamples, 'turn')}`, firstAvailable,
+      `${firstMedian} median`, `${firstP95} p95`,
+      `First-token timing wasn't recorded by this Codex version.`)
+    + `</dl></section></div>`;
+}
+
+function insightChartHtml(kind, daily) {
+  const spec = kind === 'reasoning'
+    ? { key: 'reasoningShare', title: 'Reasoning share', src: 'daily · output tokens', cls: 'insight-series-accent', format: (v) => `${Math.round(v * 100)}%`, floor: 0.01 }
+    : { key: 'averageTokensPerTurn', title: 'Average tokens / turn', src: 'daily · recorded turns', cls: 'insight-series-teal', format: (v) => fmtInsightNumber(v) || '0', floor: 1 };
+  const byDay = new Map();
+  for (const row of Array.isArray(daily) ? daily.slice(0, 30) : []) {
+    const ms = row ? insightDayMs(row.day) : null;
+    const value = row && (kind === 'reasoning' ? safeInsightRatio(row[spec.key]) : safeInsightNumber(row[spec.key]));
+    if (ms != null && value != null) byDay.set(ms, value);
+  }
+  const points = [...byDay].sort((a, b) => a[0] - b[0]);
+  if (points.length < 2) return '';
+  const x0 = 18, x1 = 342, y0 = 17, y1 = 88;
+  const observedMax = Math.max(...points.map((point) => point[1]));
+  const scaleMax = Math.max(spec.floor, observedMax);
+  const firstDay = points[0][0], lastDay = points[points.length - 1][0];
+  const sx = (day) => x0 + ((day - firstDay) / (lastDay - firstDay)) * (x1 - x0);
+  const sy = (value) => y1 - (value / scaleMax) * (y1 - y0);
+  const coords = points.map((point) => `${sx(point[0]).toFixed(1)},${sy(point[1]).toFixed(1)}`).join(' ');
+  const middleIndex = Math.floor((points.length - 1) / 2);
+  const middleX = sx(points[middleIndex][0]);
+  const labelIndexes = [0];
+  if (middleIndex > 0 && middleIndex < points.length - 1
+    && middleX - x0 >= 72 && x1 - middleX >= 72) labelIndexes.push(middleIndex);
+  labelIndexes.push(points.length - 1);
+  const labels = labelIndexes.map((index) => {
+    const label = fmtInsightDay(new Date(points[index][0]).toISOString()) || '';
+    const anchor = index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle';
+    return `<text x="${sx(points[index][0]).toFixed(1)}" y="108" text-anchor="${anchor}">${esc(label)}</text>`;
+  }).join('');
+  const minValue = Math.min(...points.map((point) => point[1]));
+  const desc = `${spec.title} ranged from ${spec.format(minValue)} to ${spec.format(observedMax)} over ${points.length} UTC days.`;
+  const textEquivalent = points.map((point) => {
+    const day = fmtInsightDay(new Date(point[0]).toISOString()) || 'Unknown day';
+    return `${day} ${spec.format(point[1])}`;
+  }).join(', ');
+  const id = kind === 'reasoning' ? 'insight-reasoning-chart' : 'insight-turn-chart';
+  return `<section class="insight-chart"><div class="insight-chart-head"><strong>${spec.title}</strong><span>${spec.src}</span></div>`
+    + `<svg viewBox="0 0 360 118" role="img" aria-labelledby="${id}-title ${id}-desc">`
+    + `<title id="${id}-title">Daily ${spec.title.toLowerCase()}</title><desc id="${id}-desc">${esc(desc)}</desc>`
+    + `<path class="gridline" d="M18 17H342M18 52H342M18 88H342"/>`
+    + `<polyline class="insight-chart-series ${spec.cls}" points="${coords}"/>${labels}</svg>`
+    + `<span class="sr-only">${esc(textEquivalent)}.</span></section>`;
+}
+
+function insightDailyHtml(daily) {
+  const charts = [insightChartHtml('reasoning', daily), insightChartHtml('turns', daily)].filter(Boolean);
+  return charts.length ? `<div class="insights-daily${charts.length === 1 ? ' insights-daily-single' : ''}">${charts.join('')}</div>` : '';
+}
+
+function renderCodexInsights(data, announce = true) {
+  const surface = document.getElementById('insights-surface');
+  if (!surface) return;
+  const account = insightAccountHtml(data && data.account);
+  if (!data || data.hasData !== true) {
+    const rangeCopy = INSIGHT_RANGE_COPY[INSIGHT_RANGE].replace(/^last /, 'the last ');
+    surface.innerHTML = account + `<div class="insights-state">No supported Codex activity was recorded in ${rangeCopy} on this machine.</div>`;
+  } else {
+    surface.innerHTML = account + insightSummaryHtml(data.summary)
+      + insightDetailsHtml(data) + insightDailyHtml(data.daily);
+  }
+  surface.setAttribute('aria-busy', 'false');
+  const status = document.getElementById('insights-status');
+  if (status) {
+    status.textContent = announce ? `Updated · ${INSIGHT_RANGE_COPY[INSIGHT_RANGE]}` : '';
+    if (announce) {
+      const request = insightRequestSequence;
+      setTimeout(() => {
+        if (request === insightRequestSequence && status.textContent.startsWith('Updated ·')) status.textContent = '';
+      }, 2000);
+    }
+  }
+}
+
+function renderCodexInsightsError() {
+  const surface = document.getElementById('insights-surface');
+  if (!surface) return;
+  surface.innerHTML = `<div class="insights-state insights-error">Codex insights are unavailable right now — account limits above are unaffected.</div>`;
+  surface.setAttribute('aria-busy', 'false');
+  const status = document.getElementById('insights-status');
+  if (status) status.textContent = 'Unavailable';
+}
+
+async function fetchCodexInsights({ announce = true } = {}) {
+  const surface = document.getElementById('insights-surface');
+  if (!surface) return;
+  const requestedRange = INSIGHT_RANGE;
+  const request = ++insightRequestSequence;
+  surface.setAttribute('aria-busy', 'true');
+  const status = document.getElementById('insights-status');
+  if (insightHasRendered) {
+    if (status && announce) status.textContent = 'Updating…';
+  } else if (announce) {
+    if (status) status.textContent = 'Loading…';
+    surface.innerHTML = `<div class="insights-state">Reading local Codex session metadata…</div>`;
+  }
+  try {
+    const res = await fetch('/api/codex-insights?range=' + encodeURIComponent(requestedRange), { cache: 'no-store' });
+    if (!res.ok) throw new Error('bad status');
+    const data = await res.json();
+    if (request !== insightRequestSequence) return;
+    if (!data || data.source !== 'codex' || data.scope !== 'local-machine' || data.range !== requestedRange) {
+      throw new Error('bad payload');
+    }
+    insightHasRendered = true;
+    insightHasFailed = false;
+    renderCodexInsights(data, announce);
+  } catch {
+    if (request !== insightRequestSequence) return;
+    insightHasRendered = false;
+    if (announce || !insightHasFailed) renderCodexInsightsError();
+    else surface.setAttribute('aria-busy', 'false');
+    insightHasFailed = true;
+  }
+}
+
+function setupInsightRange() {
+  const range = document.getElementById('insights-range');
+  if (!range) return;
+  range.addEventListener('click', (event) => {
+    const button = event.target.closest('.pill');
+    if (!button) return;
+    const selectedRange = button.dataset.range;
+    if (!Object.prototype.hasOwnProperty.call(INSIGHT_RANGE_COPY, selectedRange)
+      || selectedRange === INSIGHT_RANGE) return;
+    INSIGHT_RANGE = selectedRange;
+    [...range.querySelectorAll('.pill')].forEach((pill) => {
+      const selected = pill === button;
+      pill.classList.toggle('active', selected);
+      pill.setAttribute('aria-pressed', String(selected));
+    });
+    const copy = document.getElementById('insights-range-copy');
+    if (copy) copy.textContent = INSIGHT_RANGE_COPY[selectedRange];
+    fetchCodexInsights();
+  });
+}
+
+setupInsightRange();
+fetchCodexInsights();
+setInterval(() => fetchCodexInsights({ announce: false }), INSIGHTS_REFRESH_MS);
+
 // --- Trends (charts) ---
 let TREND_RANGE = '7d';
 const TREND_REFRESH_MS = 120_000;

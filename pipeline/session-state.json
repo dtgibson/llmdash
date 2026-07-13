@@ -1,20 +1,21 @@
 {
-  "activeFeature": null,
-  "sessionType": "maintain",
+  "activeFeature": "deeper-codex-insights",
+  "sessionType": "feature",
   "entryPath": "new",
-  "currentStage": null,
+  "currentStage": 8,
   "lastCompletedStage": 7,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
-    "pipeline/cross-surface-visual-refinement/change-brief.md",
-    "pipeline/cross-surface-visual-refinement/deployment.md",
-    "pipeline/cross-surface-visual-refinement/design-refinement.md",
-    "pipeline/cross-surface-visual-refinement/implementation.md",
-    "pipeline/cross-surface-visual-refinement/qa-report.md",
-    "pipeline/cross-surface-visual-refinement/security-report.md"
+    "pipeline/deeper-codex-insights/design-spec.md",
+    "pipeline/deeper-codex-insights/pr-description.md",
+    "pipeline/deeper-codex-insights/prd.md",
+    "pipeline/deeper-codex-insights/qa-report.md",
+    "pipeline/deeper-codex-insights/schema.md",
+    "pipeline/deeper-codex-insights/security-report.md",
+    "pipeline/deeper-codex-insights/strategic-brief.md"
   ],
   "awaitingHuman": null,
-  "ideaId": null,
+  "ideaId": "70c28017-12a9-48e2-b721-047ec452b8b8",
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-13T04:30:03Z"
+  "updatedAt": "2026-07-13T16:00:22Z"
 }

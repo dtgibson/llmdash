@@ -3,7 +3,7 @@ import { readClaudeLimits } from './claude-limits.js';
 import { maybeRefreshClaude } from './claude-refresh.js';
 import { readCodexLimits } from './codex-limits.js';
 import { computeActivity, clearStatsCache } from './stats.js';
-import { computeCodexActivity, clearCodexStatsCache } from './codex-stats.js';
+import { refreshCodexAnalytics } from './codex-stats.js';
 import { config } from '../config.js';
 import { parseHosts, remoteHosts, fetchPeerState } from './hosts.js';
 import { setHost, retainHosts, seedOrder } from './host-cache.js';
@@ -96,15 +96,19 @@ export async function pollPeers(remotes, nowMs = Date.now(), fetchImpl = fetchPe
 // cache), done here on the interval rather than per request.
 export async function pollOnce() {
   const nowMs = Date.now();
+  // Local structured-log work is synchronous and happens before any external
+  // async probe. One 30-day scan (normally only the active file reparses) fills
+  // existing Codex activity plus every insight range atomically.
+  try {
+    if (!refreshCodexAnalytics(nowMs)) console.error('codex analytics: refresh failed; keeping the last good snapshot');
+  } catch (e) { console.error('codex analytics:', e.message); }
   // Auto-refresh runs first so a probe capture lands in this same tick's
   // snapshot; its own gates decide whether any work happens at all.
   try { await maybeRefreshClaude(); } catch (e) { console.error('claude refresh:', e.message); }
   try { snapshot(readClaudeLimits()); } catch (e) { console.error('claude poll:', e.message); }
   try { snapshot(await readCodexLimits()); } catch (e) { console.error('codex poll:', e.message); }
   clearStatsCache();
-  clearCodexStatsCache();
   try { computeActivity(); } catch {}
-  try { computeCodexActivity(); } catch {}
 
   // Multi-host: local reading in-process, then the bounded peer fan-out. Peer
   // polling runs ONLY here (never on the HTTP request path). An empty peer list

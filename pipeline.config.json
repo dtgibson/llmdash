@@ -16,11 +16,27 @@
     "backend": "node http (minimal, few dependencies)",
     "database": "sqlite",
     "orm": null,
-    "testing": "node:test"
+    "testing": "node:test",
+    "cicd": "manual-local",
+    "environments": {
+      "dev": "/Users/developer/devwork/llmdash",
+      "staging": null,
+      "prod": "/Users/developer/llmdash"
+    }
   },
   "hosting": "local process, served over the user's Tailscale network",
-  "deployment": null,
-  "repository": null,
+  "deploymentTarget": "local-macos-launchagent",
+  "deployment": {
+    "branch": "main",
+    "checkout": "~/llmdash",
+    "service": "com.llmdash.dashboard",
+    "deployCommand": "git -C \"$HOME/llmdash\" pull --ff-only origin main && \"$HOME/llmdash/scripts/install-macos.sh\" --service install \"$HOME/llmdash\"",
+    "healthCheck": "test \"$(\"$HOME/llmdash/scripts/install-macos.sh\" --service status)\" = running && curl -fsS http://127.0.0.1:8787/api/state >/dev/null && curl -fsS http://127.0.0.1:8787/api/hosts >/dev/null && curl -fsS 'http://127.0.0.1:8787/api/codex-insights?range=30d' >/dev/null",
+    "rollback": "git -C \"$HOME/llmdash\" switch --detach <previous-good-sha> && \"$HOME/llmdash/scripts/install-macos.sh\" --service install \"$HOME/llmdash\""
+  },
+  "repository": "https://github.com/dtgibson/llmdash.git",
+  "repoURL": "https://github.com/dtgibson/llmdash",
+  "repoProvider": "github",
   "createdAt": "2026-06-16T04:22:52Z",
-  "updatedAt": "2026-06-16T05:06:45Z"
+  "updatedAt": "2026-07-13T07:20:09Z"
 }
