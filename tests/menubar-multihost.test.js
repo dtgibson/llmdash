@@ -61,11 +61,11 @@ test('single host ⇒ mode "single"; the glyph + tool rows stay compatible (QA-1
   // The GLYPH is byte-for-byte the shipped single-host glyph (no host cue).
   assert.match(lines[0], /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
   assert.doesNotMatch(lines[0], /·[◆▲]/);
-  // The per-tool ROWS stay the same content, now with explicit dark dropdown
-  // colors plus a fixed no-op so SwiftBar does not render them as disabled gray.
-  assert.match(out, /^Claude Code \| size=14 color=#1f1f1f bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^5-hour: {2}46% · resets .+ \| font=Menlo color=#111111 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^Codex \| size=14 color=#1f1f1f bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  // Tool marks, type scale, indentation, and semantic color establish the native
+  // scan hierarchy without changing the row's load-bearing words.
+  assert.match(out, /^◆ Claude Code \| size=13 color=#1f1f1f bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {2}5-hour: {2}46% · resets .+ \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^▲ Codex \| size=13 color=#1f1f1f bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 test('single-host mode still offers ＋ Add host… so the first machine is addable from the menu bar (FR-14)', () => {
@@ -73,14 +73,14 @@ test('single-host mode still offers ＋ Add host… so the first machine is adda
   const c = combined([host('This machine', { self: true, tools: state.tools })]);
   const out = emit(computeBadge(c.hosts[0].state), { host: '127.0.0.1', port: '8787' });
   // The Add action is present in single-host mode — the ONLY way to add the first host.
-  assert.match(out, /^＋ Add host… \| shell=.*param2=add terminal=false refresh=true$/m);
+  assert.match(out, /^＋ Add host… \| size=12 color=#4a4a4a shell=.*param2=add terminal=false refresh=true$/m);
   // No Remove submenu in single mode (nothing to remove); the count is honest.
   assert.doesNotMatch(out, /Remove host…/);
   assert.doesNotMatch(out, /Stop watching/);
-  assert.match(out, /^☰ Watching: 0 other machines \| color=#333333 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^☰ Watching: 0 other machines \| size=12 color=#4a4a4a bash=\/usr\/bin\/true terminal=false refresh=false$/m);
   // Open dashboard / Refresh still present, unchanged.
-  assert.match(out, /^Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\/$/m);
-  assert.match(out, /^Refresh \| refresh=true$/m);
+  assert.match(out, /^Open dashboard \| size=12 color=#4a4a4a href=http:\/\/127\.0\.0\.1:8787\/$/m);
+  assert.match(out, /^Refresh \| size=12 color=#4a4a4a refresh=true$/m);
 });
 
 test('multi-host dropdown renders Claude model-specific limits within the host Claude section', () => {
@@ -98,15 +98,15 @@ test('multi-host dropdown renders Claude model-specific limits within the host C
 
   assert.doesNotMatch(titleLine(out), /Fable|Sonnet|Model/);
   const desktopIndex = out.indexOf('Desktop  ▸ binding');
-  const modelIndex = out.indexOf('Model limits |');
+  const modelIndex = out.indexOf('    Model limits |');
   const fableIndex = out.indexOf('Fable:  84%');
-  const codexIndex = out.indexOf('Codex | size=13');
+  const codexIndex = out.indexOf('  ▲ Codex | size=13');
   assert.ok(desktopIndex >= 0, 'Desktop binding section rendered');
   assert.ok(modelIndex > desktopIndex, 'model label appears inside Desktop section');
   assert.ok(fableIndex > modelIndex, 'Fable row follows the model label');
   assert.ok(codexIndex > fableIndex, 'model rows appear before Desktop Codex rows');
-  assert.match(out, /^Fable: {2}84% · resets .+ \| font=Menlo color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^Sonnet 4\.5: {2}19% · resets .+ \| font=Menlo color=#b3261e bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {6}Fable: {2}84% · resets .+ \| font=Menlo size=12 color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {6}Sonnet 4\.5: {2}19% · resets .+ \| font=Menlo size=12 color=#b3261e bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 // ── Glyph = min across HOST × tool × window with a reading (QA-07) ─────────────
@@ -356,7 +356,7 @@ test('the Remove submenu + Watching count reflect the remote set (FR-14)', () =>
   assert.match(out, /param2=remove param3="100\.64\.0\.7:8788"/); // key passed on ARGV
   assert.match(out, /Watching: 1 other machine\b/); // one remote → singular
   // The Open-dashboard href uses THIS machine's loopback, never a peer's.
-  assert.match(out, /Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\//);
+  assert.match(out, /Open dashboard \| size=12 color=#4a4a4a href=http:\/\/127\.0\.0\.1:8787\//);
 });
 
 // ── aging/stale glyph carry the host cue (design spec glyph table) ────────────

@@ -47,6 +47,19 @@ function ageBand(f) {
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Tool identity is a fixed presentation mapping. The glyphs remain useful in
+// monochrome, while the literal classes provide the approved tinted rail.
+function toolToneClass(tool) {
+  if (tool && tool.source === 'claude-code') return 'tool-claude';
+  if (tool && tool.source === 'codex') return 'tool-codex';
+  return '';
+}
+function toolNameHtml(tool) {
+  const mark = tool && tool.source === 'claude-code' ? '◆' : tool && tool.source === 'codex' ? '▲' : '';
+  const markHtml = mark ? `<span class="tool-mark" aria-hidden="true">${mark}</span>` : '';
+  return `<span class="tool-name">${markHtml}<span>${esc(tool.label)}</span></span>`;
+}
+
 function gaugeHtml(win, label) {
   if (!win) {
     return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">—</span></div>`
@@ -254,7 +267,7 @@ function toolHtml(tool) {
   const activityBlock = hasActivity
     ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
-  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
+  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}<span class="tool-sub">${sub}</span></div>`
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
     + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + activityBlock + `</section>`;
 }
@@ -329,7 +342,7 @@ function joinLabels(labels) {
 // A tool block showing ONLY the limit gauges + pacing (no activity) — for the
 // account-limits banner. Reuses gaugeHtml()/burnHtml() unchanged.
 function limitsOnlyHtml(tool) {
-  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span>`
+  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}`
     + `<span class="tool-sub">${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}</span></div>`
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
     + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + `</section>`;
@@ -345,7 +358,7 @@ function activityOnlyHtml(tool, hostLabel) {
   const block = hasActivity
     ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
-  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>${block}</section>`;
+  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}<span class="tool-sub">${sub}</span></div>${block}</section>`;
 }
 
 // The account-limits banner: for each tool source whose key groups ≥2 reachable
@@ -498,8 +511,8 @@ function fullHostToolHtml(tool, host) {
   const activityBlock = hasActivity
     ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
-  const acctCaption = tool.haveLimits ? `<div class="section-label" style="margin-top:10px">account limits · this machine</div>` : '';
-  return `<section class="tool"><div class="tool-head"><span class="tool-name">${esc(tool.label)}</span><span class="tool-sub">${sub}</span></div>`
+  const acctCaption = tool.haveLimits ? `<div class="section-label account-caption">account limits · this machine</div>` : '';
+  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}<span class="tool-sub">${sub}</span></div>`
     + acctCaption
     + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
     + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + activityBlock + `</section>`;
@@ -626,7 +639,7 @@ function lineSVG(seriesList, yMax, fmtY, opts = {}) {
   const sy = (v) => y1 - (Math.max(0, Math.min(yMax, v)) / (yMax || 1)) * (y1 - y0);
   const grid = [y0, (y0 + y1) / 2, y1].map((y) => `<line class="gridline" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>`).join('');
   const lines = seriesList.map((s) => s.pts.length < 2 ? ''
-    : `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${s.pts.map((p) => `${scaleX(p[0], t0, t1, x0, x1).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ')}"/>`).join('');
+    : `<polyline class="chart-series ${s.className}" points="${s.pts.map((p) => `${scaleX(p[0], t0, t1, x0, x1).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ')}"/>`).join('');
   let labels = '';
   if (opts.pointLabel && seriesList[0].pts.length <= 12) {
     labels = seriesList[0].pts.map((p) => `<text x="${scaleX(p[0], t0, t1, x0, x1).toFixed(1)}" y="${(sy(p[1]) - 4).toFixed(1)}" text-anchor="middle">${opts.pointLabel(p[1])}</text>`).join('');
@@ -661,7 +674,7 @@ function barsSVG(days, fmtY, h = 120) {
   return `<svg viewBox="0 0 320 ${h}" role="img">${grid}${bars}${barLabels}${ylab}${xlab}</svg>`;
 }
 
-const legendHtml = (items) => `<div class="legend">` + items.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('') + `</div>`;
+const legendHtml = (items) => `<div class="legend">` + items.map(([cls, label]) => `<span><i class="legend-swatch legend-${cls}"></i>${label}</span>`).join('') + `</div>`;
 
 function chartCard(title, src, svg, legend) {
   return `<div class="card"><div class="card-title">${title}</div><div class="card-src">${src}</div>`
@@ -673,33 +686,34 @@ function trendToolHtml(t, range) {
   const hasLimits = fh.length >= 2 || sd.length >= 2;
   const hasActivity = daily.length >= 1;
   if (!hasLimits && !hasActivity) {
-    return `<div class="tool-name">${esc(t.label)}</div><div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div>`;
+    return `<section class="trend-tool ${toolToneClass(t)}"><div class="trend-tool-head">${toolNameHtml(t)}</div>`
+      + `<div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div></section>`;
   }
   const pct = (v) => Math.round(v) + '%';
   const usd = (v) => '$' + Math.round(v);
   const xDomain = [Date.now() - rangeToMs(range), Date.now()];
   const cards = [];
   const burn = lineSVG([
-    { pts: fh.map((p) => [Date.parse(p.t), p.remaining]), color: 'var(--accent)' },
-    { pts: sd.map((p) => [Date.parse(p.t), p.remaining]), color: 'var(--teal)' },
+    { pts: fh.map((p) => [Date.parse(p.t), p.remaining]), className: 'series-accent' },
+    { pts: sd.map((p) => [Date.parse(p.t), p.remaining]), className: 'series-teal' },
   ], 100, pct, { xDomain });
-  cards.push(chartCard('Limit remaining', 'account-wide · snapshots', burn, legendHtml([['var(--accent)', '5-hour'], ['var(--teal)', 'Weekly']])));
+  cards.push(chartCard('Limit remaining', 'account-wide · snapshots', burn, legendHtml([['accent', '5-hour'], ['teal', 'Weekly']])));
   // Only show the log-derived charts for tools that actually record activity.
   if (hasActivity) {
     const codex = t.source === 'codex';
     const tokens = barsSVG(daily, fmtNum);
-    const rate = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cacheHitRate * 100]), color: 'var(--good)' }], 100, pct, { xDomain });
+    const rate = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cacheHitRate * 100]), className: 'series-good' }], 100, pct, { xDomain });
     const valMax = Math.max(0.01, ...daily.map((d) => d.cost));
-    const value = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cost]), color: 'var(--accent)' }], valMax, usd, { xDomain, pointLabel: usd });
+    const value = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cost]), className: 'series-accent' }], valMax, usd, { xDomain, pointLabel: usd });
     const crLab = codex ? 'Cached input' : 'Cache';
-    cards.push(chartCard('Tokens per day', codex ? 'local logs · UTC buckets' : 'local logs', tokens, legendHtml([['var(--cr)', crLab], ['var(--in)', 'Input'], ['var(--out)', 'Output']])));
+    cards.push(chartCard('Tokens per day', codex ? 'local logs · UTC buckets' : 'local logs', tokens, legendHtml([['cr', crLab], ['in', 'Input'], ['out', 'Output']])));
     cards.push(chartCard('Cache hit rate', codex ? 'local logs · cached ÷ input' : 'local logs', rate, ''));
     cards.push(chartCard('Est. value / day', 'local logs · API rates', value, ''));
   }
   const note = (hasLimits && !hasActivity)
     ? `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`
     : '';
-  return `<div class="tool-name">${esc(t.label)}</div><div class="charts">${cards.join('')}</div>${note}`;
+  return `<section class="trend-tool ${toolToneClass(t)}"><div class="trend-tool-head">${toolNameHtml(t)}</div><div class="charts">${cards.join('')}</div>${note}</section>`;
 }
 
 async function fetchTrends() {
@@ -718,7 +732,11 @@ function setupRange() {
     const btn = e.target.closest('.pill');
     if (!btn) return;
     TREND_RANGE = btn.dataset.range || '7d';
-    [...r.querySelectorAll('.pill')].forEach((p) => p.classList.toggle('active', p === btn));
+    [...r.querySelectorAll('.pill')].forEach((p) => {
+      const selected = p === btn;
+      p.classList.toggle('active', selected);
+      p.setAttribute('aria-pressed', String(selected));
+    });
     fetchTrends();
   });
 }

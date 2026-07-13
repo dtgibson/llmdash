@@ -36,7 +36,7 @@ test('LLMDASH_PORT drives BOTH the fetch target and the Open-dashboard href', as
   assert.equal(r.status, 0);
   assert.equal(hitPath, '/api/hosts');                       // the badge now reads /api/hosts (FR-06)
   assert.match(r.stdout.split('\n')[0], /^▪ ◆ \d+% \|/);     // single-host = byte-for-byte the shipped glyph
-  assert.match(r.stdout, new RegExp(`Open dashboard \\| href=http://127\\.0\\.0\\.1:${srv.port}/`)); // href matches
+  assert.match(r.stdout, new RegExp(`Open dashboard \\| size=12 color=#4a4a4a href=http://127\\.0\\.0\\.1:${srv.port}/`)); // href matches
 });
 
 test('LLMDASH_BADGE_HOST override changes both the fetch target and the href', async () => {
@@ -62,7 +62,7 @@ test('LLMDASH_BADGE_HOST override changes both the fetch target and the href', a
   await srv.close();
   assert.equal(r.status, 0);
   assert.ok(served, 'the scratch server on the overridden host was actually hit');
-  assert.match(r.stdout, new RegExp(`Open dashboard \\| href=http://127\\.0\\.0\\.2:${srv.port}/`));
+  assert.match(r.stdout, new RegExp(`Open dashboard \\| size=12 color=#4a4a4a href=http://127\\.0\\.0\\.2:${srv.port}/`));
 });
 
 test('the default host is 127.0.0.1 when LLMDASH_BADGE_HOST is unset/empty', async () => {

@@ -35,7 +35,7 @@ test('service item is state-aware: not-installed → Install; running/stopped �
 test('both uninstall tiers are present, tier 2 carries its own … and its own action (QA-09)', () => {
   const { uninstallLines } = serviceControlActionLines({ state: 'running' });
   const joined = uninstallLines.join('\n');
-  assert.match(joined, /^⊘ Uninstall llmdash…$/m);           // the submenu parent
+  assert.match(joined, /^⊘ Uninstall llmdash… \| size=12 color=#4a4a4a$/m); // quiet submenu parent
   assert.match(joined, /^--▬ Remove the menu-bar badge only \|.*param2=remove-badge/m);
   assert.match(joined, /^--⊘ Uninstall llmdash completely… \|.*param2=uninstall/m);
 });
@@ -62,7 +62,7 @@ test('every service/uninstall action shells to $ABS_NODE against the tracked hel
   for (const state of ['not-installed', 'running', 'stopped']) {
     const { serviceLine, uninstallLines } = serviceControlActionLines({ state });
     for (const l of [serviceLine, ...uninstallLines]) {
-      if (l === '⊘ Uninstall llmdash…') continue; // the submenu parent has no action
+      if (l.startsWith('⊘ Uninstall llmdash… |')) continue; // the styled submenu parent has no action
       assert.ok(l.includes(`shell="${ABS_NODE}"`), `shells to ABS_NODE: ${l}`);
       assert.ok(l.includes(HELPER), `targets the tracked helper: ${l}`);
       assert.match(l, /terminal=false refresh=true/);

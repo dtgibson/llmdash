@@ -1,24 +1,19 @@
 {
-  "activeFeature": null,
+  "activeFeature": "cross-surface-visual-refinement",
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": null,
-  "lastCompletedStage": 7,
+  "currentStage": 6,
+  "lastCompletedStage": 5,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
-    "pipeline/menu-model-limits/change-brief.md",
-    "pipeline/menu-model-limits/deployment.md",
-    "pipeline/menu-model-limits/design-refinement.md",
-    "pipeline/menu-model-limits/design.html",
-    "pipeline/menu-model-limits/handoff.md",
-    "pipeline/menu-model-limits/how-to-see.md",
-    "pipeline/menu-model-limits/implementation.md",
-    "pipeline/menu-model-limits/pr-description.md",
-    "pipeline/menu-model-limits/qa-report.md",
-    "pipeline/menu-model-limits/security-report.md"
+    "pipeline/cross-surface-visual-refinement/change-brief.md",
+    "pipeline/cross-surface-visual-refinement/design-refinement.md",
+    "pipeline/cross-surface-visual-refinement/implementation.md",
+    "pipeline/cross-surface-visual-refinement/qa-report.md",
+    "pipeline/cross-surface-visual-refinement/security-report.md"
   ],
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-12T03:08:06Z"
+  "updatedAt": "2026-07-13T04:20:33Z"
 }

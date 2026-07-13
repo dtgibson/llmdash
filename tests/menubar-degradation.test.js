@@ -68,7 +68,7 @@ test('a hung server is bounded by FETCH_TIMEOUT_MS → rejects, never hangs', as
 test('the offline output still offers the actions against the configured host:port', () => {
   const out = emit(null, { host: '100.64.0.9', port: '9999', offline: true });
   assert.match(out, /Dashboard offline — no server on 100\.64\.0\.9:9999/);
-  assert.match(out, /Open dashboard \| href=http:\/\/100\.64\.0\.9:9999\//);
+  assert.match(out, /Open dashboard \| size=12 color=#4a4a4a href=http:\/\/100\.64\.0\.9:9999\//);
 });
 
 // menubar-service-controls (FR-16): after the local service is removed the badge's

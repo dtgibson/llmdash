@@ -1,41 +1,23 @@
-# Handoff — Model Limit Detection
+## What We Accomplished
+Implemented the approved cross-surface visual refinement for llmdash. The dashboard now gives account limits the strongest hierarchy, keeps pacing secondary, quiets activity and trends, carries the ◆/▲ identity consistently, and reflows cleanly at narrow widths. The SwiftBar/xbar dropdown now uses one marked, indented, semantically colored renderer across single-host and multi-host paths, with diagnostics kept beside the tool they qualify and actions visually de-emphasized.
 
-Feature: `model-limit-detection`
-Lane: `fix`
-Date: 2026-07-11
+## What Has Been Saved
+- pipeline/cross-surface-visual-refinement/change-brief.md
+- pipeline/cross-surface-visual-refinement/design-refinement.md
+- pipeline/cross-surface-visual-refinement/design.html
+- pipeline/cross-surface-visual-refinement/implementation.md
+- pipeline/cross-surface-visual-refinement/pr-description.md
+- pipeline/cross-surface-visual-refinement/how-to-see.md
+- pipeline/cross-surface-visual-refinement/qa-report.md
+- pipeline/cross-surface-visual-refinement/security-report.md
 
-## What Changed
+## Where We Are
+Step 5 is complete and Step 6 pre-deploy reconciliation is ready. Security passed with zero findings and QA is fully green. The source checkout is `main` at `965ba02` plus this uncommitted feature; it is synchronized with `origin/main` and has no conflicts. The production checkout `/Users/developer/llmdash` is clean at the same base commit, its launchd service is healthy on port 8787, and the SwiftBar wrapper points there. This local-only project has no CI workflow or deployment environment; the passing 486-test local suite is the release gate, and existing launchd command paths are configured. Deployment will commit and push the feature, fast-forward the production checkout, reload the launchd service, refresh the marker-gated SwiftBar wrapper, and run dashboard/menu health checks. Rollback is a revert commit followed by the same fast-forward/reload path. No commit, push, pull, service reload, wrapper change, or deployment has occurred; explicit approval is required next.
 
-- Claude's organic statusline capture now uses the shared newest-wins writer instead of replacing `data/claude-ratelimits.json` directly.
-- Still-active Claude `model_limits` rows are preserved across newer account-only captures until their reset time.
-- Incoming `/usage` model rows replace older rows for the same model/window while other active model rows remain.
-- Model rows now keep per-row `captured_at`, so account-only writes do not falsely restamp old model evidence.
-- The `/usage` probe now waits briefly after the account windows parse so lower-rendered model sections such as Fable or Sonnet can appear before the reading is written.
+## Resume Prompt
 
-## Why
+To resume this session: run `$weft` in this project. It reads the saved state and picks up exactly here.
 
-Fable appeared only sometimes because a normal Claude statusline render erased the optional `model_limits` extension. Sonnet-style caps could also be missed if the probe finished before lower sections rendered.
+---
 
-## Verification
-
-- `node --test tests/claude-refresh-parse.test.js` passed: 20 tests.
-- `node --test tests/statusline-model-merge.test.js` passed: 1 test.
-- Full `npm test` passed: 481 total, 479 passing, 2 skipped, 0 failed.
-- `git diff --check` passed.
-- Security review passed with no findings.
-
-## Deployment
-
-- Runtime commit deployed: `66507d9 Fix Claude model limit persistence`.
-- Pushed `66507d9` to `origin/main`.
-- Fast-forwarded installed checkout `/Users/developer/llmdash` from `bc639f2` to `66507d9`.
-- Restarted `com.llmdash.dashboard`.
-- Relaunched SwiftBar.
-- `/api/state` and `/api/hosts` returned successfully.
-- Final live check found a Claude Fable model cap: weekly, 16% used / 84% remaining, reset `2026-07-18T06:00:00.000Z`.
-- Existing remote host `SRDev VM` remains unreachable; this is unrelated pre-existing state.
-
-## Remaining Notes
-
-- The app only shows model-specific caps that Claude reports through `/usage` or that remain active from a prior captured `/usage` reading; it does not fabricate a Sonnet cap when Claude does not expose one.
-- No database migration was needed.
+Resume llmdash's `cross-surface-visual-refinement` improvement at the Step 6 deployment gate. Steps 1–5 passed, and pre-deploy reconciliation is complete. If the user confirms, commit and push the feature from `/Users/developer/devwork/llmdash`, fast-forward `/Users/developer/llmdash`, reload the existing launchd service, refresh the marker-gated SwiftBar wrapper, then verify the dashboard on port 8787 and the live menu output/UI. If they cancel, make no deployment mutation and preserve this checkpoint. No deployment has occurred yet.

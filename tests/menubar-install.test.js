@@ -212,7 +212,7 @@ test('--setup-badge: the generated wrapper actually launches the plugin end-to-e
   // The ratified default cue is ◆ (Claude), replacing the old C letter (badge-
   // display-options). A real badge line, not offline.
   assert.match(out.stdout.split('\n')[0], /^▪ ◆ \d+% \|/);
-  assert.match(out.stdout, /Open dashboard \| href=http:\/\/127\.0\.0\.1:/);
+  assert.match(out.stdout, /Open dashboard \| size=12 color=#4a4a4a href=http:\/\/127\.0\.0\.1:/);
 });
 
 test('--setup-badge: self-heals a baked tracked shebang (restores the committed shebang)', () => {

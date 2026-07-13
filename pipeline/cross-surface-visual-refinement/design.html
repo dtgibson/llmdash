@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>llmdash visual refinement</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --border: #dfe5ec;
+  --border-strong: #cfd7e2;
+  --text: #151a21;
+  --muted: #667181;
+  --faint: #8994a3;
+  --accent: #2563eb;
+  --accent-soft: #eaf0ff;
+  --good: #168a45;
+  --good-soft: #e8f6ed;
+  --warn: #b96807;
+  --warn-soft: #fff2df;
+  --crit: #cc3434;
+  --crit-soft: #fdebec;
+  --track: #e8edf3;
+  --grid: #e9edf2;
+  --shadow: 0 16px 48px rgba(37, 58, 86, .10), 0 2px 10px rgba(37, 58, 86, .05);
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1015;
+    --panel: #151b22;
+    --panel-soft: #11171e;
+    --border: #27303b;
+    --border-strong: #34404e;
+    --text: #edf1f5;
+    --muted: #a0aab6;
+    --faint: #75808d;
+    --accent: #7ea4ff;
+    --accent-soft: #18243e;
+    --good: #55cb7b;
+    --good-soft: #14291d;
+    --warn: #e8a54e;
+    --warn-soft: #2b2114;
+    --crit: #ff7777;
+    --crit-soft: #32191c;
+    --track: #252e39;
+    --grid: #232b34;
+    --shadow: 0 20px 60px rgba(0, 0, 0, .26), 0 2px 10px rgba(0, 0, 0, .18);
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  font: 15px/1.5 var(--sans);
+  background:
+    radial-gradient(900px 460px at 12% -10%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 68%),
+    radial-gradient(720px 380px at 92% 4%, color-mix(in srgb, var(--good) 7%, transparent), transparent 72%),
+    var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; }
+.preview-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+.switcher { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
+.switcher button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 13px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 160ms ease-out, background 160ms ease-out, box-shadow 120ms ease-out;
+}
+.switcher button[aria-selected="true"] { color: var(--text); background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent); }
+.switcher button:hover { color: var(--text); }
+.switcher button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 2px; }
+.view[hidden] { display: none; }
+.shell { width: min(860px, calc(100% - 32px)); margin: 0 auto; padding: 30px 0 54px; }
+.topline { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 2px 2px 24px; border-bottom: 1px solid var(--border); }
+.wordmark { font: 680 1.18rem/1 var(--mono); letter-spacing: -.03em; }
+.wordmark small { display: block; margin-top: 9px; font: 500 .76rem/1.4 var(--sans); letter-spacing: 0; color: var(--muted); }
+.fresh { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 500 .78rem/1 var(--mono); white-space: nowrap; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 12%, transparent); }
+.honesty { margin: 18px 0 0; color: var(--muted); font-size: .79rem; }
+.tools { display: grid; gap: 24px; margin-top: 26px; }
+.tool {
+  position: relative;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, white 38%, transparent);
+  overflow: hidden;
+}
+.tool::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--tool-color); }
+.tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 17px; }
+.tool-name { display: flex; align-items: center; gap: 9px; font: 650 1rem/1.2 var(--mono); }
+.mark { color: var(--tool-color); font-size: .92rem; }
+.scope { color: var(--faint); font: 500 .72rem/1.3 var(--mono); text-align: right; }
+.gauges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.gauge { padding: 18px; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--panel); box-shadow: var(--shadow); }
+.gauge-head, .gauge-meta { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.eyebrow { color: var(--muted); font: 650 .67rem/1 var(--mono); text-transform: uppercase; letter-spacing: .09em; }
+.reset { color: var(--faint); font: 500 .7rem/1 var(--mono); white-space: nowrap; }
+.number { margin: 13px 0 6px; color: var(--state); font: 650 clamp(2.55rem, 8vw, 3.75rem)/.92 var(--mono); letter-spacing: -.07em; font-variant-numeric: tabular-nums; }
+.number span { font-size: .36em; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
+.used { color: var(--muted); font-size: .74rem; }
+.bar { height: 7px; border-radius: 99px; background: var(--track); overflow: hidden; margin-top: 13px; }
+.bar > i { display: block; height: 100%; width: var(--value); border-radius: inherit; background: var(--state); transition: width 220ms cubic-bezier(.2,.8,.2,1); }
+.gauge-meta { margin-top: 8px; color: var(--faint); font: 500 .67rem/1 var(--mono); }
+.pacing { margin-top: 13px; padding: 13px 15px; border-radius: 11px; background: var(--accent-soft); display: grid; gap: 8px; }
+.pace-row { display: grid; grid-template-columns: 66px 1fr auto; gap: 10px; align-items: center; }
+.pace-row + .pace-row { border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent); padding-top: 8px; }
+.pace-name { color: var(--muted); font: 650 .64rem/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+.pace-copy { font-size: .79rem; }
+.pill { padding: 3px 8px; border-radius: 99px; color: var(--good); background: var(--good-soft); font: 700 .6rem/1.25 var(--mono); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.pill.warn { color: var(--warn); background: var(--warn-soft); }
+.activity { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 17px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.stat { padding: 14px 12px; min-width: 0; }
+.stat + .stat { border-left: 1px solid var(--border); }
+.stat-label { color: var(--faint); font: 600 .62rem/1.25 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.stat-value { margin-top: 7px; font: 640 1.18rem/1 var(--mono); white-space: nowrap; }
+.stat-note { margin-top: 5px; color: var(--muted); font-size: .66rem; }
+.mix { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 18px; margin-top: 16px; }
+.mix-label { color: var(--muted); font-size: .72rem; }
+.mix-label strong { display: block; margin-bottom: 3px; color: var(--text); font: 620 .78rem/1.2 var(--mono); }
+.mix-bar { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--track); }
+.mix-bar i:nth-child(1) { width: 18%; background: #14b8a6; }
+.mix-bar i:nth-child(2) { width: 68%; background: #2563eb; }
+.mix-bar i:nth-child(3) { width: 14%; background: #8b5cf6; }
+.trends { margin-top: 33px; }
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 13px; }
+.section-title { font: 650 .76rem/1 var(--mono); text-transform: uppercase; letter-spacing: .09em; }
+.range { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 99px; background: var(--panel); }
+.range button { border: 0; border-radius: 99px; background: transparent; color: var(--muted); padding: 5px 9px; cursor: pointer; font: 620 .67rem/1 var(--mono); transition: color 160ms ease-out, background 160ms ease-out; }
+.range button.active { color: var(--accent); background: var(--accent-soft); }
+.range button:hover { color: var(--text); }
+.range button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 34%, transparent); outline-offset: 2px; }
+.chart { padding: 18px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 68%, transparent), transparent); }
+.chart-title { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: .72rem; }
+.chart-title strong { color: var(--text); font: 620 .78rem/1 var(--mono); }
+svg { display: block; width: 100%; height: auto; margin-top: 13px; overflow: visible; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.series { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.area { fill: url(#area); }
+.axis { fill: var(--faint); font: 500 9px var(--mono); }
+.footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 25px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--faint); font-size: .7rem; }
+.menu-stage { min-height: calc(100vh - 57px); display: grid; place-items: start center; padding: 42px 16px 60px; }
+.menu-wrap { width: min(420px, 100%); }
+.menubar { display: flex; justify-content: flex-end; align-items: center; height: 27px; padding: 0 11px; border-radius: 9px 9px 0 0; background: #202226; color: #5bd88a; font: 600 12px/1 var(--mono); box-shadow: 0 20px 55px rgba(0,0,0,.26); }
+.dropdown { border: 1px solid #c9cbd0; border-top: 0; border-radius: 0 0 11px 11px; overflow: hidden; background: #f7f7f8; color: #17191d; box-shadow: 0 24px 70px rgba(0,0,0,.26); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.menu-summary { padding: 14px 16px 11px; font-size: 14px; font-weight: 650; }
+.menu-summary small { display: block; margin-top: 3px; color: #60656d; font-size: 11px; font-weight: 500; }
+.menu-group { border-top: 1px solid #dedfe2; padding: 8px 0; }
+.menu-host { padding: 4px 16px 6px; color: #26292e; font-size: 13px; font-weight: 650; }
+.binding { color: #2563eb; font-size: 10px; font-weight: 650; margin-left: 6px; }
+.menu-tool { display: flex; align-items: center; gap: 7px; padding: 5px 16px 3px; color: #33373d; font-size: 12px; font-weight: 650; }
+.menu-row { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 4px 16px 4px 34px; font: 500 12px/1.3 var(--mono); }
+.menu-row span:first-child { color: #5e636b; }
+.menu-row strong { color: #17783c; font-weight: 650; }
+.menu-row strong.warn { color: #8a5a00; }
+.menu-note { padding: 4px 16px 6px 34px; color: #686d75; font-size: 11px; }
+.menu-actions { border-top: 1px solid #dedfe2; padding: 7px 0; }
+.menu-action { display: flex; justify-content: space-between; padding: 5px 16px; color: #4e535b; font-size: 12px; }
+.menu-action.primary { color: #202329; }
+.chev { color: #8a8f97; }
+.mock-note { margin: 17px 3px 0; color: var(--muted); font-size: .75rem; }
+@media (max-width: 620px) {
+  .shell { width: min(100% - 22px, 860px); padding-top: 22px; }
+  .topline { gap: 14px; }
+  .tool { padding: 17px 14px; border-radius: 14px; }
+  .gauges { grid-template-columns: 1fr; }
+  .gauge { padding: 16px; }
+  .pace-row { grid-template-columns: 58px 1fr; }
+  .pace-row .pill { grid-column: 2; justify-self: start; }
+  .activity { grid-template-columns: 1fr 1fr; }
+  .stat:nth-child(3) { border-left: 0; border-top: 1px solid var(--border); }
+  .stat:nth-child(4) { border-top: 1px solid var(--border); }
+  .mix { grid-template-columns: 1fr; gap: 9px; }
+  .footer { flex-direction: column; gap: 6px; }
+}
+@media (max-width: 390px) {
+  .topline, .tool-head, .section-head { align-items: flex-start; flex-direction: column; }
+  .scope { text-align: left; }
+  .menu-row { padding-left: 25px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+</style>
+</head>
+<body>
+<div class="preview-bar">
+  <div class="switcher" role="tablist" aria-label="Mockup surface">
+    <button id="show-dashboard" role="tab" aria-selected="true" aria-controls="dashboard">Dashboard</button>
+    <button id="show-menu" role="tab" aria-selected="false" aria-controls="menu">Menu dropdown</button>
+  </div>
+</div>
+
+<main id="dashboard" class="view shell" role="tabpanel" aria-labelledby="show-dashboard">
+  <header class="topline">
+    <div class="wordmark">llmdash<small>AI coding headroom, at a glance.</small></div>
+    <div class="fresh"><span class="pulse"></span>updated 18s ago</div>
+  </header>
+  <p class="honesty">Limits are account-wide. Activity comes from this machine's local session logs.</p>
+
+  <section class="tools" aria-label="Tool usage">
+    <article class="tool" style="--tool-color:#d97757">
+      <div class="tool-head">
+        <div class="tool-name"><span class="mark">◆</span> Claude Code</div>
+        <div class="scope">Max plan · captured 18s ago</div>
+      </div>
+      <div class="gauges">
+        <section class="gauge" style="--state:var(--warn)">
+          <div class="gauge-head"><span class="eyebrow">5-hour</span><span class="reset">resets in 1h 42m</span></div>
+          <div class="number">38<span>%</span></div><div class="used">62% used</div>
+          <div class="bar"><i style="--value:38%"></i></div><div class="gauge-meta"><span>0%</span><span>100% remaining</span></div>
+        </section>
+        <section class="gauge" style="--state:var(--good)">
+          <div class="gauge-head"><span class="eyebrow">Weekly</span><span class="reset">resets in 5d 4h</span></div>
+          <div class="number">72<span>%</span></div><div class="used">28% used</div>
+          <div class="bar"><i style="--value:72%"></i></div><div class="gauge-meta"><span>0%</span><span>100% remaining</span></div>
+        </section>
+      </div>
+      <div class="pacing">
+        <div class="pace-row"><span class="pace-name">5-hour</span><span class="pace-copy">Current pace stays below the limit.</span><span class="pill warn">on pace</span></div>
+        <div class="pace-row"><span class="pace-name">Weekly</span><span class="pace-copy">Plenty of weekly headroom remains.</span><span class="pill">on pace</span></div>
+      </div>
+      <div class="activity">
+        <div class="stat"><div class="stat-label">Tokens · today</div><div class="stat-value">12.8M</div><div class="stat-note">6 sessions</div></div>
+        <div class="stat"><div class="stat-label">Cache hit rate</div><div class="stat-value">91%</div><div class="stat-note">why limits last</div></div>
+        <div class="stat"><div class="stat-label">Est. value · wk</div><div class="stat-value">$184</div><div class="stat-note">at API rates</div></div>
+        <div class="stat"><div class="stat-label">Cache saved · wk</div><div class="stat-value">$47</div><div class="stat-note">vs full price</div></div>
+      </div>
+      <div class="mix"><div class="mix-label"><strong>Weekly token mix</strong>Input · cache · output</div><div class="mix-bar" aria-label="Weekly token mix"><i></i><i></i><i></i></div></div>
+    </article>
+
+    <article class="tool" style="--tool-color:#2563eb">
+      <div class="tool-head">
+        <div class="tool-name"><span class="mark">▲</span> Codex</div>
+        <div class="scope">ChatGPT Plus · polled 8s ago</div>
+      </div>
+      <div class="gauges">
+        <section class="gauge" style="--state:var(--good)">
+          <div class="gauge-head"><span class="eyebrow">5-hour</span><span class="reset">resets in 3h 11m</span></div>
+          <div class="number">64<span>%</span></div><div class="used">36% used</div>
+          <div class="bar"><i style="--value:64%"></i></div><div class="gauge-meta"><span>0%</span><span>100% remaining</span></div>
+        </section>
+        <section class="gauge" style="--state:var(--good)">
+          <div class="gauge-head"><span class="eyebrow">Weekly</span><span class="reset">resets in 4d 8h</span></div>
+          <div class="number">58<span>%</span></div><div class="used">42% used</div>
+          <div class="bar"><i style="--value:58%"></i></div><div class="gauge-meta"><span>0%</span><span>100% remaining</span></div>
+        </section>
+      </div>
+      <div class="pacing">
+        <div class="pace-row"><span class="pace-name">5-hour</span><span class="pace-copy">Current pace stays below the limit.</span><span class="pill">on pace</span></div>
+        <div class="pace-row"><span class="pace-name">Weekly</span><span class="pace-copy">Weekly pace remains comfortable.</span><span class="pill">on pace</span></div>
+      </div>
+      <div class="activity">
+        <div class="stat"><div class="stat-label">Tokens · today</div><div class="stat-value">8.4M</div><div class="stat-note">4 sessions</div></div>
+        <div class="stat"><div class="stat-label">Cache hit rate</div><div class="stat-value">84%</div><div class="stat-note">cached ÷ input</div></div>
+        <div class="stat"><div class="stat-label">Est. value · wk</div><div class="stat-value">$126</div><div class="stat-note">at API rates</div></div>
+        <div class="stat"><div class="stat-label">Cache saved · wk</div><div class="stat-value">$32</div><div class="stat-note">vs full price</div></div>
+      </div>
+      <div class="mix"><div class="mix-label"><strong>Weekly token mix</strong>Input · cache · output</div><div class="mix-bar" aria-label="Weekly token mix"><i></i><i></i><i></i></div></div>
+    </article>
+  </section>
+
+  <section class="trends">
+    <div class="section-head"><div class="section-title">Trends</div><div class="range" aria-label="Trend range"><button>24h</button><button class="active">7d</button><button>30d</button></div></div>
+    <div class="chart">
+      <div class="chart-title"><strong>Remaining limit · Claude Code</strong><span>weekly window</span></div>
+      <svg viewBox="0 0 760 190" role="img" aria-label="Claude weekly limit remaining over seven days">
+        <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2563eb" stop-opacity=".18"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></linearGradient></defs>
+        <path class="gridline" d="M42 20H744M42 73H744M42 126H744M42 174H744"/>
+        <path class="area" d="M42 34 L158 47 L275 63 L392 78 L509 102 L626 116 L744 126 L744 174 L42 174 Z"/>
+        <path class="series" d="M42 34 L158 47 L275 63 L392 78 L509 102 L626 116 L744 126"/>
+        <g class="axis"><text x="42" y="188">Mon</text><text x="270" y="188">Wed</text><text x="505" y="188">Fri</text><text x="718" y="188">Sun</text></g>
+      </svg>
+    </div>
+  </section>
+  <footer class="footer"><span>Codex day buckets use UTC.</span><span>served over Tailscale</span></footer>
+</main>
+
+<main id="menu" class="view menu-stage" role="tabpanel" aria-labelledby="show-menu" hidden>
+  <div class="menu-wrap">
+    <div class="menubar">▪ ◆ 38%</div>
+    <section class="dropdown" aria-label="Representative llmdash menu dropdown">
+      <div class="menu-summary">▪ 38% remaining<small>Studio Mac · Claude Code · 5-hour</small></div>
+      <div class="menu-group">
+        <div class="menu-host">Studio Mac <span class="binding">▸ binding</span></div>
+        <div class="menu-tool"><span style="color:#b85d43">◆</span> Claude Code</div>
+        <div class="menu-row"><span>5-hour</span><strong class="warn">38% · resets 1h 42m</strong></div>
+        <div class="menu-row"><span>Weekly</span><strong>72% · resets 5d 4h</strong></div>
+        <div class="menu-note">Model limits</div>
+        <div class="menu-row"><span>Fable · weekly</span><strong>84% · resets 5d 4h</strong></div>
+        <div class="menu-tool"><span style="color:#2563eb">▲</span> Codex</div>
+        <div class="menu-row"><span>5-hour</span><strong>64% · resets 3h 11m</strong></div>
+        <div class="menu-row"><span>Weekly</span><strong>58% · resets 4d 8h</strong></div>
+      </div>
+      <div class="menu-group">
+        <div class="menu-host">Build Mac · you</div>
+        <div class="menu-tool"><span style="color:#b85d43">◆</span> Claude Code</div>
+        <div class="menu-row"><span>5-hour</span><strong class="warn">38% · resets 1h 42m</strong></div>
+        <div class="menu-row"><span>Weekly</span><strong>72% · resets 5d 4h</strong></div>
+      </div>
+      <div class="menu-actions">
+        <div class="menu-action primary"><span>＋ Add host…</span></div>
+        <div class="menu-action"><span>☰ Watching: 1 other machine</span></div>
+        <div class="menu-action"><span>🖥 Display</span><span class="chev">›</span></div>
+        <div class="menu-action"><span>🛈 Legend</span><span class="chev">›</span></div>
+      </div>
+      <div class="menu-actions">
+        <div class="menu-action primary"><span>Open dashboard</span></div>
+        <div class="menu-action primary"><span>Refresh</span></div>
+      </div>
+    </section>
+    <p class="mock-note">The production dropdown stays native. Hierarchy comes from size, weight, indentation, semantic color, and separators rather than web-style cards.</p>
+  </div>
+</main>
+<script>
+const dashboard = document.querySelector('#dashboard');
+const menu = document.querySelector('#menu');
+const dashButton = document.querySelector('#show-dashboard');
+const menuButton = document.querySelector('#show-menu');
+function show(which) {
+  const showDashboard = which === 'dashboard';
+  dashboard.hidden = !showDashboard;
+  menu.hidden = showDashboard;
+  dashButton.setAttribute('aria-selected', String(showDashboard));
+  menuButton.setAttribute('aria-selected', String(!showDashboard));
+}
+dashButton.addEventListener('click', () => show('dashboard'));
+menuButton.addEventListener('click', () => show('menu'));
+document.querySelectorAll('.range button').forEach((button) => button.addEventListener('click', () => {
+  button.parentElement.querySelectorAll('button').forEach((item) => item.classList.toggle('active', item === button));
+}));
+</script>
+</body>
+</html>

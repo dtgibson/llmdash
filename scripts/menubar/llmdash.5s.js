@@ -430,6 +430,7 @@ const DROPDOWN_BODY_SIZE = 13;
 const DROPDOWN_NOTE_SIZE = 12;
 const DROPDOWN_SECTION_SIZE = 12;
 const DROPDOWN_NOOP_ACTION = 'bash=/usr/bin/true terminal=false refresh=false';
+const DROPDOWN_ACTION_STYLE = `size=${DROPDOWN_NOTE_SIZE} color=${COLOR_DROPDOWN_DEEMPH}`;
 
 function menuParams({ size = null, color = null, font = null, inert = true } = {}) {
   const parts = [];
@@ -449,6 +450,16 @@ function menuLine(text, opts = {}) {
 
 function submenuLine(text, opts = {}) {
   return `--${menuLine(text, opts)}`;
+}
+
+function actionLine(text, params) {
+  // Actions stay explicitly constructed (never routed through the inert no-op
+  // helper), but share one quiet presentation treatment in the final region.
+  return `${sanitize(text)} | ${DROPDOWN_ACTION_STYLE} ${params}`;
+}
+
+function submenuActionLine(text, params) {
+  return `--${actionLine(text, params)}`;
 }
 
 export function wrapMenuText(text, max = DROPDOWN_WRAP_CHARS) {
@@ -485,19 +496,55 @@ function wrappedMenuLines(text, opts = {}, { max = DROPDOWN_WRAP_CHARS } = {}) {
   return wrapMenuText(text, max).map((line, idx) => menuLine(idx === 0 ? line : `  ${line}`, opts));
 }
 
-function modelLimitLine(row) {
+function windowRowText(row) {
   const resetMs = row.resetsAt ? Date.parse(row.resetsAt) : NaN;
   const resetIn = Number.isFinite(resetMs) ? fmtDur(resetMs - Date.now()) : fmtDur(null);
+  if (row.remaining == null) return `${row.label}:  not available`;
   if (row.maxed) return `${row.label}:  limit reached · resets ${resetIn}`;
   return `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
 }
 
-function pushModelLimitLines(lines, tv) {
+function windowRowColor(row) {
+  if (row.remaining == null) return DROPDOWN_STATE_COLOR.muted;
+  if (row.maxed) return DROPDOWN_STATE_COLOR.crit;
+  return DROPDOWN_STATE_COLOR[statusClass(row.remaining)];
+}
+
+// The account-window presentation path is intentionally shared by the single-
+// and multi-host dropdowns. Text remains the load-bearing signal (including
+// "limit reached" / "not available"); semantic color only reinforces it.
+export function windowRowLine(row, { indent = '  ' } = {}) {
+  return menuLine(`${indent}${windowRowText(row)}`, {
+    font: 'Menlo', size: DROPDOWN_NOTE_SIZE, color: windowRowColor(row),
+  });
+}
+
+function toolDiagnosticLines(text, { indent = '  ' } = {}) {
+  return wrapMenuText(text, Math.max(24, DROPDOWN_WRAP_CHARS - indent.length))
+    .map((line, idx) => menuLine(`${indent}${idx === 0 ? '' : '  '}${line}`, {
+      size: DROPDOWN_NOTE_SIZE, color: DROPDOWN_STATE_COLOR.stale,
+    }));
+}
+
+function pushModelLimitLines(lines, tv, { indent = '  ' } = {}) {
   if (!Array.isArray(tv.modelRows) || tv.modelRows.length === 0) return;
-  lines.push(menuLine('Model limits', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
+  lines.push(menuLine(`${indent}Model limits`, { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const row of tv.modelRows) {
-    lines.push(menuLine(modelLimitLine(row), { font: 'Menlo', color: DROPDOWN_STATE_COLOR[statusClass(row.remaining)] }));
+    lines.push(windowRowLine(row, { indent: `${indent}  ` }));
   }
+}
+
+function pushToolLines(lines, tv, { indent = '', separator = false } = {}) {
+  if (separator) lines.push('---');
+  const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
+  lines.push(menuLine(`${indent}${tv.cue} ${tv.label}${tag}`, {
+    size: DROPDOWN_BODY_SIZE, color: COLOR_DROPDOWN_HEADER,
+  }));
+  for (const row of tv.rows) lines.push(windowRowLine(row, { indent: `${indent}  ` }));
+  pushModelLimitLines(lines, tv, { indent: `${indent}  ` });
+  // A diagnostic sits directly beneath the readings it qualifies; it is never
+  // collected into a detached cross-tool block.
+  if (tv.diag) lines.push(...toolDiagnosticLines(tv.diag, { indent: `${indent}  ` }));
 }
 
 export function baseUrl(host, port) {
@@ -518,34 +565,13 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
     const b = badge.binding;
     const bindingCue = `${b.toolLabel} · ${b.windowLabel}`
       + (b.band === 'aging' || b.band === 'stale' ? ` · ${b.band}` : '');
-    lines.push(menuLine(`${MARK} ${badge.pct}% remaining — ${bindingCue}`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_TEXT }));
+    lines.push(menuLine(`${MARK} ${badge.pct}% remaining — ${bindingCue}`, {
+      size: DROPDOWN_HEADER_SIZE, color: DROPDOWN_STATE_COLOR[statusClass(badge.pct)],
+    }));
   }
 
-  const diagBlock = [];
   for (const tv of badge.toolViews) {
-    lines.push('---'); // group separator
-    const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
-    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_HEADER }));
-    for (const row of tv.rows) {
-      let text;
-      if (row.remaining == null) {
-        text = `${row.label}:  not available`;
-      } else if (row.maxed) {
-        const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
-        text = `${row.label}:  limit reached · resets ${resetIn}`;
-      } else {
-        const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
-        text = `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
-      }
-      lines.push(menuLine(text, { font: 'Menlo', color: COLOR_DROPDOWN_TEXT }));
-    }
-    pushModelLimitLines(lines, tv);
-    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_BODY_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
-  }
-
-  if (diagBlock.length) {
-    lines.push('---');
-    for (const dl of diagBlock) lines.push(dl);
+    pushToolLines(lines, tv, { separator: true });
   }
 
   // The service toggle + host-config + Uninstall action cluster rides the single-
@@ -556,8 +582,8 @@ function dropdownLines(badge, host, port, serviceState = 'not-installed', displa
   for (const l of actionClusterLines({ serviceState, remotes: [], display })) lines.push(l);
 
   lines.push('---');
-  lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
-  lines.push('Refresh | refresh=true');
+  lines.push(actionLine('Open dashboard', `href=${baseUrl(host, port)}`));
+  lines.push(actionLine('Refresh', 'refresh=true'));
   return lines;
 }
 
@@ -567,8 +593,8 @@ function offlineLines(host, port) {
   return [
     '---',
     ...wrappedMenuLines(`Dashboard offline — no server on ${sanitizeHostPort(host)}:${sanitizeHostPort(port)}`, { size: DROPDOWN_BODY_SIZE, color: COLOR_DROPDOWN_TEXT }),
-    `Open dashboard | href=${baseUrl(host, port)}`,
-    'Refresh | refresh=true',
+    actionLine('Open dashboard', `href=${baseUrl(host, port)}`),
+    actionLine('Refresh', 'refresh=true'),
   ];
 }
 
@@ -687,29 +713,10 @@ function hostSectionLines(view, { isBinding = false } = {}) {
     return lines;
   }
 
-  // The existing per-tool rows, per host (5-hour / Weekly; not available / limit
-  // reached / N% · resets …). Verbatim from dropdownLines' inner loop.
-  const diagBlock = [];
+  // The same marked + indented tool/window renderer used in single-host mode.
   for (const tv of view.badge.toolViews) {
-    const tag = tv.band === 'aging' ? '  (aging)' : tv.band === 'stale' ? '  (stale)' : '';
-    lines.push(menuLine(`${tv.label}${tag}`, { size: DROPDOWN_BODY_SIZE, color: COLOR_DROPDOWN_HEADER }));
-    for (const row of tv.rows) {
-      let text;
-      if (row.remaining == null) {
-        text = `${row.label}:  not available`;
-      } else if (row.maxed) {
-        const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
-        text = `${row.label}:  limit reached · resets ${resetIn}`;
-      } else {
-        const resetIn = row.resetsAt ? fmtDur(Date.parse(row.resetsAt) - Date.now()) : fmtDur(null);
-        text = `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
-      }
-      lines.push(menuLine(text, { font: 'Menlo', color: COLOR_DROPDOWN_TEXT }));
-    }
-    pushModelLimitLines(lines, tv);
-    if (tv.diag) diagBlock.push(...wrappedMenuLines(tv.diag, { size: DROPDOWN_NOTE_SIZE, color: DROPDOWN_STATE_COLOR.stale }));
+    pushToolLines(lines, tv, { indent: '  ' });
   }
-  for (const dl of diagBlock) lines.push(dl);
   return lines;
 }
 
@@ -728,23 +735,23 @@ function hostSectionLines(view, { isBinding = false } = {}) {
 // counts them. `remotes` = [{label, key, addr}] from remotesFromCombined.
 export function hostConfigActionLines({ remotes = [] } = {}) {
   const lines = ['---'];
-  lines.push(`＋ Add host… | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=add terminal=false refresh=true`);
+  lines.push(actionLine('＋ Add host…', `shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=add terminal=false refresh=true`));
   if (remotes.length) {
     // Remove submenu: SwiftBar renders a nested item with a leading `--`. One item
     // per removable host; each passes the host KEY on ARGV (param3). The key is a
     // sanitized host:port identity — never a free-form label.
-    lines.push(menuLine('－ Remove host…', { color: COLOR_DROPDOWN_HEADER, inert: false }));
+    lines.push(menuLine('－ Remove host…', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH, inert: false }));
     for (const r of remotes) {
       const label = sanitize(r.label);
       const key = sanitizeHostPort(r.key);
-      lines.push(`--Stop watching ${label} (${r.addr}) | shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`);
+      lines.push(submenuActionLine(`Stop watching ${label} (${r.addr})`, `shell="${ABS_NODE}" param1="${HOST_CONFIG_ACTION}" param2=remove param3="${key}" terminal=false refresh=true`));
     }
     // A live listing of the current remote set (a real affordance, not a dead item).
-    lines.push(menuLine(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'}`, { color: COLOR_DROPDOWN_SUBTLE }));
+    lines.push(menuLine(`☰ Watching: ${remotes.length} other machine${remotes.length === 1 ? '' : 's'}`, { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH }));
   } else {
     // Single-host: no remotes to remove; state the honest zero so the count line
     // is never a dead/absent affordance. Add host… above is the live path.
-    lines.push(menuLine('☰ Watching: 0 other machines', { color: COLOR_DROPDOWN_SUBTLE }));
+    lines.push(menuLine('☰ Watching: 0 other machines', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH }));
   }
   return lines;
 }
@@ -766,18 +773,18 @@ export function serviceControlActionLines({ state = 'not-installed' } = {}) {
   // honest state (reads in a monochrome bar; xbar-safe) — never a status color.
   let serviceLine;
   if (state === 'not-installed') {
-    serviceLine = `＋ Install the local service | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=install terminal=false refresh=true`;
+    serviceLine = actionLine('＋ Install the local service', `shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=install terminal=false refresh=true`);
   } else {
     const suffix = state === 'running' ? ' · running' : ' · stopped';
-    serviceLine = `－ Remove the local service${suffix} | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=remove terminal=false refresh=true`;
+    serviceLine = actionLine(`－ Remove the local service${suffix}`, `shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=remove terminal=false refresh=true`);
   }
   // The Uninstall submenu (two tiers, SwiftBar nested items via leading `--`).
   // Tier 1 (badge only) is light; tier 2 (complete) carries its own `…` and its
   // own enumerated gate, so the two are never one accidental click apart.
   const uninstallLines = [
-    '⊘ Uninstall llmdash…',
-    `--▬ Remove the menu-bar badge only | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=remove-badge terminal=false refresh=true`,
-    `--⊘ Uninstall llmdash completely… | shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=uninstall terminal=false refresh=true`,
+    menuLine('⊘ Uninstall llmdash…', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH, inert: false }),
+    submenuActionLine('▬ Remove the menu-bar badge only', `shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=remove-badge terminal=false refresh=true`),
+    submenuActionLine('⊘ Uninstall llmdash completely…', `shell="${ABS_NODE}" param1="${SERVICE_CONTROL_ACTION}" param2=uninstall terminal=false refresh=true`),
   ];
   return { serviceLine, uninstallLines };
 }
@@ -822,7 +829,9 @@ function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-inst
     const b = multi.binding;
     const bindingCue = `${b.hostLabel} · ${b.toolLabel} · ${b.windowLabel}`
       + (b.band === 'aging' || b.band === 'stale' ? ` · ${b.band}` : '');
-    lines.push(menuLine(`${MARK} ${multi.pct}% remaining — ${bindingCue}`, { size: DROPDOWN_HEADER_SIZE, color: COLOR_DROPDOWN_TEXT }));
+    lines.push(menuLine(`${MARK} ${multi.pct}% remaining — ${bindingCue}`, {
+      size: DROPDOWN_HEADER_SIZE, color: DROPDOWN_STATE_COLOR[statusClass(multi.pct)],
+    }));
   }
   const scope = `Watching ${reachableCount} machine${reachableCount === 1 ? '' : 's'}`
     + (unreachable ? ` · ${unreachable} not reachable` : '');
@@ -837,8 +846,8 @@ function multiDropdownLines(multi, host, port, remotes, serviceState = 'not-inst
   for (const l of actionClusterLines({ serviceState, remotes, display })) lines.push(l);
 
   lines.push('---');
-  lines.push(`Open dashboard | href=${baseUrl(host, port)}`);
-  lines.push('Refresh | refresh=true');
+  lines.push(actionLine('Open dashboard', `href=${baseUrl(host, port)}`));
+  lines.push(actionLine('Refresh', 'refresh=true'));
   return lines;
 }
 
@@ -1648,7 +1657,7 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
     toolMark: display.toolMark || 'neutral',
   };
   const act = (verb, value) => `shell="${ABS_NODE}" param1="${DISPLAY_ACTION}" param2=${verb} param3="${value}" terminal=false refresh=true`;
-  const lines = ['---', menuLine('🖥 Display', { color: COLOR_DROPDOWN_HEADER, inert: false })];
+  const lines = ['---', menuLine('🖥 Display', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH, inert: false })];
   // Presets (the friendly front).
   lines.push(submenuLine('Presets', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }));
   for (const p of DISPLAY_PRESETS) {
@@ -1708,7 +1717,7 @@ export function displayActionLines({ display = {}, remotes = [] } = {}) {
 export function legendLines() {
   return [
     '---',
-    menuLine('🛈 Legend — what the marks mean', { color: COLOR_DROPDOWN_HEADER, inert: false }),
+    menuLine('🛈 Legend — what the marks mean', { size: DROPDOWN_NOTE_SIZE, color: COLOR_DROPDOWN_DEEMPH, inert: false }),
     submenuLine('Badge', { size: DROPDOWN_SECTION_SIZE, color: COLOR_DROPDOWN_SUBTLE }),
     submenuLine('▪ — llmdash mark; every status-bar glyph starts here.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),
     submenuLine('· — separator between host, tool, and scope words.', { color: COLOR_DROPDOWN_TEXT, font: 'Menlo' }),

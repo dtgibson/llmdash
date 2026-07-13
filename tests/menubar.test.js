@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   computeBadge, emit, fmtDur, ageBand, sanitize, diagLine, statusClass, baseUrl,
-  sanitizeHostPort, wrapMenuText,
+  sanitizeHostPort, wrapMenuText, windowRowLine,
 } from '../scripts/menubar/llmdash.5s.js';
 
 // ── fixture loader ──────────────────────────────────────────────────────────
@@ -81,6 +81,21 @@ test('wrapMenuText: wraps long menu text and long tokens to bounded rows', () =>
   const tokenLines = wrapMenuText('abcdefghijklmno', 5);
   assert.deepEqual(tokenLines, ['abcde', 'fghij', 'klmno']);
   assert.ok([...lines, ...tokenLines].every((line) => line.length <= 13));
+});
+
+test('windowRowLine is the shared semantic presentation for account/model windows', () => {
+  assert.equal(
+    windowRowLine({ label: '5-hour', remaining: 72, resetsAt: null, maxed: false }),
+    '  5-hour:  72% · resets — | font=Menlo size=12 color=#17783c bash=/usr/bin/true terminal=false refresh=false',
+  );
+  assert.equal(
+    windowRowLine({ label: 'Weekly', remaining: 0, resetsAt: null, maxed: true }, { indent: '    ' }),
+    '    Weekly:  limit reached · resets — | font=Menlo size=12 color=#b3261e bash=/usr/bin/true terminal=false refresh=false',
+  );
+  assert.equal(
+    windowRowLine({ label: 'Weekly', remaining: null, resetsAt: null, maxed: false }),
+    '  Weekly:  not available | font=Menlo size=12 color=#3f4754 bash=/usr/bin/true terminal=false refresh=false',
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,8 +221,8 @@ test('emit fresh: title has the cue + %, colored by status; grammar valid', () =
   // warn color (46% → 20–49 → warn) lifted for the dark bar.
   assert.match(title, /color=#f0a94b$/);
   assert.match(out, /\n---\n/);
-  assert.match(out, /Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\/$/m);
-  assert.match(out, /^Refresh \| refresh=true$/m);
+  assert.match(out, /^Open dashboard \| size=12 color=#4a4a4a href=http:\/\/127\.0\.0\.1:8787\/$/m);
+  assert.match(out, /^Refresh \| size=12 color=#4a4a4a refresh=true$/m);
 });
 
 test('emit: exactly one line appears before the first separator', () => {
@@ -221,22 +236,25 @@ test('emit aging: number KEEPS its value with a clock marker and dim color', () 
   const title = titleLine(out);
   assert.match(title, /^▪ ◆ 66% ◷ \| color=#a0a0a0$/);
   // The tool header carries the (aging) tag.
-  assert.match(out, /^Claude Code {2}\(aging\) \|/m);
+  assert.match(out, /^◆ Claude Code {2}\(aging\) \| size=13 color=#1f1f1f/m);
 });
 
 test('emit stale: number present, amber, trailing ⚠; diagnostics block present', () => {
   const out = emit(computeBadge(loadFixture('state-stale')));
   const title = titleLine(out);
   assert.match(title, /^▪ ◆ 66% ⚠ \| color=#f0a94b$/);
-  assert.match(out, /^Claude Code {2}\(stale\) \|/m);
-  assert.match(out, /^Stale reading — .* \| size=13 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^  session to refresh\. \| size=13 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^◆ Claude Code {2}\(stale\) \| size=13 color=#1f1f1f/m);
+  assert.match(out, /^  Stale reading — .* \| size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  const toolIndex = out.indexOf('◆ Claude Code  (stale)');
+  const diagIndex = out.indexOf('  Stale reading —');
+  const codexIndex = out.indexOf('▲ Codex');
+  assert.ok(diagIndex > toolIndex && diagIndex < codexIndex, 'diagnostic stays beneath the tool it qualifies');
 });
 
 test('emit maxed: a maxed window reads "limit reached", never 0%; null → "not available"', () => {
   const out = emit(computeBadge(loadFixture('state-maxed')));
-  assert.match(out, /^5-hour: {2}limit reached · resets .+ \| font=Menlo color=#111111 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^Weekly: {2}not available \| font=Menlo color=#111111 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {2}5-hour: {2}limit reached · resets .+ \| font=Menlo size=12 color=#b3261e bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {2}Weekly: {2}not available \| font=Menlo size=12 color=#3f4754 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
   // The glyph is a valid 0% binding.
   assert.match(titleLine(out), /^▪ ◆ 0% \| /);
 });
@@ -266,7 +284,7 @@ test('emit offline: wordmark + ⚠, NEVER a number; still offers actions', () =>
   assert.doesNotMatch(glyphText, /\d/);       // no number in the visible glyph
   assert.doesNotMatch(out, /\d+%/);           // and no percentage anywhere in the output
   assert.match(out, /Dashboard offline — no server on 127\.0\.0\.1:8787/);
-  assert.match(out, /Open dashboard \| href=http:\/\/127\.0\.0\.1:8787\//);
+  assert.match(out, /Open dashboard \| size=12 color=#4a4a4a href=http:\/\/127\.0\.0\.1:8787\//);
 });
 
 test('emit no-reading: the | injection in Codex detail is neutralized, opens no extra param', () => {
@@ -285,11 +303,11 @@ test('emit no-reading: the | injection in Codex detail is neutralized, opens no 
 // ─────────────────────────────────────────────────────────────────────────────
 test('emit: the dropdown lists all four tool×window rows', () => {
   const out = emit(computeBadge(loadFixture('state-fresh')));
-  assert.match(out, /^Claude Code \|/m);
-  assert.match(out, /^Codex \|/m);
+  assert.match(out, /^◆ Claude Code \|/m);
+  assert.match(out, /^▲ Codex \|/m);
   // two 5-hour rows and two Weekly rows
-  assert.equal((out.match(/^5-hour: /gm) || []).length, 2);
-  assert.equal((out.match(/^Weekly: /gm) || []).length, 2);
+  assert.equal((out.match(/^ {2}5-hour: /gm) || []).length, 2);
+  assert.equal((out.match(/^ {2}Weekly: /gm) || []).length, 2);
 });
 
 test('emit: Claude model-specific limits render under the account windows only in the dropdown', () => {
@@ -304,15 +322,15 @@ test('emit: Claude model-specific limits render under the account windows only i
   assert.match(titleLine(out), /^▪ ◆ 46% \| color=#[0-9a-f]{6}$/);
   assert.doesNotMatch(titleLine(out), /Fable|Sonnet|Model/);
 
-  const claudeIndex = out.indexOf('Claude Code |');
-  const modelIndex = out.indexOf('Model limits |');
-  const codexIndex = out.indexOf('Codex |');
+  const claudeIndex = out.indexOf('◆ Claude Code |');
+  const modelIndex = out.indexOf('  Model limits |');
+  const codexIndex = out.indexOf('▲ Codex |');
   assert.ok(claudeIndex >= 0, 'Claude section rendered');
   assert.ok(modelIndex > claudeIndex, 'model label appears inside Claude section');
   assert.ok(codexIndex > modelIndex, 'model rows appear before Codex section');
-  assert.equal((out.match(/^Model limits \|/gm) || []).length, 1);
-  assert.match(out, /^Fable: {2}84% · resets .+ \| font=Menlo color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^Sonnet 4\.5: {2}34% · resets .+ \| font=Menlo color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.equal((out.match(/^ {2}Model limits \|/gm) || []).length, 1);
+  assert.match(out, /^ {4}Fable: {2}84% · resets .+ \| font=Menlo size=12 color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {4}Sonnet 4\.5: {2}34% · resets .+ \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 test('emit: a model-specific limit with a malformed reset degrades to a dash', () => {
@@ -322,7 +340,7 @@ test('emit: a model-specific limit with a malformed reset degrades to a dash', (
   ];
 
   const out = emit(computeBadge(state));
-  assert.match(out, /^Fable: {2}44% · resets — \| font=Menlo color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {4}Fable: {2}44% · resets — \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

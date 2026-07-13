@@ -83,8 +83,9 @@ const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
 test('single-host mode (1 self host) renders via #tools with NO host chrome (QA-18)', async () => {
   const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]) }], generatedAt: iso(0) };
   const { els, footer } = await renderWith(combined);
-  assert.match(els.tools.innerHTML, /class="tool"/, '#tools renders the tool block today-style');
+  assert.match(els.tools.innerHTML, /class="tool(?:\s|\")/, '#tools renders the tool block');
   assert.match(els.tools.innerHTML, /class="gauges"/, 'gauges actually render');
+  assert.match(els.tools.innerHTML, /class="tool-mark" aria-hidden="true">◆</, 'Claude keeps the shared tool identity mark');
   assert.equal(els.hosts.innerHTML, '', 'no host chrome in single-host mode');
   assert.doesNotMatch(els.hosts.innerHTML, /acct|host-head/, 'no banner, no host header');
   assert.match(footer._spans[0].textContent, /Activity: local session logs/, 'single-host footer');
