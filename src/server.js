@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { getRefreshState } from './claude-refresh.js';
-import { codexLimitsDiagnostic } from './codex-limits.js';
+import { codexLimitsDiagnostic, codexPlanLabel } from './codex-limits.js';
 import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity } from './codex-stats.js';
@@ -126,7 +126,7 @@ export function computeHeadroom(tools) {
 export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
   const claude = toolWrap('claude-code', 'Claude Code', 'Max',
     readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
-  const codex = toolWrap('codex', 'Codex', 'ChatGPT Plus',
+  const codex = toolWrap('codex', 'Codex', codexPlanLabel(),
     null, computeCodexActivity(nowMs), nowMs);
   // Reading-age freshness (claude only; codex is not retrofitted). The client
   // derives the fresh/aging/stale band live from these server-supplied

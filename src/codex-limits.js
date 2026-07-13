@@ -15,8 +15,39 @@ let diag = resolveCommand(config.codexCmd)
   : { reason: 'codex-cmd-failed', cmd: config.codexCmd, detail: 'not found' };
 let loggedKey = '';
 let spawnFailedThisRead = false;
+let observedPlanType = null;
+
+const PLAN_LABELS = {
+  free: 'ChatGPT Free',
+  go: 'ChatGPT Go',
+  plus: 'ChatGPT Plus',
+  pro: 'ChatGPT Pro',
+  prolite: 'ChatGPT Pro Lite',
+  team: 'ChatGPT Team',
+  self_serve_business_usage_based: 'ChatGPT Business',
+  business: 'ChatGPT Business',
+  enterprise_cbp_usage_based: 'ChatGPT Enterprise',
+  enterprise: 'ChatGPT Enterprise',
+  edu: 'ChatGPT Edu',
+};
 
 export function codexLimitsDiagnostic() { return diag; }
+export function codexPlanLabel() {
+  return observedPlanType ? PLAN_LABELS[observedPlanType] : 'Plan unavailable';
+}
+
+// The rate-limit response is the authority for the plan attached to these
+// quota windows. Keep the last recognized value because Codex documents this
+// metadata as nullable during rolling updates; a missing field must not erase a
+// plan we already observed, and an unknown value must never invent a tier.
+function observePlanType(rl) {
+  if (!rl || typeof rl !== 'object') return null;
+  const raw = rl.planType ?? rl.plan_type;
+  const normalized = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  const recognized = Object.hasOwn(PLAN_LABELS, normalized);
+  if (recognized) observedPlanType = normalized;
+  return recognized ? normalized : null;
+}
 
 // Record a spawn failure and log it ONCE per distinct cause (not every poll
 // interval) — per the "surface it in the startup log, never silently" rule.
@@ -90,8 +121,11 @@ function readViaAppServer() {
         try { msg = JSON.parse(line); } catch { continue; }
         const result = msg && msg.result;
         const rl = result && (result.rateLimits || result.rate_limits || result);
+        const planType = observePlanType(rl);
         const windows = windowsFromRateLimits(rl);
-        if (windows) finish({ source: 'codex', capturedAt: new Date().toISOString(), windows });
+        if (windows) {
+          finish({ source: 'codex', capturedAt: new Date().toISOString(), windows, ...(planType ? { planType } : {}) });
+        }
       }
     });
     try {
@@ -128,8 +162,16 @@ function readViaRollout() {
     if (!lines[i].trim()) continue;
     let o; try { o = JSON.parse(lines[i]); } catch { continue; }
     const rl = o.rate_limits || (o.payload && o.payload.rate_limits) || (o.token_count && o.token_count.rate_limits);
+    const planType = observePlanType(rl);
     const windows = windowsFromRateLimits(rl);
-    if (windows) return { source: 'codex', capturedAt: o.timestamp ? toIso(o.timestamp) : new Date().toISOString(), windows };
+    if (windows) {
+      return {
+        source: 'codex',
+        capturedAt: o.timestamp ? toIso(o.timestamp) : new Date().toISOString(),
+        windows,
+        ...(planType ? { planType } : {}),
+      };
+    }
   }
   return null;
 }

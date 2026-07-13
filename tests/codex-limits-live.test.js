@@ -14,7 +14,7 @@ const fake = path.join(tmp, 'codex');
 // second resetsAt), then lingers briefly so stdout is read before exit.
 fs.writeFileSync(fake, [
   '#!/bin/sh',
-  `echo '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":42,"resetsAt":1767225600},"secondary":{"usedPercent":7,"resetsAt":1767830400}}}}'`,
+  `echo '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"planType":"pro","primary":{"usedPercent":42,"resetsAt":1767225600},"secondary":{"usedPercent":7,"resetsAt":1767830400}}}}'`,
   'sleep 5',
   '',
 ].join('\n'));
@@ -25,7 +25,7 @@ process.env.LLMDASH_CODEX_DIR = path.join(tmp, 'codex-home'); // keep off the re
 process.env.LLMDASH_CODEX_CMD = fake;
 process.env.LLMDASH_CODEX_TIMEOUT_MS = '4000';
 
-const { readCodexLimits, codexLimitsDiagnostic } = await import('../src/codex-limits.js');
+const { readCodexLimits, codexLimitsDiagnostic, codexPlanLabel } = await import('../src/codex-limits.js');
 
 test('a working absolute codex path yields live windows and an ok diagnostic', async () => {
   const live = await readCodexLimits();
@@ -33,6 +33,10 @@ test('a working absolute codex path yields live windows and an ok diagnostic', a
   assert.equal(live.source, 'codex');
   assert.equal(live.windows.five_hour.usedPct, 42);
   assert.equal(live.windows.seven_day.usedPct, 7);
+  assert.equal(live.planType, 'pro');
+  assert.equal(codexPlanLabel(), 'ChatGPT Pro');
+  const { buildState } = await import('../src/server.js');
+  assert.equal(buildState().tools.find((tool) => tool.source === 'codex').plan, 'ChatGPT Pro');
   assert.equal(live.windows.five_hour.resetsAt, new Date(1767225600 * 1000).toISOString());
   assert.equal(codexLimitsDiagnostic().reason, 'ok');
 });

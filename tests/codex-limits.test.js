@@ -14,12 +14,16 @@ process.env.LLMDASH_CODEX_DIR = path.join(tmp, 'codex'); // empty → no rollout
 process.env.LLMDASH_CODEX_CMD = path.join(tmp, 'missing', 'codex'); // guaranteed-dead
 process.env.LLMDASH_CODEX_TIMEOUT_MS = '4000';
 
-const { readCodexLimits, codexLimitsDiagnostic } = await import('../src/codex-limits.js');
+const { readCodexLimits, codexLimitsDiagnostic, codexPlanLabel } = await import('../src/codex-limits.js');
 
 test('diagnostic already names the dead command before the first poll (static PATH check)', () => {
   const d = codexLimitsDiagnostic();
   assert.equal(d.reason, 'codex-cmd-failed');
   assert.equal(d.cmd, process.env.LLMDASH_CODEX_CMD);
+});
+
+test('an unreadable plan is reported honestly instead of assuming Plus', () => {
+  assert.equal(codexPlanLabel(), 'Plan unavailable');
 });
 
 test('spawn failure → null limits, ENOENT diagnostic, logged once across polls', async () => {
