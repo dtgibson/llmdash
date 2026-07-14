@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>llmdash — limits-first tool grouping</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --border: #dfe5ec;
+  --border-strong: #cfd7e2;
+  --text: #151a21;
+  --muted: #667181;
+  --faint: #8994a3;
+  --track: #e8edf3;
+  --grid: #e9edf2;
+  --good: #168a45;
+  --good-bg: #e8f6ed;
+  --warn: #b96807;
+  --warn-bg: #fff2df;
+  --crit: #cc3434;
+  --crit-bg: #fdebec;
+  --accent: #2563eb;
+  --accent-bg: #eaf0ff;
+  --claude: #b85d43;
+  --codex: #2563eb;
+  --teal: #0d9488;
+  --cr: #2563eb;
+  --in: #14b8a6;
+  --cw: #d97706;
+  --out: #8b5cf6;
+  --accent-glow: rgba(37, 99, 235, 0.09);
+  --good-glow: rgba(22, 138, 69, 0.05);
+  --panel-glass: rgba(255, 255, 255, 0.88);
+  --gauge-shadow: 0 16px 48px rgba(37, 58, 86, 0.09), 0 2px 10px rgba(37, 58, 86, 0.05);
+  --frame-shadow: 0 24px 80px rgba(37, 58, 86, 0.14);
+  --focus-ring: rgba(37, 99, 235, 0.32);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1015;
+    --panel: #151b22;
+    --panel-soft: #11171e;
+    --border: #27303b;
+    --border-strong: #34404e;
+    --text: #edf1f5;
+    --muted: #a0aab6;
+    --faint: #75808d;
+    --track: #252e39;
+    --grid: #232b34;
+    --good: #55cb7b;
+    --good-bg: #14291d;
+    --warn: #e8a54e;
+    --warn-bg: #2b2114;
+    --crit: #ff7777;
+    --crit-bg: #32191c;
+    --accent: #7ea4ff;
+    --accent-bg: #18243e;
+    --claude: #e18468;
+    --codex: #7ea4ff;
+    --teal: #2dd4bf;
+    --cr: #7ea4ff;
+    --in: #14b8a6;
+    --cw: #e8a54e;
+    --out: #a78bfa;
+    --accent-glow: rgba(126, 164, 255, 0.11);
+    --good-glow: rgba(85, 203, 123, 0.05);
+    --panel-glass: rgba(21, 27, 34, 0.9);
+    --gauge-shadow: 0 20px 60px rgba(0, 0, 0, 0.26), 0 2px 10px rgba(0, 0, 0, 0.18);
+    --frame-shadow: 0 28px 90px rgba(0, 0, 0, 0.34);
+    --focus-ring: rgba(126, 164, 255, 0.38);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-width: 0; }
+html { background: var(--bg); }
+body {
+  min-height: 100vh;
+  color: var(--text);
+  background: var(--panel-soft);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+button { color: inherit; font: inherit; }
+
+.review-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 57px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-glass);
+  backdrop-filter: blur(16px);
+}
+.review-label {
+  color: var(--muted);
+  font: 650 0.66rem/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.viewport-switch,
+.range {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+}
+.viewport-switch button,
+.range button {
+  min-height: 31px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font: 620 0.68rem/1 var(--mono);
+  transition: color 160ms ease-out, background-color 160ms ease-out, box-shadow 120ms ease-out;
+}
+.viewport-switch button:hover,
+.range button:hover { color: var(--text); }
+.viewport-switch button[aria-pressed="true"],
+.range button[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
+.viewport-switch button:active,
+.range button:active { box-shadow: inset 0 0 0 1px var(--focus-ring); }
+.viewport-switch button:focus-visible,
+.range button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.review-note { margin: 0; color: var(--faint); font-size: 0.68rem; }
+
+.review-stage { display: grid; place-items: start center; min-width: 0; padding: 24px 0 64px; overflow-x: clip; }
+.preview-frame {
+  container-type: inline-size;
+  width: min(940px, calc(100% - 24px));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+  box-shadow: var(--frame-shadow);
+}
+.preview-frame[data-viewport="mobile"] { width: min(320px, calc(100% - 24px)); }
+.dashboard {
+  min-width: 0;
+  padding: 30px 16px 48px;
+  background:
+    radial-gradient(900px 460px at 12% -10%, var(--accent-glow), transparent 68%),
+    radial-gradient(720px 380px at 92% 4%, var(--good-glow), transparent 72%),
+    var(--bg);
+}
+.dashboard-inner { width: min(860px, 100%); min-width: 0; margin: 0 auto; }
+
+.topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 2px 2px 21px;
+  border-bottom: 1px solid var(--border);
+}
+.wordmark { font: 680 1.18rem/1 var(--mono); letter-spacing: -0.03em; }
+.wordmark small { display: block; margin-top: 8px; color: var(--muted); font: 500 0.72rem/1.4 var(--sans); letter-spacing: 0; }
+.freshness {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font: 500 0.76rem/1.2 var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pulse { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px var(--good-glow); }
+
+.limits-overview {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-glass);
+}
+.limits-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 17px;
+}
+.section-kicker {
+  margin-bottom: 6px;
+  color: var(--accent);
+  font: 650 0.67rem/1 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+h1, h2, h3, p { margin-top: 0; }
+.limits-heading h1 { margin-bottom: 0; font: 650 1.22rem/1.2 var(--mono); letter-spacing: -0.02em; }
+.scope-copy { max-width: 360px; margin: 0; color: var(--muted); font-size: 0.74rem; text-align: right; }
+.scope-copy strong { color: var(--text); font-weight: 620; }
+
+.limit-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.limit-tool { --tool-color: var(--faint); min-width: 0; padding-left: 13px; border-left: 3px solid var(--tool-color); }
+.limit-tool.claude { --tool-color: var(--claude); }
+.limit-tool.codex { --tool-color: var(--codex); }
+.limit-tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 10px; }
+.tool-name { display: flex; align-items: center; gap: 8px; min-width: 0; font: 650 0.88rem/1.2 var(--mono); }
+.mark { color: var(--tool-color); font-size: 0.85rem; }
+.plan { min-width: 0; color: var(--faint); font: 500 0.66rem/1.25 var(--mono); text-align: right; }
+.window-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.limit-card {
+  --status: var(--good);
+  min-width: 0;
+  padding: 14px 14px 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--panel);
+  box-shadow: var(--gauge-shadow);
+}
+.limit-card.unavailable { --status: var(--faint); }
+.limit-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 7px; }
+.window-label { color: var(--muted); font: 650 0.62rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.reset { color: var(--faint); font: 500 0.6rem/1.25 var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.limit-value {
+  margin: 12px 0 5px;
+  color: var(--status);
+  font: 650 clamp(2.35rem, 5.1cqi, 3.15rem)/0.92 var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.065em;
+}
+.limit-value span { margin-left: 2px; color: var(--muted); font-size: 0.38em; letter-spacing: 0; }
+.limit-unavailable { margin: 17px 0 8px; color: var(--muted); font: 620 0.92rem/1 var(--mono); letter-spacing: -0.02em; }
+.limit-meta { min-height: 1.2em; color: var(--muted); font-size: 0.66rem; }
+.bar { height: 7px; margin-top: 11px; overflow: hidden; border-radius: 999px; background: var(--track); }
+.bar > i { display: block; width: var(--remaining); height: 100%; border-radius: inherit; background: var(--status); transition: width 220ms cubic-bezier(.2,.8,.2,1); }
+.unavailable-rule { height: 7px; margin-top: 11px; border: 1px dashed var(--border-strong); border-radius: 999px; }
+
+.details-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 31px 2px 13px;
+}
+.details-title h2 { margin-bottom: 4px; font: 650 0.86rem/1.2 var(--mono); letter-spacing: 0.01em; }
+.details-title p { margin-bottom: 0; color: var(--muted); font-size: 0.72rem; }
+.trend-control { display: flex; align-items: center; gap: 9px; }
+.control-label { color: var(--faint); font: 600 0.62rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+
+.tool-group {
+  --tool-color: var(--faint);
+  position: relative;
+  min-width: 0;
+  margin-bottom: 25px;
+  padding: 21px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-glass);
+}
+.tool-group::before { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--tool-color); content: ""; }
+.tool-group.claude { --tool-color: var(--claude); }
+.tool-group.codex { --tool-color: var(--codex); }
+.tool-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 15px; }
+.tool-group-head h2 { display: flex; align-items: center; gap: 9px; margin: 0; font: 650 1rem/1.2 var(--mono); }
+.group-summary { color: var(--faint); font-size: 0.7rem; text-align: right; }
+
+.pacing { padding: 13px 15px; border-radius: 11px; background: var(--accent-bg); }
+.pacing-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.pacing-head strong { color: var(--accent); font: 650 0.72rem/1 var(--mono); text-transform: uppercase; letter-spacing: 0.07em; }
+.pacing-rate { color: var(--muted); font: 600 0.68rem/1 var(--mono); }
+.pacing-row { display: grid; grid-template-columns: 65px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 0.76rem; }
+.pacing-row + .pacing-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.pacing-window { color: var(--muted); font: 650 0.62rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.pacing-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.65rem; }
+.status-pill { min-width: 72px; padding: 3px 8px; border-radius: 999px; color: var(--good); background: var(--good-bg); font: 700 0.58rem/1.25 var(--mono); letter-spacing: 0.04em; text-align: center; text-transform: uppercase; white-space: nowrap; }
+.status-pill.warn { color: var(--warn); background: var(--warn-bg); }
+.status-pill.crit { color: var(--crit); background: var(--crit-bg); }
+
+.subsection { margin-top: 22px; }
+.subsection + .subsection { padding-top: 21px; border-top: 1px solid var(--border); }
+.subsection-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 0 2px 10px; }
+.subsection-head h3 { margin: 0; font: 650 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.subsection-scope { color: var(--faint); font-size: 0.67rem; text-align: right; }
+.scope-tag { margin-right: 5px; color: var(--text); font-family: var(--mono); font-weight: 620; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--border); }
+.stat { min-width: 0; padding: 14px 12px 15px; background: var(--panel-soft); }
+.stat-label { color: var(--faint); font: 600 0.6rem/1.25 var(--mono); letter-spacing: 0.055em; text-transform: uppercase; }
+.stat-value { margin-top: 7px; font: 640 1.17rem/1 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat-value span { margin-left: 2px; color: var(--muted); font-size: 0.7em; font-weight: 500; }
+.stat-note { margin-top: 5px; color: var(--muted); font-size: 0.64rem; }
+.token-mix { margin-top: 15px; }
+.token-mix-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); font-size: 0.68rem; }
+.token-mix-head strong { color: var(--text); font: 620 0.7rem/1 var(--mono); }
+.mix-bar { display: flex; height: 9px; overflow: hidden; border-radius: 999px; background: var(--track); }
+.mix-bar i { display: block; height: 100%; transition: width 220ms cubic-bezier(.2,.8,.2,1); }
+.mix-cache { background: var(--cr); }
+.mix-input { background: var(--in); }
+.mix-write { background: var(--cw); }
+.mix-output { background: var(--out); }
+.mix-legend { display: flex; flex-wrap: wrap; gap: 7px 15px; margin-top: 9px; color: var(--muted); font-size: 0.66rem; }
+.mix-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.mix-dot { width: 7px; height: 7px; border-radius: 2px; }
+
+.model-list { display: grid; gap: 1px; overflow: hidden; border-radius: 10px; background: var(--border); }
+.model-row { padding: 12px 14px; background: var(--panel-soft); }
+.model-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.model-name { font: 600 0.82rem/1.2 var(--mono); overflow-wrap: anywhere; }
+.model-window { display: block; margin-top: 3px; color: var(--muted); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.model-reading { color: var(--warn); font: 620 1.05rem/1 var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.model-reading small { display: block; margin-top: 4px; color: var(--faint); font: 500 0.61rem/1.2 var(--sans); }
+.model-note { margin: 8px 2px 0; color: var(--muted); font-size: 0.68rem; }
+
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 12px; background: var(--border); }
+.chart { min-width: 0; padding: 15px 16px 12px; background: var(--panel-soft); }
+.chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.chart-head strong { font: 620 0.72rem/1 var(--mono); }
+.chart-head span { color: var(--faint); font-size: 0.62rem; text-align: right; }
+.chart svg { display: block; width: 100%; height: auto; margin-top: 11px; overflow: visible; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.series { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.series.claude-line { stroke: var(--claude); }
+.series.teal-line { stroke: var(--teal); }
+.area { fill: var(--accent-bg); opacity: 0.58; }
+.axis { fill: var(--faint); font: 500 9px var(--mono); }
+
+.insights-surface { overflow: hidden; border: 1px solid var(--border); border-radius: 13px; background: var(--panel-soft); }
+.insights-account { display: flex; flex-wrap: wrap; gap: 7px 0; padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 0.68rem; }
+.insights-account strong { color: var(--text); font: 620 0.68rem/1.3 var(--mono); }
+.insights-account > * + *::before { margin: 0 11px; color: var(--faint); content: "·"; }
+.insight-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border-bottom: 1px solid var(--border); background: var(--border); }
+.insight-metric { min-width: 0; padding: 14px 12px; background: var(--panel-soft); }
+.insight-label { color: var(--muted); font: 600 0.58rem/1.25 var(--mono); letter-spacing: 0.055em; text-transform: uppercase; }
+.insight-value { margin-top: 7px; font: 640 1.25rem/1 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.insight-note { margin-top: 5px; color: var(--muted); font-size: 0.62rem; }
+.insight-details { display: grid; grid-template-columns: 1.08fr 0.92fr; }
+.insight-detail { min-width: 0; padding: 16px; }
+.insight-detail + .insight-detail { border-left: 1px solid var(--border); }
+.detail-title { margin-bottom: 12px; font: 650 0.66rem/1 var(--mono); letter-spacing: 0.07em; text-transform: uppercase; }
+.insight-mix-row { display: grid; grid-template-columns: minmax(76px, 1fr) 1.6fr 44px; align-items: center; gap: 8px; margin: 8px 0; color: var(--muted); font-size: 0.64rem; }
+.insight-mix-row b { overflow: hidden; color: var(--text); font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.mini-bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--track); }
+.mini-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 220ms cubic-bezier(.2,.8,.2,1); }
+.insight-pct { font: 600 0.63rem/1 var(--mono); text-align: right; }
+.facts { margin: 0; }
+.facts > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+.facts > div:first-child { padding-top: 0; border-top: 0; }
+.facts dt { color: var(--muted); font-size: 0.66rem; }
+.facts dt small { display: block; margin-top: 2px; color: var(--faint); }
+.facts dd { margin: 0; font: 620 0.7rem/1.3 var(--mono); text-align: right; }
+.facts dd small { display: block; margin-top: 2px; color: var(--muted); font: 500 0.6rem/1.2 var(--sans); }
+
+.footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 28px; padding: 16px 2px 0; border-top: 1px solid var(--border); color: var(--faint); font-size: 0.68rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+@container (max-width: 620px) {
+  .dashboard { padding: 20px 11px 36px; }
+  .topline { gap: 13px; padding-bottom: 17px; }
+  .wordmark small { display: none; }
+  .limits-overview { margin-top: 18px; padding: 14px 11px; border-radius: 14px; }
+  .limits-heading { align-items: flex-start; flex-direction: column; gap: 6px; margin-bottom: 13px; }
+  .limits-heading h1 { font-size: 1rem; }
+  .scope-copy { max-width: none; font-size: 0.66rem; text-align: left; }
+  .limit-tools { grid-template-columns: 1fr; gap: 15px; }
+  .limit-tool { padding-left: 9px; }
+  .limit-tool-head { margin-bottom: 8px; }
+  .plan { font-size: 0.6rem; }
+  .window-grid { gap: 8px; }
+  .limit-card { padding: 10px 9px 11px; border-radius: 11px; }
+  .limit-card-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .reset { min-height: 2.45em; font-size: 0.56rem; text-align: left; overflow-wrap: anywhere; }
+  .limit-value { margin: 7px 0 3px; font-size: clamp(1.75rem, 13cqi, 2.08rem); }
+  .limit-unavailable { margin: 11px 0 5px; font-size: 0.78rem; }
+  .limit-meta { font-size: 0.58rem; }
+  .bar { height: 6px; margin-top: 8px; }
+  .details-heading { align-items: flex-start; flex-direction: column; gap: 9px; margin-top: 24px; }
+  .trend-control { width: 100%; justify-content: space-between; }
+  .tool-group { padding: 16px 11px; border-radius: 14px; }
+  .tool-group-head { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .group-summary { text-align: left; }
+  .pacing { padding: 12px 10px; }
+  .pacing-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .pacing-row { grid-template-columns: 50px minmax(0, 1fr); align-items: start; gap: 8px; }
+  .status-pill { grid-column: 2; justify-self: start; min-width: 0; }
+  .subsection-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .subsection-scope { text-align: left; }
+  .stats-grid, .insight-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat, .insight-metric { padding: 12px 9px; }
+  .stat-value { font-size: 1.02rem; }
+  .model-top { align-items: flex-start; flex-direction: column; }
+  .model-reading { text-align: left; }
+  .charts { grid-template-columns: 1fr; }
+  .chart { padding: 14px 11px 11px; }
+  .insights-account { gap: 6px 11px; }
+  .insights-account > * { flex-basis: 100%; }
+  .insights-account > * + *::before { content: none; }
+  .insight-details { grid-template-columns: 1fr; }
+  .insight-detail { padding: 14px 11px; }
+  .insight-detail + .insight-detail { border-top: 1px solid var(--border); border-left: 0; }
+  .insight-mix-row { grid-template-columns: minmax(68px, 1fr) 1.15fr 40px; }
+  .footer { align-items: flex-start; flex-direction: column; gap: 5px; }
+}
+
+@media (max-width: 430px) {
+  .review-toolbar { justify-content: space-between; gap: 7px; }
+  .review-label, .review-note { display: none; }
+  .viewport-switch { margin: 0 auto; }
+  .review-stage { padding-top: 12px; }
+  .preview-frame { width: calc(100% - 16px); border-radius: 14px; }
+  .preview-frame[data-viewport="mobile"] { width: min(320px, calc(100% - 16px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+</style>
+</head>
+<body>
+<div class="review-toolbar">
+  <span class="review-label">Preview</span>
+  <div class="viewport-switch" role="group" aria-label="Preview viewport">
+    <button type="button" data-set-viewport="desktop" aria-pressed="true" aria-controls="preview-frame">Desktop · 860</button>
+    <button type="button" data-set-viewport="mobile" aria-pressed="false" aria-controls="preview-frame">Mobile · 320</button>
+  </div>
+  <p class="review-note">Review control only — not part of the product</p>
+</div>
+
+<div class="review-stage">
+  <div class="preview-frame" id="preview-frame" data-viewport="desktop">
+    <main class="dashboard">
+      <div class="dashboard-inner">
+        <header class="topline">
+          <div class="wordmark">llmdash<small>AI coding headroom, at a glance.</small></div>
+          <div class="freshness"><span class="pulse" aria-hidden="true"></span>updated 18s ago</div>
+        </header>
+
+        <section class="limits-overview" aria-labelledby="limits-title">
+          <div class="limits-heading">
+            <div>
+              <div class="section-kicker">Account limits</div>
+              <h1 id="limits-title">Claude Code and Codex</h1>
+            </div>
+            <p class="scope-copy"><strong>Account-wide</strong> · the same limit windows on every machine signed in to each account.</p>
+          </div>
+
+          <div class="limit-tools">
+            <section class="limit-tool claude" aria-labelledby="claude-limits-title">
+              <div class="limit-tool-head">
+                <div class="tool-name" id="claude-limits-title"><span class="mark" aria-hidden="true">◆</span>Claude Code</div>
+                <div class="plan">Max · updated 18s ago</div>
+              </div>
+              <div class="window-grid">
+                <div class="limit-card" style="--remaining:31%;--status:var(--warn)" aria-label="Claude Code 5-hour limit, 31 percent remaining, resets in 1 hour 42 minutes">
+                  <div class="limit-card-head"><span class="window-label">5-hour</span><span class="reset">resets in 1h 42m</span></div>
+                  <div class="limit-value">31<span>%</span></div>
+                  <div class="limit-meta">remaining · 69% used</div>
+                  <div class="bar" aria-hidden="true"><i></i></div>
+                </div>
+                <div class="limit-card" style="--remaining:74%;--status:var(--good)" aria-label="Claude Code weekly limit, 74 percent remaining, resets in 4 days 8 hours">
+                  <div class="limit-card-head"><span class="window-label">Weekly</span><span class="reset">resets in 4d 8h</span></div>
+                  <div class="limit-value">74<span>%</span></div>
+                  <div class="limit-meta">remaining · 26% used</div>
+                  <div class="bar" aria-hidden="true"><i></i></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="limit-tool codex" aria-labelledby="codex-limits-title">
+              <div class="limit-tool-head">
+                <div class="tool-name" id="codex-limits-title"><span class="mark" aria-hidden="true">▲</span>Codex</div>
+                <div class="plan">ChatGPT Pro · polled 18s ago</div>
+              </div>
+              <div class="window-grid">
+                <div class="limit-card unavailable" aria-label="Codex 5-hour limit unavailable because the current Codex source does not report a short window">
+                  <div class="limit-card-head"><span class="window-label">5-hour</span><span class="reset">not reported</span></div>
+                  <div class="limit-unavailable">Unavailable</div>
+                  <div class="limit-meta">No short-window reading</div>
+                  <div class="unavailable-rule" aria-hidden="true"></div>
+                </div>
+                <div class="limit-card" style="--remaining:59%;--status:var(--good)" aria-label="Codex weekly limit, 59 percent remaining, resets in 5 days 17 hours">
+                  <div class="limit-card-head"><span class="window-label">Weekly</span><span class="reset">resets in 5d 17h</span></div>
+                  <div class="limit-value">59<span>%</span></div>
+                  <div class="limit-meta">remaining · 41% used</div>
+                  <div class="bar" aria-hidden="true"><i></i></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <div class="details-heading">
+          <div class="details-title">
+            <h2 id="details-title">Tool details</h2>
+            <p>Activity, diagnostics, and history stay with the tool they describe.</p>
+          </div>
+          <div class="trend-control">
+            <span class="control-label">Trend range</span>
+            <div class="range" role="group" aria-label="Trend range for both tools">
+              <button type="button" data-trend-range="24h" aria-pressed="false">24h</button>
+              <button type="button" data-trend-range="7d" aria-pressed="true">7d</button>
+              <button type="button" data-trend-range="30d" aria-pressed="false">30d</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="tool-group claude" aria-labelledby="claude-details-title">
+          <div class="tool-group-head">
+            <h2 id="claude-details-title"><span class="mark" aria-hidden="true">◆</span>Claude Code</h2>
+            <div class="group-summary">Pacing · activity · model caps · trends</div>
+          </div>
+
+          <div class="pacing" aria-label="Claude Code pacing">
+            <div class="pacing-head"><strong>Pacing</strong><span class="pacing-rate">148k tokens / hr · this machine</span></div>
+            <div class="pacing-row">
+              <span class="pacing-window">5-hour</span>
+              <span class="pacing-copy">On pace to hit the 5-hour limit in <b>~1h 18m</b><small>before it resets in 1h 42m</small></span>
+              <span class="status-pill warn">at risk</span>
+            </div>
+            <div class="pacing-row">
+              <span class="pacing-window">Weekly</span>
+              <span class="pacing-copy">On pace to stay under the weekly limit<small>resets in 4d 8h</small></span>
+              <span class="status-pill">on pace</span>
+            </div>
+          </div>
+
+          <section class="subsection" aria-labelledby="claude-activity-title">
+            <div class="subsection-head">
+              <h3 id="claude-activity-title">Activity</h3>
+              <span class="subsection-scope"><span class="scope-tag">This machine</span>local Claude session logs</span>
+            </div>
+            <div class="stats-grid">
+              <div class="stat"><div class="stat-label">Tokens · 5h</div><div class="stat-value">741<span>k</span></div><div class="stat-note">2.8M this week</div></div>
+              <div class="stat"><div class="stat-label">Tokens · today</div><div class="stat-value">1.2<span>M</span></div><div class="stat-note">8 sessions</div></div>
+              <div class="stat"><div class="stat-label">Cache hit rate</div><div class="stat-value">87<span>%</span></div><div class="stat-note">why limits last</div></div>
+              <div class="stat"><div class="stat-label">Est. value · wk</div><div class="stat-value">$96.40</div><div class="stat-note">at API rates</div></div>
+            </div>
+            <div class="token-mix">
+              <div class="token-mix-head"><strong>Token mix · this week</strong><span>3.4M recorded tokens</span></div>
+              <div class="mix-bar" role="img" aria-label="Claude token mix: 58 percent cache read, 24 percent input, 8 percent cache write, 10 percent output">
+                <i class="mix-cache" style="width:58%"></i><i class="mix-input" style="width:24%"></i><i class="mix-write" style="width:8%"></i><i class="mix-output" style="width:10%"></i>
+              </div>
+              <div class="mix-legend" aria-hidden="true">
+                <span><i class="mix-dot mix-cache"></i>Cache read</span><span><i class="mix-dot mix-input"></i>Input</span><span><i class="mix-dot mix-write"></i>Cache write</span><span><i class="mix-dot mix-output"></i>Output</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="subsection" aria-labelledby="claude-model-title">
+            <div class="subsection-head">
+              <h3 id="claude-model-title">Model-specific caps</h3>
+              <span class="subsection-scope"><span class="scope-tag">Account-wide</span>supplemental limits</span>
+            </div>
+            <div class="model-list">
+              <div class="model-row">
+                <div class="model-top">
+                  <div><span class="model-name">Claude Opus 4.1</span><span class="model-window">Weekly cap</span></div>
+                  <div class="model-reading">43% remaining<small>resets in 4d 8h</small></div>
+                </div>
+                <div class="bar" style="--remaining:43%;--status:var(--warn)" aria-label="Claude Opus 4.1 weekly cap, 43 percent remaining"><i></i></div>
+              </div>
+            </div>
+            <p class="model-note">Model caps do not add another account-wide budget.</p>
+          </section>
+
+          <section class="subsection" aria-labelledby="claude-trends-title">
+            <div class="subsection-head">
+              <h3 id="claude-trends-title">Trends</h3>
+              <span class="subsection-scope"><span data-trend-range-copy>7d</span> · limits account-wide · activity this machine</span>
+            </div>
+            <div class="charts">
+              <div class="chart">
+                <div class="chart-head"><strong>Remaining by window</strong><span>account snapshots</span></div>
+                <svg viewBox="0 0 360 118" role="img" aria-labelledby="claude-limit-chart-title claude-limit-chart-desc">
+                  <title id="claude-limit-chart-title">Claude Code remaining limit history</title>
+                  <desc id="claude-limit-chart-desc">Five-hour remaining moved from 78 percent to 31 percent while weekly remaining moved from 88 percent to 74 percent.</desc>
+                  <path class="gridline" d="M18 17H342M18 52H342M18 88H342"></path>
+                  <polyline class="series claude-line" points="18,34 72,44 126,28 180,59 234,39 288,63 342,70"></polyline>
+                  <polyline class="series teal-line" points="18,25 72,27 126,29 180,32 234,34 288,36 342,39"></polyline>
+                  <g class="axis"><text x="18" y="108">Jul 7</text><text x="174" y="108">Jul 10</text><text x="342" y="108" text-anchor="end">Jul 13</text></g>
+                </svg>
+              </div>
+              <div class="chart">
+                <div class="chart-head"><strong>Tokens per day</strong><span>local logs</span></div>
+                <svg viewBox="0 0 360 118" role="img" aria-labelledby="claude-token-chart-title claude-token-chart-desc">
+                  <title id="claude-token-chart-title">Claude Code tokens per day</title>
+                  <desc id="claude-token-chart-desc">Daily local token volume ranged from 540 thousand to 1.4 million over seven days.</desc>
+                  <path class="gridline" d="M18 17H342M18 52H342M18 88H342"></path>
+                  <polyline class="series claude-line" points="18,72 72,58 126,66 180,38 234,49 288,25 342,44"></polyline>
+                  <g class="axis"><text x="18" y="108">Jul 7</text><text x="174" y="108">Jul 10</text><text x="342" y="108" text-anchor="end">Jul 13</text></g>
+                </svg>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="tool-group codex" aria-labelledby="codex-details-title">
+          <div class="tool-group-head">
+            <h2 id="codex-details-title"><span class="mark" aria-hidden="true">▲</span>Codex</h2>
+            <div class="group-summary">Pacing · activity · deeper insights · trends</div>
+          </div>
+
+          <div class="pacing" aria-label="Codex pacing">
+            <div class="pacing-head"><strong>Pacing</strong><span class="pacing-rate">92k tokens / hr · this machine</span></div>
+            <div class="pacing-row">
+              <span class="pacing-window">5-hour</span>
+              <span class="pacing-copy">Limit data not available yet<small>Codex did not report a short window</small></span>
+              <span aria-hidden="true"></span>
+            </div>
+            <div class="pacing-row">
+              <span class="pacing-window">Weekly</span>
+              <span class="pacing-copy">On pace to stay under the weekly limit<small>resets in 5d 17h</small></span>
+              <span class="status-pill">on pace</span>
+            </div>
+          </div>
+
+          <section class="subsection" aria-labelledby="codex-activity-title">
+            <div class="subsection-head">
+              <h3 id="codex-activity-title">Activity</h3>
+              <span class="subsection-scope"><span class="scope-tag">This machine</span>local Codex session logs</span>
+            </div>
+            <div class="stats-grid">
+              <div class="stat"><div class="stat-label">Tokens · 5h</div><div class="stat-value">462<span>k</span></div><div class="stat-note">4.1M this week</div></div>
+              <div class="stat"><div class="stat-label">Tokens · today</div><div class="stat-value">893<span>k</span></div><div class="stat-note">6 sessions</div></div>
+              <div class="stat"><div class="stat-label">Cache hit rate</div><div class="stat-value">73<span>%</span></div><div class="stat-note">cached ÷ input</div></div>
+              <div class="stat"><div class="stat-label">Est. value · wk</div><div class="stat-value">$72.10</div><div class="stat-note">at API rates</div></div>
+            </div>
+            <div class="token-mix">
+              <div class="token-mix-head"><strong>Token mix · this week</strong><span>4.8M input + output</span></div>
+              <div class="mix-bar" role="img" aria-label="Codex token mix: 48 percent cached input, 39 percent non-cached input, and 13 percent output">
+                <i class="mix-cache" style="width:48%"></i><i class="mix-input" style="width:39%"></i><i class="mix-output" style="width:13%"></i>
+              </div>
+              <div class="mix-legend" aria-hidden="true">
+                <span><i class="mix-dot mix-cache"></i>Cached input</span><span><i class="mix-dot mix-input"></i>Input</span><span><i class="mix-dot mix-output"></i>Output</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="subsection" aria-labelledby="codex-insights-title">
+            <div class="subsection-head">
+              <div>
+                <h3 id="codex-insights-title">Codex insights</h3>
+                <div class="subsection-scope" style="margin-top:6px;text-align:left"><span class="scope-tag">This machine</span>structured local Codex metadata · <span data-insight-range-copy>last 7 days</span></div>
+              </div>
+              <div class="range" role="group" aria-label="Codex insight range">
+                <button type="button" data-insight-range="24h" aria-pressed="false">24h</button>
+                <button type="button" data-insight-range="7d" aria-pressed="true">7d</button>
+                <button type="button" data-insight-range="30d" aria-pressed="false">30d</button>
+              </div>
+            </div>
+            <div class="insights-surface">
+              <div class="insights-account"><strong>Account-wide</strong><span>ChatGPT Pro</span><span>Credits available</span><span>2 reset credits</span></div>
+              <div class="insight-summary">
+                <div class="insight-metric"><div class="insight-label">Reasoning share</div><div class="insight-value" data-insight-value="reasoning">31%</div><div class="insight-note" data-insight-note="reasoning">62k of 201k output</div></div>
+                <div class="insight-metric"><div class="insight-label">Tokens / turn</div><div class="insight-value" data-insight-value="turns">18k</div><div class="insight-note" data-insight-note="turns">42 recorded turns</div></div>
+                <div class="insight-metric"><div class="insight-label">Sessions</div><div class="insight-value" data-insight-value="sessions">12</div><div class="insight-note" data-insight-note="sessions">64k avg / session</div></div>
+                <div class="insight-metric"><div class="insight-label">Busiest day</div><div class="insight-value" data-insight-value="busiest">Jul 10</div><div class="insight-note" data-insight-note="busiest">680k tokens · UTC</div></div>
+              </div>
+              <div class="insight-details">
+                <section class="insight-detail" aria-labelledby="work-mix-title">
+                  <div class="detail-title" id="work-mix-title">Work mix · model token share</div>
+                  <div class="insight-mix-row"><b>gpt-5.5-codex</b><span class="mini-bar"><i style="width:68%"></i></span><span class="insight-pct">68%</span></div>
+                  <div class="insight-mix-row"><b>gpt-5-codex</b><span class="mini-bar"><i style="width:24%"></i></span><span class="insight-pct">24%</span></div>
+                  <div class="insight-mix-row"><b>Other</b><span class="mini-bar"><i style="width:8%"></i></span><span class="insight-pct">8%</span></div>
+                </section>
+                <section class="insight-detail" aria-labelledby="context-title">
+                  <div class="detail-title" id="context-title">Context &amp; timing</div>
+                  <dl class="facts">
+                    <div><dt>Peak context pressure<small>4 explicit windows</small></dt><dd>84%<small>1 turn ≥80%</small></dd></div>
+                    <div><dt>Compactions<small>affected sessions</small></dt><dd>2<small>1 session</small></dd></div>
+                    <div><dt>Total duration<small>10 completed turns</small></dt><dd>3.4s<small>9.2s p95</small></dd></div>
+                    <div><dt>Time to first token<small>9 completed turns</small></dt><dd>0.55s<small>1.1s p95</small></dd></div>
+                  </dl>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section class="subsection" aria-labelledby="codex-trends-title">
+            <div class="subsection-head">
+              <h3 id="codex-trends-title">Trends</h3>
+              <span class="subsection-scope"><span data-trend-range-copy>7d</span> · limits account-wide · activity this machine</span>
+            </div>
+            <div class="charts">
+              <div class="chart">
+                <div class="chart-head"><strong>Weekly remaining</strong><span>account snapshots · 5-hour unavailable</span></div>
+                <svg viewBox="0 0 360 118" role="img" aria-labelledby="codex-limit-chart-title codex-limit-chart-desc">
+                  <title id="codex-limit-chart-title">Codex remaining limit history</title>
+                  <desc id="codex-limit-chart-desc">Weekly remaining moved from 76 percent to 59 percent. The current Codex source does not report a 5-hour window.</desc>
+                  <path class="gridline" d="M18 17H342M18 52H342M18 88H342"></path>
+                  <polyline class="series" points="18,35 72,38 126,41 180,44 234,48 288,51 342,55"></polyline>
+                  <g class="axis"><text x="18" y="108">Jul 7</text><text x="174" y="108">Jul 10</text><text x="342" y="108" text-anchor="end">Jul 13</text></g>
+                </svg>
+              </div>
+              <div class="chart">
+                <div class="chart-head"><strong>Tokens per day</strong><span>local logs · UTC</span></div>
+                <svg viewBox="0 0 360 118" role="img" aria-labelledby="codex-token-chart-title codex-token-chart-desc">
+                  <title id="codex-token-chart-title">Codex tokens per day</title>
+                  <desc id="codex-token-chart-desc">Daily local token volume ranged from 420 thousand to 1.1 million over seven UTC days.</desc>
+                  <path class="gridline" d="M18 17H342M18 52H342M18 88H342"></path>
+                  <polyline class="series" points="18,75 72,61 126,69 180,43 234,52 288,31 342,46"></polyline>
+                  <g class="axis"><text x="18" y="108">Jul 7</text><text x="174" y="108">Jul 10</text><text x="342" y="108" text-anchor="end">Jul 13</text></g>
+                </svg>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <footer class="footer">
+          <span>Limits: account-wide · Activity and insights: this machine · Codex day buckets: UTC</span>
+          <span>served over Tailscale</span>
+        </footer>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="sr-only" id="prototype-status" aria-live="polite"></div>
+<script>
+const frame = document.getElementById('preview-frame');
+const status = document.getElementById('prototype-status');
+
+document.querySelectorAll('[data-set-viewport]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const viewport = button.dataset.setViewport;
+    frame.dataset.viewport = viewport;
+    document.querySelectorAll('[data-set-viewport]').forEach((item) => {
+      item.setAttribute('aria-pressed', String(item === button));
+    });
+    status.textContent = `${viewport === 'mobile' ? 'Mobile 320 pixel' : 'Desktop 860 pixel'} preview selected`;
+  });
+});
+
+document.querySelectorAll('[data-trend-range]').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('[data-trend-range]').forEach((item) => {
+      item.setAttribute('aria-pressed', String(item === button));
+    });
+    document.querySelectorAll('[data-trend-range-copy]').forEach((item) => {
+      item.textContent = button.dataset.trendRange;
+    });
+    status.textContent = `Trend range changed to ${button.textContent}`;
+  });
+});
+
+const insightRanges = {
+  '24h': {
+    copy: 'last 24 hours',
+    reasoning: ['28%', '11k of 39k output'],
+    turns: ['15k', '9 recorded turns'],
+    sessions: ['3', '46k avg / session'],
+    busiest: ['Today', '139k tokens · UTC']
+  },
+  '7d': {
+    copy: 'last 7 days',
+    reasoning: ['31%', '62k of 201k output'],
+    turns: ['18k', '42 recorded turns'],
+    sessions: ['12', '64k avg / session'],
+    busiest: ['Jul 10', '680k tokens · UTC']
+  },
+  '30d': {
+    copy: 'last 30 days',
+    reasoning: ['29%', '241k of 831k output'],
+    turns: ['17k', '164 recorded turns'],
+    sessions: ['41', '69k avg / session'],
+    busiest: ['Jun 28', '1.2M tokens · UTC']
+  }
+};
+
+document.querySelectorAll('[data-insight-range]').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('[data-insight-range]').forEach((item) => {
+      item.setAttribute('aria-pressed', String(item === button));
+    });
+    const values = insightRanges[button.dataset.insightRange];
+    document.querySelectorAll('[data-insight-range-copy]').forEach((item) => {
+      item.textContent = values.copy;
+    });
+    ['reasoning', 'turns', 'sessions', 'busiest'].forEach((key) => {
+      document.querySelector(`[data-insight-value="${key}"]`).textContent = values[key][0];
+      document.querySelector(`[data-insight-note="${key}"]`).textContent = values[key][1];
+    });
+    status.textContent = `Codex insight range changed to ${button.textContent}`;
+  });
+});
+</script>
+</body>
+</html>

@@ -1,22 +1,19 @@
 {
-  "activeFeature": null,
-  "sessionType": "feature",
+  "activeFeature": "dashboard-tool-grouping",
+  "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": null,
-  "lastCompletedStage": 9,
+  "currentStage": 6,
+  "lastCompletedStage": 5,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
-    "pipeline/deeper-codex-insights/deployment-report.md",
-    "pipeline/deeper-codex-insights/design-spec.md",
-    "pipeline/deeper-codex-insights/pr-description.md",
-    "pipeline/deeper-codex-insights/prd.md",
-    "pipeline/deeper-codex-insights/qa-report.md",
-    "pipeline/deeper-codex-insights/schema.md",
-    "pipeline/deeper-codex-insights/security-report.md",
-    "pipeline/deeper-codex-insights/strategic-brief.md"
+    "pipeline/dashboard-tool-grouping/change-brief.md",
+    "pipeline/dashboard-tool-grouping/design-refinement.md",
+    "pipeline/dashboard-tool-grouping/pr-description.md",
+    "pipeline/dashboard-tool-grouping/qa-report.md",
+    "pipeline/dashboard-tool-grouping/security-report.md"
   ],
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-13T16:11:14Z"
+  "updatedAt": "2026-07-14T05:30:30Z"
 }

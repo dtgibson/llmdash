@@ -36,6 +36,13 @@ async function renderWith(combined) {
   const els = {
     headroom: makeEl('headroom'), tools: makeEl('tools'), hosts: makeEl('hosts'),
     age: makeEl('age'), freshness: makeEl('freshness'), trends: makeEl('trends'),
+    'single-limits': makeEl('single-limits'), 'details-heading': makeEl('details-heading'),
+    'limit-notes': makeEl('limit-notes'),
+    'tool-groups': makeEl('tool-groups'),
+    'claude-tool-group': makeEl('claude-tool-group'), 'codex-tool-group': makeEl('codex-tool-group'),
+    'claude-details': makeEl('claude-details'), 'codex-details': makeEl('codex-details'),
+    'trends-claude': makeEl('trends-claude'), 'trends-codex': makeEl('trends-codex'),
+    'claude-trends-range': makeEl('claude-trends-range'), 'codex-trends-range': makeEl('codex-trends-range'),
     range: null,
   };
   const footer = makeFooter();
@@ -54,15 +61,17 @@ async function renderWith(combined) {
     // /api/trends — return an empty shell so fetchTrends doesn't throw.
     return { ok: true, json: async () => ({ tools: [], range: '7d' }) };
   };
+  const intervals = [];
   const sandbox = {
     document: doc, fetch: fetchStub,
-    setInterval: () => 0, setTimeout: (fn, ms) => { if (ms === 0) queueMicrotask(fn); return 0; },
+    setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
+    setTimeout: (fn, ms) => { if (ms === 0) queueMicrotask(fn); return 0; },
     queueMicrotask, console, Date, Math, JSON, encodeURIComponent, Number, String, Array, Object,
   };
   vm.createContext(sandbox);
   vm.runInContext(appJs, sandbox);
   await done;
-  return { els, footer };
+  return { els, footer, intervals };
 }
 
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
@@ -78,17 +87,43 @@ const claudeTool = (fhReset, sdReset) => ({
   freshness: { capturedAt: iso(-30_000), freshForMs: 300_000, staleAfterMs: 600_000 },
   limitsDiagnostic: null, dataAt: iso(-30_000),
 });
+const codexTool = (sdReset) => ({
+  source: 'codex', label: 'Codex', plan: 'ChatGPT Pro', haveLimits: true,
+  limits: {
+    five_hour: null,
+    seven_day: { usedPct: 41, remainingPct: 59, resetsAt: iso(sdReset), capturedAt: iso(-20_000) },
+  },
+  modelLimits: [], projection: { five_hour: null, seven_day: null },
+  activity: { hasData: false }, freshness: null, limitsDiagnostic: null, dataAt: iso(-20_000),
+});
 const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
 
-test('single-host mode (1 self host) renders via #tools with NO host chrome (QA-18)', async () => {
-  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]) }], generatedAt: iso(0) };
+test('single-host mode renders both tools limits-first with NO host chrome (QA-18)', async () => {
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000), codexTool(5 * 86400_000)]) }], generatedAt: iso(0) };
   const { els, footer } = await renderWith(combined);
-  assert.match(els.tools.innerHTML, /class="tool(?:\s|\")/, '#tools renders the tool block');
-  assert.match(els.tools.innerHTML, /class="gauges"/, 'gauges actually render');
+  assert.equal((els.tools.innerHTML.match(/class="limit-tool tool/g) || []).length, 2, 'two tool lanes render together');
+  assert.equal((els.tools.innerHTML.match(/class="panel limit-card/g) || []).length, 4, 'four fixed account-window slots render first');
+  assert.match(els.tools.innerHTML, /class="gauges window-grid"/, 'each lane keeps its two-window grid');
   assert.match(els.tools.innerHTML, /class="tool-mark" aria-hidden="true">◆</, 'Claude keeps the shared tool identity mark');
+  assert.ok(els.tools.innerHTML.indexOf('Claude Code') < els.tools.innerHTML.indexOf('Codex'), 'tool order is stable');
+  assert.match(els.tools.innerHTML, /Codex[\s\S]*5-hour[\s\S]*Unavailable/);
+  assert.match(els.tools.innerHTML, /Unavailable[\s\S]*No short-window reading/);
+  assert.doesNotMatch(els.tools.innerHTML, /class="stat-grid"/, 'supporting statistics do not interleave with the four slots');
+  assert.match(els['claude-details'].innerHTML, /Pacing[\s\S]*Activity/);
+  assert.match(els['codex-details'].innerHTML, /Pacing[\s\S]*Activity/);
   assert.equal(els.hosts.innerHTML, '', 'no host chrome in single-host mode');
   assert.doesNotMatch(els.hosts.innerHTML, /acct|host-head/, 'no banner, no host header');
   assert.match(footer._spans[0].textContent, /Activity: local session logs/, 'single-host footer');
+});
+
+test('single-host diagnostics follow all four account slots instead of splitting the tool lanes', async () => {
+  const claude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  claude.limitsDiagnostic = { reason: 'stale-reading', capturedAt: iso(-900_000) };
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claude, codexTool(5 * 86400_000)]) }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  assert.equal((els.tools.innerHTML.match(/class="panel limit-card/g) || []).length, 4);
+  assert.doesNotMatch(els.tools.innerHTML, /stale-note/, 'no diagnostic interrupts the comparison grid');
+  assert.match(els['limit-notes'].innerHTML, /Claude Code[\s\S]*Stale reading/);
 });
 
 test('single-host mode renders model-specific caps and escapes model labels', async () => {
@@ -106,14 +141,14 @@ test('single-host mode renders model-specific caps and escapes model labels', as
   }];
   const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]) }], generatedAt: iso(0) };
   const { els } = await renderWith(combined);
-  const h = els.tools.innerHTML;
-  assert.match(h, /model-specific limits/);
+  const h = els['claude-details'].innerHTML;
+  assert.match(h, /Model-specific caps/);
   assert.match(h, /51<span class="unit">%</);
   assert.doesNotMatch(h, /<img src=x onerror/, 'raw model label must not reach innerHTML');
   assert.match(h, /&lt;img src=x onerror/, 'model label is escaped');
 });
 
-test('multi-host same-account: ONE account banner, activity per host, no duplicated meter (QA-15/QA-17)', async () => {
+test('multi-host same-account: ONE limits overview, activity per host, no duplicated meter (QA-15/QA-17)', async () => {
   const shared = () => claudeTool(3 * 3600_000, 3 * 86400_000);
   const combined = { hosts: [
     { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([shared()]) },
@@ -121,13 +156,14 @@ test('multi-host same-account: ONE account banner, activity per host, no duplica
   ], generatedAt: iso(0) };
   const { els, footer } = await renderWith(combined);
   const h = els.hosts.innerHTML;
-  // The account banner appears exactly once.
-  assert.equal((h.match(/class="acct"/g) || []).length, 1, 'exactly one account banner');
+  // The limits-first overview appears exactly once.
+  assert.equal((h.match(/class="limits-overview multi-limits"/g) || []).length, 1, 'exactly one account overview');
   assert.match(h, /Account limits/);
   assert.match(h, /identical on This machine &amp; Desktop/, 'scope names both same-account hosts, escaped');
-  // The shared meter (a gauge with a 5-hour panel) appears once — in the banner.
-  const bannerHtml = h.slice(h.indexOf('class="acct"'), h.indexOf('class="host '));
-  assert.match(bannerHtml, /class="gauges"/, 'the shared gauge lives in the banner');
+  // The shared meter appears once — before the first host.
+  const bannerHtml = h.slice(h.indexOf('class="limits-overview'), h.indexOf('class="host '));
+  assert.match(bannerHtml, /class="gauges window-grid"/, 'the shared gauge lives in the overview');
+  assert.doesNotMatch(h.slice(h.indexOf('class="host ')), /class="gauges window-grid"/, 'host details never duplicate account gauges');
   // Each host card shows the same-account annotation instead of a duplicate meter.
   assert.equal((h.match(/class="same-acct"/g) || []).length, 2, 'both host cards annotate "shown above"');
   // Both hosts still render their per-machine ACTIVITY (tiles).
@@ -139,7 +175,7 @@ test('multi-host same-account: ONE account banner, activity per host, no duplica
   assert.match(footer._spans[1].textContent, /2 hosts over Tailscale/);
 });
 
-test('a different-account host renders its OWN meters in-group (reads distinct, QA-15)', async () => {
+test('a different-account host keeps its own labeled lane in the overview (reads distinct, QA-15)', async () => {
   const shared = () => claudeTool(3 * 3600_000, 3 * 86400_000);
   const different = claudeTool(1 * 3600_000, 6 * 86400_000);
   const combined = { hosts: [
@@ -149,11 +185,12 @@ test('a different-account host renders its OWN meters in-group (reads distinct, 
   ], generatedAt: iso(0) };
   const { els } = await renderWith(combined);
   const h = els.hosts.innerHTML;
-  // Work laptop's card carries its own gauges + the "account limits · this machine" caption.
-  const workIdx = h.indexOf('Work laptop');
-  const workCard = h.slice(workIdx);
-  assert.match(workCard, /account limits · this machine/, 'the different-account host labels its own numbers');
-  assert.match(workCard, /class="gauges"/, 'and renders its own meters in-group');
+  const overview = h.slice(0, h.indexOf('class="host '));
+  assert.equal((overview.match(/class="limit-tool tool/g) || []).length, 2, 'shared and distinct accounts each get one lane');
+  assert.match(overview, /from Work laptop/, 'the distinct account names its host before activity');
+  const workHost = h.slice(h.lastIndexOf('class="host"'));
+  assert.doesNotMatch(workHost, /class="gauges window-grid"/, 'the host story does not repeat its meter');
+  assert.match(workHost, /Account limits above/);
 });
 
 test('an offline host shows the NAMED callout, never a gauge/zero (QA-09/QA-11)', async () => {
@@ -213,9 +250,9 @@ test('no peer-supplied field is interpolated into a style or raw HTML (NFR-04)',
   assert.doesNotMatch(appJs, /style="[^"]*\$\{[^}]*(host|label|detail)/i);
 });
 
-test('the multi-host footer/legend copy is the approved verbatim (design-spec copy table)', () => {
+test('the multi-host footer/legend copy preserves account and machine scope', () => {
   assert.match(appJs, /Account limits/);
-  assert.match(appJs, /These are the account's numbers — the <b>same<\/b> across every machine/);
+  assert.match(appJs, /matching accounts are shown once before every host/);
   assert.match(appJs, /Account limits above/);
   assert.match(appJs, /the shared meters are shown once, up top/);
   assert.match(appJs, /Limits: account-wide · Activity: per machine · Codex day buckets: UTC/);
@@ -241,4 +278,19 @@ test('Codex with no sessions on a host shows the honest not-available note (no z
   const { els } = await renderWith(combined);
   const h = els.hosts.innerHTML;
   assert.match(h, /No Codex sessions have been recorded on this machine yet/, 'honest not-available, not fabricated zeros');
+});
+
+test('the one-second limits tick preserves stable Codex insights and per-tool trend containers', async () => {
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000), codexTool(5 * 86400_000)]) }], generatedAt: iso(0) };
+  const { els, intervals } = await renderWith(combined);
+  els['insights-surface'] = makeEl('insights-surface');
+  els['insights-surface'].innerHTML = '<div>stable insight payload</div>';
+  els['trends-claude'].innerHTML = '<div>stable Claude trend</div>';
+  els['trends-codex'].innerHTML = '<div>stable Codex trend</div>';
+  const tick = intervals.find(({ fn, ms }) => ms === 1000 && String(fn).includes('render()'));
+  assert.ok(tick, 'the countdown render tick is registered');
+  tick.fn();
+  assert.equal(els['insights-surface'].innerHTML, '<div>stable insight payload</div>');
+  assert.equal(els['trends-claude'].innerHTML, '<div>stable Claude trend</div>');
+  assert.equal(els['trends-codex'].innerHTML, '<div>stable Codex trend</div>');
 });

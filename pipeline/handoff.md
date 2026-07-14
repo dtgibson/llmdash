@@ -1,72 +1,58 @@
 ## What We Accomplished
 
-Built and shipped Deeper Codex Insights for llmdash. The dashboard now explains
-the local work patterns behind Codex consumption across independent 24h, 7d, and
-30d ranges: reasoning share, turn and session size, busiest UTC day, model and
-effort mix, fixed tool categories, context pressure, compactions, explicit total
-and first-token latency, and daily trends. Live plan and credit facts remain
-clearly account-wide; production currently reports `ChatGPT Pro`.
-
-The implementation remains local, aggregate-only, zero-dependency, and honest
-about metric availability. It never returns prompts, responses, commands, paths,
-tool payloads, or session/turn identifiers; log scanning is bounded, atomic,
-poller-owned, and kept off HTTP request paths.
+Implemented the limits-first, tool-grouped dashboard and corrected Codex limit
+window identity. Duration-bearing Codex slots now map 300 minutes to 5-hour and
+10,080 minutes to weekly; unknown explicit durations stay unavailable. Current
+Codex gauges never use independent DB history, so an obsolete short window
+cannot return during relaunch. The dashboard renders all four Claude/Codex
+account slots before diagnostics, then keeps pacing, activity, model caps,
+Codex insights, and Trends with their tool.
 
 ## What Has Been Saved
 
-- `pipeline/deeper-codex-insights/strategic-brief.md`
-- `pipeline/deeper-codex-insights/prd.md`
-- `pipeline/deeper-codex-insights/schema.md`
-- `pipeline/deeper-codex-insights/decisions.md`
-- `pipeline/deeper-codex-insights/design-spec.md`
-- `pipeline/deeper-codex-insights/design.html`
-- `pipeline/deeper-codex-insights/pr-description.md`
-- `pipeline/deeper-codex-insights/how-to-see.md`
-- `pipeline/deeper-codex-insights/qa-report.md`
-- `pipeline/deeper-codex-insights/security-report.md`
-- `pipeline/deeper-codex-insights/deployment-report.md`
+- `pipeline/dashboard-tool-grouping/change-brief.md`
+- `pipeline/dashboard-tool-grouping/decisions.md`
+- `pipeline/dashboard-tool-grouping/design-refinement.md`
+- `pipeline/dashboard-tool-grouping/design.html`
+- `pipeline/dashboard-tool-grouping/pr-description.md`
+- `pipeline/dashboard-tool-grouping/how-to-see.md`
+- `pipeline/dashboard-tool-grouping/qa-report.md`
+- `pipeline/dashboard-tool-grouping/security-report.md`
+- `pipeline/dashboard-tool-grouping/deployment-report.md`
+- Backend, frontend, and regression tests in `tests/`
 
-## Durable Context
+## Verification So Far
 
-- `PRODUCT_CONTEXT.md` now records the current Codex diagnostic capability and
-  dynamic live plan rather than a hardcoded Plus tier.
-- `CLAUDE.md` now standardizes aggregate-only capability-gated log analytics,
-  finite atomic scan/cache budgets, widest-horizon cache retention, evidence-aged
-  sparse account facts, and Unicode/bidi display hardening.
-- `DECISIONS.md` records the lasting product boundary: local activity,
-  account-wide facts, explicit evidence only, no insight persistence or peer
-  fan-out, and no menu-bar expansion.
-- `ROADMAP.md` records this as feature 22, leaves Limit alerts first Up Next, and
-  tracks macOS LaunchAgent reload hardening on the horizon.
+- Full suite: 552 tests, 550 pass, 0 fail, 2 environment-dependent skips.
+- Focused frontend: 47 pass, 0 fail.
+- Design lint: clean, 3 public files scanned.
+- Live Codex proof: ChatGPT Pro; 5-hour unavailable; 10,080-minute weekly at
+  44% used / 56% remaining, resetting July 20, 2026.
+- Exact 320px emulation: document and body scroll width 320px; four 128.5px
+  cards; all four cards precede diagnostics; 32px range controls.
+- Independent backend and frontend reviews have no unresolved blocking finding.
+- Security/privacy audit: no findings; 117 focused boundary tests pass.
+- Release readiness: clean production checkout at `ba33302`, current LaunchAgent
+  healthy, no hosted CI or staging by design, and no new secrets or environment
+  variables required.
 
 ## Where We Are
 
-The full Feature run is complete. Release commit `8546dfd` is live on the
-production Mac; context commit `8d59539` is pushed and the installed checkout is
-aligned. The `com.llmdash.dashboard` LaunchAgent is running, existing and new
-endpoints are healthy, all three insight ranges return live aggregate data, and
-the plan is correctly `ChatGPT Pro`.
-
-Final verification: 539 tests total, 537 passed, 0 failed, 2 expected
-environment-conditional skips; design lint and source checks are clean; security,
-frontend, backend, and privacy reviews found no release blocker; all 32 acceptance
-criteria passed in the deployment record.
-
-## Operational Follow-up
-
-The first production service reload encountered the recurring macOS
-`bootout` → `bootstrap` error-5 race after unloading the prior process. The plist,
-ownership, executable paths, and enablement were valid; one direct user-domain
-bootstrap recovered the service, which has remained healthy. No rollback was
-required. Narrow wait/retry hardening for the installer is now tracked in the
-roadmap as separate work.
+The implementation, QA, and security review are complete. The production
+release is prepared and paused at the explicit deployment confirmation. No
+production file, GitHub branch, or running process has been changed by this
+release yet.
 
 ## Resume Prompt
 
-For the next feature or improvement, run `$weft` in this project.
+To resume this session: run `$weft` in this project. It reads saved state and
+picks up exactly here. The prompt below is an explicit fallback if needed.
 
 ---
 
-The `deeper-codex-insights` feature is complete and deployed. The next `$weft`
-run should begin from the current product context and roadmap; Limit alerts
-remain first Up Next.
+Resume llmdash's `dashboard-tool-grouping` improvement at the production
+deployment gate. Read `pipeline/session-state.json`, the deployment report, QA
+report, security report, and changed source. If the user explicitly approves,
+commit and push the verified release, fast-forward `/Users/developer/llmdash`,
+run the installer, and perform the recorded production health checks. Roll back
+to `ba33302` immediately if any production health check fails.

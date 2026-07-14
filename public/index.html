@@ -3,54 +3,97 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light dark" />
 <title>llmdash</title>
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="page-shell">
     <header>
-      <div class="wordmark">llmdash</div>
-      <div class="freshness" id="freshness"><span class="pulse"></span><span id="age">connecting…</span></div>
+      <div class="wordmark">llmdash<span class="wordmark-sub">AI coding headroom, at a glance.</span></div>
+      <div class="freshness" id="freshness"><span class="pulse" aria-hidden="true"></span><span id="age">connecting…</span></div>
     </header>
 
     <div id="headroom" class="headroom" hidden></div>
-    <div id="tools"></div>
-    <!-- Multi-host section. Empty (and unused) in single-host mode, where #tools
-         above renders exactly today. Populated only when >1 host is configured. -->
+
+    <section class="limits-overview" id="single-limits" aria-labelledby="limits-title">
+      <div class="limits-heading">
+        <div>
+          <div class="section-kicker">Account limits</div>
+          <h1 id="limits-title">Claude Code and Codex</h1>
+        </div>
+        <p class="scope-copy"><strong>Account-wide</strong> · the same limit windows on every machine signed in to each account.</p>
+      </div>
+      <div id="tools" class="limit-tools"></div>
+      <div id="limit-notes" class="limit-notes"></div>
+    </section>
+
+    <!-- Multi-host mode replaces the single account surface above with one
+         limits-first overview followed by host-first tool details. -->
     <div id="hosts"></div>
 
-    <section class="insights-section" id="codex-insights" aria-labelledby="codex-insights-title">
-      <div class="insights-head">
-        <div>
-          <div class="insights-title" id="codex-insights-title"><span class="insights-mark" aria-hidden="true">▲</span>Codex insights</div>
-          <div class="insights-sub">This machine · structured local Codex metadata · <span id="insights-range-copy">last 7 days</span></div>
-        </div>
-        <div class="range insights-range" id="insights-range" aria-label="Codex insight range">
-          <button class="pill" data-range="24h" aria-pressed="false">24h</button>
-          <button class="pill active" data-range="7d" aria-pressed="true">7d</button>
-          <button class="pill" data-range="30d" aria-pressed="false">30d</button>
+    <div class="details-heading" id="details-heading">
+      <div class="details-title">
+        <h2 id="details-title">Tool details</h2>
+        <p>Activity, diagnostics, and history stay with the tool they describe.</p>
+      </div>
+      <div class="trend-control">
+        <span class="control-label">Trend range</span>
+        <div class="range" id="range" role="group" aria-label="Trend range for both tools">
+          <button class="pill" type="button" data-range="24h" aria-pressed="false">24h</button>
+          <button class="pill active" type="button" data-range="7d" aria-pressed="true">7d</button>
+          <button class="pill" type="button" data-range="30d" aria-pressed="false">30d</button>
         </div>
       </div>
-      <div class="insights-status" id="insights-status" role="status">Loading…</div>
-      <div class="insight-surface" id="insights-surface" aria-busy="true">
-        <div class="insights-state">Reading local Codex session metadata…</div>
-      </div>
-    </section>
+    </div>
 
-    <section class="trends-section" aria-labelledby="trends-title">
-      <div class="trends-head">
-        <div class="section-label trends-title" id="trends-title">Trends</div>
-        <div class="range" id="range" aria-label="Trend range">
-          <button class="pill" data-range="24h" aria-pressed="false">24h</button>
-          <button class="pill active" data-range="7d" aria-pressed="true">7d</button>
-          <button class="pill" data-range="30d" aria-pressed="false">30d</button>
-        </div>
-      </div>
-      <div id="trends"></div>
-    </section>
+    <div id="tool-groups">
+      <section class="tool tool-group tool-claude" id="claude-tool-group" aria-labelledby="claude-details-title" hidden>
+        <span class="sr-only" id="claude-details-title">Claude Code details</span>
+        <div id="claude-details"></div>
+        <section class="subsection trends-section" aria-labelledby="claude-trends-title">
+          <div class="subsection-head">
+            <h3 id="claude-trends-title">Trends</h3>
+            <span class="subsection-scope"><span id="claude-trends-range">7d</span> · limits account-wide · activity this machine</span>
+          </div>
+          <div id="trends-claude"></div>
+        </section>
+      </section>
+
+      <section class="tool tool-group tool-codex" id="codex-tool-group" aria-labelledby="codex-details-title" hidden>
+        <span class="sr-only" id="codex-details-title">Codex details</span>
+        <div id="codex-details"></div>
+
+        <section class="subsection insights-section" id="codex-insights" aria-labelledby="codex-insights-title">
+          <div class="insights-head subsection-head">
+            <div>
+              <h3 class="insights-title" id="codex-insights-title">Codex insights</h3>
+              <div class="insights-sub"><span class="scope-tag">This machine</span>structured local Codex metadata · <span id="insights-range-copy">last 7 days</span></div>
+            </div>
+            <div class="range insights-range" id="insights-range" role="group" aria-label="Codex insight range">
+              <button class="pill" type="button" data-range="24h" aria-pressed="false">24h</button>
+              <button class="pill active" type="button" data-range="7d" aria-pressed="true">7d</button>
+              <button class="pill" type="button" data-range="30d" aria-pressed="false">30d</button>
+            </div>
+          </div>
+          <div class="insights-status" id="insights-status" role="status">Loading…</div>
+          <div class="insight-surface" id="insights-surface" aria-busy="true">
+            <div class="insights-state">Reading local Codex session metadata…</div>
+          </div>
+        </section>
+
+        <section class="subsection trends-section" aria-labelledby="codex-trends-title">
+          <div class="subsection-head">
+            <h3 id="codex-trends-title">Trends</h3>
+            <span class="subsection-scope"><span id="codex-trends-range">7d</span> · limits account-wide · activity this machine</span>
+          </div>
+          <div id="trends-codex"></div>
+        </section>
+      </section>
+    </div>
 
     <footer>
-      <span>Limits: account-wide · Activity: local session logs · Codex day buckets: UTC</span>
+      <span>Limits: account-wide · Activity and insights: this machine · Codex day buckets: UTC</span>
       <span>served over Tailscale</span>
     </footer>
   </div>

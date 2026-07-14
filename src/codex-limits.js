@@ -25,6 +25,11 @@ let observedCreditBalance;
 let observedCreditBalanceAtMs = null;
 let observedResetCreditsAvailable;
 let observedResetCreditsAvailableAtMs = null;
+// The poller owns live Codex reads. HTTP state assembly consumes this cache so
+// a complete response can be authoritative not only for the values it contains,
+// but also for a window that is absent. That distinction cannot be reconstructed
+// from the per-window snapshot table (which intentionally retains history).
+let lastCompleteReading = null;
 
 const configuredPollMs = Number(config.pollIntervalMs);
 const ACCOUNT_FACT_TTL_MS = Math.min(30 * 60_000, Math.max(5 * 60_000,
@@ -45,6 +50,7 @@ const PLAN_LABELS = {
 };
 
 export function codexLimitsDiagnostic() { return diag; }
+export function cachedCodexLimits() { return lastCompleteReading; }
 function fresh(value, observedAtMs, nowMs) {
   return observedAtMs !== null && nowMs - observedAtMs <= ACCOUNT_FACT_TTL_MS ? value : undefined;
 }
@@ -187,14 +193,63 @@ function mapWindow(w) {
   return { usedPct: Math.min(100, Math.max(0, usedNum)), resetsAt: toIso(w.resets_at ?? w.resetsAt) };
 }
 
-function windowsFromRateLimits(rl) {
-  if (!rl || typeof rl !== 'object') return null;
-  const five = mapWindow(rl.primary ?? rl.five_hour ?? rl.fiveHour);
-  const seven = mapWindow(rl.secondary ?? rl.seven_day ?? rl.sevenDay ?? rl.weekly);
+const WINDOW_DURATION_FIELDS = [
+  'windowDurationMins',
+  'window_duration_mins',
+  'windowDurationMinutes',
+  'window_duration_minutes',
+];
+
+// A duration on a positional primary/secondary slot is stronger evidence than
+// its position. Codex currently returns 300-minute and 10,080-minute windows,
+// but some account tiers expose only one of them (including a sole `primary`
+// weekly window). Unknown explicit durations stay unknown rather than being
+// silently mislabeled. Older responses without duration metadata retain their
+// primary=5-hour / secondary=weekly compatibility mapping.
+function positionalWindowIdentity(slot, fallback) {
+  if (!slot || typeof slot !== 'object' || Array.isArray(slot)) return fallback;
+  const durationField = WINDOW_DURATION_FIELDS.find((key) => Object.hasOwn(slot, key));
+  if (!durationField) return fallback;
+  const duration = Number(slot[durationField]);
+  if (duration === 300) return 'five_hour';
+  if (duration === 10_080) return 'seven_day';
+  return null;
+}
+
+export function windowsFromRateLimits(rl) {
+  if (!rl || typeof rl !== 'object' || Array.isArray(rl)) return null;
   const windows = {};
-  if (five) windows.five_hour = five;
-  if (seven) windows.seven_day = seven;
-  return Object.keys(windows).length ? windows : null;
+  let recognizedShape = false;
+  const assign = (identity, raw) => {
+    const mapped = mapWindow(raw);
+    if (mapped && !windows[identity]) windows[identity] = mapped;
+  };
+
+  // Explicitly named legacy fields keep their declared identities even if a
+  // contradictory/unknown duration happens to be attached to the object.
+  for (const key of ['five_hour', 'fiveHour']) {
+    if (!Object.hasOwn(rl, key)) continue;
+    recognizedShape = true;
+    assign('five_hour', rl[key]);
+  }
+  for (const key of ['seven_day', 'sevenDay', 'weekly']) {
+    if (!Object.hasOwn(rl, key)) continue;
+    recognizedShape = true;
+    assign('seven_day', rl[key]);
+  }
+
+  for (const [key, fallback] of [['primary', 'five_hour'], ['secondary', 'seven_day']]) {
+    if (!Object.hasOwn(rl, key)) continue;
+    recognizedShape = true;
+    const raw = rl[key];
+    const identity = positionalWindowIdentity(raw, fallback);
+    if (identity) assign(identity, raw);
+  }
+
+  // `{}` is meaningful here: a complete response contained rate-limit slots,
+  // but none had a supported identity/value. Callers must not search backward
+  // and resurrect an obsolete slot in that case.
+  return recognizedShape ? windows : null;
 }
 
 // Path A: ask the live Codex app-server over JSON-RPC (on-demand, authoritative).
@@ -235,11 +290,19 @@ function readViaAppServer() {
         let msg;
         try { msg = JSON.parse(line); } catch { continue; }
         const result = msg && msg.result;
-        const rl = result && (result.rateLimits || result.rate_limits || result);
+        const wrappedRateLimits = !!(result && typeof result === 'object'
+          && (Object.hasOwn(result, 'rateLimits') || Object.hasOwn(result, 'rate_limits')));
+        const rl = result && (result.rateLimits ?? result.rate_limits ?? result);
         const planType = observePlanType(rl);
         observeAccountFacts(result, rl);
-        const windows = windowsFromRateLimits(rl);
-        if (windows) {
+        const parsedWindows = windowsFromRateLimits(rl);
+        // A well-formed account/rateLimits response is complete even when it
+        // contains no currently supported window. Preserve that empty set as
+        // authoritative instead of falling through to older rollout data.
+        const complete = parsedWindows !== null
+          || (wrappedRateLimits && rl && typeof rl === 'object' && !Array.isArray(rl));
+        if (complete) {
+          const windows = parsedWindows ?? {};
           finish({ source: 'codex', capturedAt: new Date().toISOString(), windows, ...(planType ? { planType } : {}) });
         }
       }
@@ -277,17 +340,32 @@ function readViaRollout() {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].trim()) continue;
     let o; try { o = JSON.parse(lines[i]); } catch { continue; }
-    const rl = o.rate_limits || (o.payload && o.payload.rate_limits) || (o.token_count && o.token_count.rate_limits);
-    const planType = observePlanType(rl);
-    const windows = windowsFromRateLimits(rl);
-    if (windows) {
-      return {
-        source: 'codex',
-        capturedAt: o.timestamp ? toIso(o.timestamp) : new Date().toISOString(),
-        windows,
-        ...(planType ? { planType } : {}),
-      };
+    let rl;
+    let found = false;
+    if (o && typeof o === 'object' && Object.hasOwn(o, 'rate_limits')) {
+      rl = o.rate_limits;
+      found = true;
+    } else if (o?.payload && typeof o.payload === 'object' && Object.hasOwn(o.payload, 'rate_limits')) {
+      rl = o.payload.rate_limits;
+      found = true;
+    } else if (o?.token_count && typeof o.token_count === 'object' && Object.hasOwn(o.token_count, 'rate_limits')) {
+      rl = o.token_count.rate_limits;
+      found = true;
     }
+    if (!found || !rl || typeof rl !== 'object' || Array.isArray(rl)) continue;
+    const planType = observePlanType(rl);
+    const windows = windowsFromRateLimits(rl) ?? {};
+    const hasEventTimestamp = o.timestamp != null && toIso(o.timestamp) != null;
+    const reading = {
+      source: 'codex',
+      // File mtime is the least-surprising display age when an old rollout row
+      // has no event timestamp. It is not strong enough evidence to supersede
+      // an in-process live reading; readCodexLimits enforces that distinction.
+      capturedAt: hasEventTimestamp ? toIso(o.timestamp) : new Date(files[0].mtime).toISOString(),
+      windows,
+      ...(planType ? { planType } : {}),
+    };
+    return { reading, hasEventTimestamp };
   }
   return null;
 }
@@ -300,10 +378,24 @@ export async function readCodexLimits() {
     // Live path works again — clear the diagnostic and re-arm the one-time log.
     diag = { reason: 'ok', cmd: config.codexCmd, detail: null };
     loggedKey = '';
+    lastCompleteReading = live;
     return live;
   }
   // Keep a spawn-failure diagnostic (the actionable cause) over a generic
   // "no reading" — the rollout fallback may still supply (possibly stale) data.
   if (!spawnFailedThisRead) diag = { reason: 'no-reading', cmd: config.codexCmd, detail: null };
-  return readViaRollout();
+  // A transient probe failure must not let an older rollout (or the database's
+  // independent per-window maxima) replace the complete response already seen
+  // in this process. A genuinely newer rollout may still advance the fallback
+  // when the app-server remains unavailable for more than one poll.
+  const rolloutResult = readViaRollout();
+  const rollout = rolloutResult && rolloutResult.reading;
+  const rolloutAt = rollout && Date.parse(rollout.capturedAt);
+  const cachedAt = lastCompleteReading && Date.parse(lastCompleteReading.capturedAt);
+  if (rollout && (!lastCompleteReading
+    || (rolloutResult.hasEventTimestamp && Number.isFinite(rolloutAt)
+      && (!Number.isFinite(cachedAt) || rolloutAt > cachedAt)))) {
+    lastCompleteReading = rollout;
+  }
+  return lastCompleteReading;
 }

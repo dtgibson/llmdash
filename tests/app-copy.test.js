@@ -23,8 +23,10 @@ test('the client maps the server-provided limit diagnostics', () => {
   assert.match(appJs, /LLMDASH_CODEX_CMD/); // the fix is named in the UI copy
 });
 
-test('the per-gauge empty state is unchanged (stat-set diff: nothing dropped)', () => {
-  assert.match(appJs, /waiting for a reading/);
+test('missing account windows stay explicit and never become zero gauges', () => {
+  assert.match(appJs, /No current window reading/);
+  assert.match(appJs, /No short-window reading/);
+  assert.match(appJs, /limit-unavailable">Unavailable/);
   assert.match(appJs, /limit data not available yet/); // pacing row empty state
 });
 

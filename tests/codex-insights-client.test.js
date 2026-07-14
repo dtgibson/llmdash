@@ -129,13 +129,15 @@ async function makeBrowser(insightFetch) {
 }
 
 test('Codex insight shell is dashboard-only, scoped, independently ranged, and initially honest', () => {
-  const tools = indexHtml.indexOf('id="tools"');
-  const hosts = indexHtml.indexOf('id="hosts"');
+  const limits = indexHtml.indexOf('id="single-limits"');
+  const details = indexHtml.indexOf('id="details-heading"');
+  const codexGroup = indexHtml.indexOf('id="codex-tool-group"');
   const insights = indexHtml.indexOf('id="codex-insights"');
-  const trends = indexHtml.indexOf('id="trends-title"');
-  assert.ok(tools < insights && hosts < insights && insights < trends, 'insights sit after tools/hosts and before Trends');
-  assert.match(indexHtml, /This machine · structured local Codex metadata/);
-  assert.match(indexHtml, /id="insights-range" aria-label="Codex insight range"/);
+  const trends = indexHtml.indexOf('id="codex-trends-title"');
+  assert.ok(limits < details && details < codexGroup && codexGroup < insights && insights < trends,
+    'limits lead, and insights sit inside Codex before Codex Trends');
+  assert.match(indexHtml, /<span class="scope-tag">This machine<\/span>structured local Codex metadata/);
+  assert.match(indexHtml, /id="insights-range" role="group" aria-label="Codex insight range"/);
   assert.match(indexHtml, /Reading local Codex session metadata…/);
   assert.match(indexHtml, /id="insights-status" role="status">Loading…<\/div>/);
   assert.doesNotMatch(indexHtml, /id="insights-surface"[^>]*aria-live/,

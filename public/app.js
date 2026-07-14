@@ -60,11 +60,19 @@ function toolNameHtml(tool) {
   return `<span class="tool-name">${markHtml}<span>${esc(tool.label)}</span></span>`;
 }
 
-function gaugeHtml(win, label) {
+function toolDetailsTitleId(tool) {
+  return tool && tool.source === 'claude-code' ? 'claude-details-title'
+    : tool && tool.source === 'codex' ? 'codex-details-title' : 'tool-details-title';
+}
+
+function gaugeHtml(win, label, tool) {
   if (!win) {
-    return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">—</span></div>`
-      + `<div class="remaining">—<span class="unit">%</span></div><div class="sub">waiting for a reading</div>`
-      + `<div class="bar"><div class="bar-fill" style="width:0"></div></div></div>`;
+    const codexShort = tool && tool.source === 'codex' && label === '5-hour';
+    const note = codexShort ? 'No short-window reading' : 'No current window reading';
+    return `<div class="panel limit-card unavailable">`
+      + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">not reported</span></div>`
+      + `<div class="limit-unavailable">Unavailable</div><div class="sub limit-meta">${note}</div>`
+      + `<div class="unavailable-rule" aria-hidden="true"></div></div>`;
   }
   const rem = Math.floor(win.remainingPct), used = Math.ceil(win.usedPct), cls = statusClass(rem);
   const maxed = win.remainingPct <= 0;
@@ -72,15 +80,16 @@ function gaugeHtml(win, label) {
   const sub = maxed ? `<span class="is-crit">limit reached</span>` : `remaining · ${used}% used`;
   // A maxed window shows a full red bar (limit consumed), not an empty/blank bar.
   const barWidth = maxed ? 100 : win.remainingPct;
-  return `<div class="panel"><div class="panel-head"><span class="win-label">${label}</span><span class="win-reset">resets in ${resetIn}</span></div>`
-    + `<div class="remaining is-${cls}">${rem}<span class="unit">%</span></div><div class="sub">${sub}</div>`
-    + `<div class="bar"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
+  return `<div class="panel limit-card">`
+    + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">resets in ${resetIn}</span></div>`
+    + `<div class="remaining limit-value is-${cls}">${rem}<span class="unit">%</span></div><div class="sub limit-meta">${sub}</div>`
+    + `<div class="bar" aria-hidden="true"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
 }
 
 // One window's pacing row: [name column] [pacing sentence] [status pill].
 // Each window is evaluated independently — a maxed window reads "limit reached"
 // on its own row and never suppresses the other window's row (FR-04 / FR-08).
-function pacingLine(label, win, proj) {
+function pacingLine(label, win, proj, unavailableCopy = '') {
   const resetIn = (win && win.resetsAt) ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : null;
   let text, pillCls = '', pillLabel = '';
   if (win && win.remainingPct <= 0) {
@@ -101,7 +110,8 @@ function pacingLine(label, win, proj) {
     }
   } else {
     // No reading, or a reading with no reset time — can't project honestly.
-    text = `<span class="burn-cap">limit data not available yet</span>`;
+    text = `limit data not available yet`
+      + (unavailableCopy ? `<span class="burn-cap">${unavailableCopy}</span>` : '');
   }
   const pill = pillLabel ? `<span class="burn-pill ${pillCls}">${pillLabel}</span>` : `<span></span>`;
   return `<div class="burn-line"><span class="burn-win">${label}</span>`
@@ -111,11 +121,14 @@ function pacingLine(label, win, proj) {
 function burnHtml(tool) {
   const a = tool.activity, proj = tool.projection || {};
   const hasActivity = a && a.hasData !== false;
-  const rateHtml = hasActivity ? `<div class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr</span></div>` : '';
+  const rateHtml = hasActivity ? `<span class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr · this machine</span></span>` : '';
   // Both pacing predictors shown at once: 5-hour and weekly.
-  const lines = pacingLine('5-hour', tool.limits.five_hour, proj.five_hour)
+  const shortUnavailable = tool.source === 'codex' && !tool.limits.five_hour
+    ? 'Codex did not report a short window' : '';
+  const lines = pacingLine('5-hour', tool.limits.five_hour, proj.five_hour, shortUnavailable)
     + pacingLine('Weekly', tool.limits.seven_day, proj.seven_day);
-  return `<div class="burn">${rateHtml}<div class="burn-proj">${lines}</div></div>`;
+  return `<div class="burn" aria-label="${esc(tool.label)} pacing"><div class="burn-head"><strong>Pacing</strong>${rateHtml}</div>`
+    + `<div class="burn-proj">${lines}</div></div>`;
 }
 
 function windowLabel(key) {
@@ -144,9 +157,10 @@ function modelLimitsHtml(tool) {
       + `<span class="model-reset">resets in ${resetIn}</span></div></div>`
       + `<div class="model-limit-sub">${sub}</div><div class="bar model-bar"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
   }).join('');
-  return `<div class="model-limits"><div class="section-label">model-specific limits</div>`
+  return `<section class="model-limits subsection"><div class="subsection-head"><h3>Model-specific caps</h3>`
+    + `<span class="subsection-scope"><span class="scope-tag">Account-wide</span>supplemental limits</span></div>`
     + `<div class="model-limit-grid">${rows}</div>`
-    + `<div class="model-limit-note">These caps are specific to ${esc(tool.label)} models; they do not add account-wide budget.</div></div>`;
+    + `<div class="model-limit-note">These caps are specific to ${esc(tool.label)} models; they do not add account-wide budget.</div></section>`;
 }
 
 const tile = (label, valHtml, note) =>
@@ -250,7 +264,7 @@ function limitsNoteHtml(tool) {
   return `<div class="empty-note">${text}</div>`;
 }
 
-function toolHtml(tool) {
+function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool)) {
   const a = tool.activity;
   // Reading-age status pill: warn "aging", crit "stale" — text first (NFR-08),
   // and the aging band never says "stale". Fresh renders no pill at all, so
@@ -267,9 +281,47 @@ function toolHtml(tool) {
   const activityBlock = hasActivity
     ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
-  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}<span class="tool-sub">${sub}</span></div>`
-    + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + activityBlock + `</section>`;
+  const summary = tool.source === 'claude-code'
+    ? 'Pacing · activity · model caps · trends'
+    : 'Pacing · activity · deeper insights · trends';
+  const idAttr = titleId ? ` id="${titleId}"` : '';
+  return `<div class="tool-group-head"><h2${idAttr}>${toolNameHtml(tool)}</h2><span class="group-summary">${summary} · ${sub}</span></div>`
+    + burnHtml(tool)
+    + `<section class="subsection activity-section"><div class="subsection-head"><h3>Activity</h3>`
+    + `<span class="subsection-scope"><span class="scope-tag">${esc(activityScope)}</span>local ${esc(tool.label)} session logs</span></div>`
+    + activityBlock + `</section>`
+    + modelLimitsHtml(tool);
+}
+
+function limitLaneHtml(tool, scopeCopy = '') {
+  const tone = toolToneClass(tool);
+  const scope = scopeCopy || `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}`;
+  return `<section class="limit-tool tool ${tone}" aria-label="${esc(tool.label)} account limits">`
+    + `<div class="limit-tool-head">${toolNameHtml(tool)}<span class="tool-sub plan">${scope}</span></div>`
+    + `<div class="gauges window-grid">${gaugeHtml(tool.limits.five_hour, '5-hour', tool)}${gaugeHtml(tool.limits.seven_day, 'Weekly', tool)}</div>`
+    + `</section>`;
+}
+
+// Limit diagnostics qualify the account comparison, but never interrupt it.
+// Render every known tool/window slot first, then name the affected tool and
+// show its diagnostic below the complete comparison.
+function limitNoteHtml(tool, scopeCopy = '') {
+  const note = limitsNoteHtml(tool);
+  if (!note) return '';
+  const scope = scopeCopy ? `<span class="limit-note-scope">${scopeCopy}</span>` : '';
+  return `<div class="limit-note ${toolToneClass(tool)}"><div class="limit-note-head">`
+    + `${toolNameHtml(tool)}${scope}</div>${note}</div>`;
+}
+
+function limitNotesHtml(entries) {
+  return (entries || []).map(({ tool, scopeCopy = '' }) => limitNoteHtml(tool, scopeCopy)).join('');
+}
+
+// Fallback used by the zero-DOM unit harness. The product page renders the
+// stable tool-group shells from index.html so the independent insights surface
+// is never replaced by the one-second limit countdown tick.
+function toolHtml(tool) {
+  return limitLaneHtml(tool) + `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool)}</section>`;
 }
 
 function renderHeadroom(h) {
@@ -339,56 +391,58 @@ function joinLabels(labels) {
   return `${e.slice(0, -1).join(', ')} &amp; ${e[e.length - 1]}`;
 }
 
-// A tool block showing ONLY the limit gauges + pacing (no activity) — for the
-// account-limits banner. Reuses gaugeHtml()/burnHtml() unchanged.
-function limitsOnlyHtml(tool) {
-  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}`
-    + `<span class="tool-sub">${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}</span></div>`
-    + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + `</section>`;
+// A tool lane showing ONLY the two account windows. Pacing and every local
+// statistic stay below the complete limit comparison.
+function limitsOnlyHtml(tool, scopeCopy = '') {
+  return limitLaneHtml(tool, scopeCopy);
 }
 
-// A tool block showing ONLY activity (tiles + mix), NO gauges — for a same-
-// account host group (its limits live in the banner above). Reuses the existing
-// tilesHtml/mixHtml/tiles2Html, and the existing honest not-available state.
+// One host-local tool story with no gauges. Its account readings are always in
+// the multi-host limits overview above every host section.
 function activityOnlyHtml(tool, hostLabel) {
-  const a = tool.activity;
-  const hasActivity = a && a.hasData !== false;
-  const sub = `activity · ${esc(hostLabel)}`;
-  const block = hasActivity
-    ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
-    : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
-  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}<span class="tool-sub">${sub}</span></div>${block}</section>`;
+  return `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, hostLabel, null)}</section>`;
 }
 
-// The account-limits banner: for each tool source whose key groups ≥2 reachable
-// hosts, render the shared gauges ONCE. Returns '' when nothing is shared.
-function accountBannerHtml(groups) {
-  const sections = [];
-  const memberLabelsAcrossTools = new Set();
+// Every unique reachable account identity renders here before any per-machine
+// activity. Same-account reset identities collapse to one lane; genuinely
+// different accounts stay distinct and name their host membership.
+function accountOverviewHtml(hosts, groups) {
+  const lanes = [];
+  const entries = [];
+  const represented = new Set();
   for (const src of ['claude-code', 'codex']) {
     const map = groups[src];
     if (!map) continue;
-    // The largest same-account group for this tool (≥2 members) owns the banner.
-    let chosen = null;
     for (const members of map.values()) {
-      if (members.length >= 2 && (!chosen || members.length > chosen.length)) chosen = members;
+      const rep = members.slice().sort((a, b) =>
+        (Date.parse(b.tool.dataAt || 0) || 0) - (Date.parse(a.tool.dataAt || 0) || 0))[0];
+      for (const member of members) represented.add(`${member.host.host}|${src}`);
+      const membership = members.length > 1
+        ? `identical on ${joinLabels(members.map((member) => member.host.label))}`
+        : `from ${esc(rep.host.label)}`;
+      const scopeCopy = `${esc(rep.tool.plan)} · ${membership}`;
+      lanes.push(limitsOnlyHtml(rep.tool, scopeCopy));
+      entries.push({ tool: rep.tool, scopeCopy });
     }
-    if (!chosen) continue;
-    for (const m of chosen) memberLabelsAcrossTools.add(m.host.label);
-    // Use the freshest member's tool for the shared meter (any member's numbers
-    // are identical by construction; pick the one with the newest capture).
-    const rep = chosen.slice().sort((a, b) =>
-      (Date.parse(b.tool.dataAt || 0) || 0) - (Date.parse(a.tool.dataAt || 0) || 0))[0];
-    sections.push(limitsOnlyHtml(rep.tool));
   }
-  if (!sections.length) return '';
-  const labels = [...memberLabelsAcrossTools];
-  const scope = `account-wide · identical on ${joinLabels(labels)}`;
-  return `<div class="acct"><div class="acct-head"><span class="acct-title">Account limits</span>`
-    + `<span class="acct-scope">${scope}</span></div>`
-    + `<div class="acct-sub">These are the account's numbers — the <b>same</b> across every machine signed in to this account. Per-machine activity is shown under each host below.</div>`
-    + sections.join('') + `</div>`;
+  // A reachable tool with no usable reset identity still gets two honest slots;
+  // it simply cannot be collapsed with another machine's account.
+  for (const host of hosts) {
+    if (!host.reachable || !host.state || !Array.isArray(host.state.tools)) continue;
+    for (const tool of host.state.tools) {
+      if (represented.has(`${host.host}|${tool.source}`)) continue;
+      const scopeCopy = `${esc(tool.plan)} · from ${esc(host.label)}`;
+      lanes.push(limitsOnlyHtml(tool, scopeCopy));
+      entries.push({ tool, scopeCopy });
+    }
+  }
+  if (!lanes.length) return '';
+  return `<section class="limits-overview multi-limits" aria-labelledby="multi-limits-title">`
+    + `<div class="limits-heading"><div><div class="section-kicker">Account limits</div>`
+    + `<h1 id="multi-limits-title">Claude Code and Codex</h1></div>`
+    + `<p class="scope-copy"><strong>Account-wide</strong> · matching account readings are shown once; different accounts remain labeled.</p></div>`
+    + `<div class="limit-tools">${lanes.join('')}</div>`
+    + `<div class="limit-notes">${limitNotesHtml(entries)}</div></section>`;
 }
 
 // hostDiagnostic reason → offline callout copy. Own-key (hasOwnProperty) lookup;
@@ -461,65 +515,35 @@ function hostGroupHtml(host, ctx) {
     + `<span class="host-addr">${addr}</span>${headState}</div>${stateHtml}</div>`;
 }
 
-// The body of a reachable host: for each of its tools, either the full tool
-// block (its own account → own gauges + activity) or the activity-only block +
-// a same-account annotation (shared account → gauges live in the banner).
+// The body of a reachable host is always host-first and tool-grouped. All
+// account gauges—shared and distinct—already appeared in the overview above.
 function reachableHostBody(host, ctx) {
-  const tools = (host.state && Array.isArray(host.state.tools)) ? host.state.tools : [];
+  const tools = (host.state && Array.isArray(host.state.tools)) ? host.state.tools.slice() : [];
+  tools.sort((a, b) => ['claude-code', 'codex'].indexOf(a.source) - ['claude-code', 'codex'].indexOf(b.source));
   const parts = [];
-  // Collect the OTHER same-account host labels once for the annotation copy.
-  let sharedWith = null;
   for (const tool of tools) {
     const key = accountKey(tool);
     const shared = key != null && ctx.sharedKeys[tool.source] && ctx.sharedKeys[tool.source].has(key);
-    if (shared && sharedWith == null) {
-      const others = ctx.groups[tool.source].get(key)
-        .map((m) => m.host.label).filter((l) => l !== host.label);
-      sharedWith = others.length ? others : null;
-    }
-  }
-  if (sharedWith) {
-    parts.push(`<div class="same-acct"><span class="lead">Account limits above</span>`
-      + `<span>— same account as <span class="ref">${joinLabels(sharedWith)}</span>; the shared meters are shown once, up top.</span></div>`);
-  }
-  for (const tool of tools) {
-    const key = accountKey(tool);
-    const shared = key != null && ctx.sharedKeys[tool.source] && ctx.sharedKeys[tool.source].has(key);
+    let annotation = `<span>this account's meters are shown above</span>`;
     if (shared) {
-      // Same account → activity only; the shared meter is in the banner.
-      parts.push(activityOnlyHtml(tool, host.self ? 'this machine' : host.label));
-    } else {
-      // Its own account (or no reading) → the full tool block, with a per-host
-      // "account limits · this machine" sub-label on the limits so a different-
-      // account host reads as its own numbers, not a second budget.
-      parts.push(fullHostToolHtml(tool, host));
+      const others = ctx.groups[tool.source].get(key)
+        .map((member) => member.host.label).filter((label) => label !== host.label);
+      annotation = `<span>same account as <span class="ref">${joinLabels(others)}</span>; the shared meters are shown once, up top</span>`;
     }
+    parts.push(`<div class="same-acct"><span class="lead">Account limits above</span>— ${annotation}</div>`);
+    parts.push(activityOnlyHtml(tool, host.self ? 'This machine' : host.label));
   }
   return parts.join('');
 }
 
-// A host's full tool block (gauges + activity), reusing toolHtml()'s exact
-// structure but with a host-scoped sub-label and an "account limits · this
-// machine" caption above the gauges (a different-account host's own numbers).
+// Kept as a small compatibility helper for focused render tests and callers;
+// multi-host production rendering now keeps every gauge in accountOverviewHtml.
 function fullHostToolHtml(tool, host) {
-  const a = tool.activity;
-  const band = ageBand(tool.freshness);
-  const agePill = band === 'stale' ? ' <span class="age-pill pill-crit">stale</span>'
-    : band === 'aging' ? ' <span class="age-pill pill-warn">aging</span>' : '';
-  const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}${agePill}`;
-  const hasActivity = a && a.hasData !== false;
-  const activityBlock = hasActivity
-    ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
-    : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
-  const acctCaption = tool.haveLimits ? `<div class="section-label account-caption">account limits · this machine</div>` : '';
-  return `<section class="tool ${toolToneClass(tool)}"><div class="tool-head">${toolNameHtml(tool)}<span class="tool-sub">${sub}</span></div>`
-    + acctCaption
-    + `<div class="gauges">${gaugeHtml(tool.limits.five_hour, '5-hour')}${gaugeHtml(tool.limits.seven_day, 'Weekly')}</div>`
-    + limitsNoteHtml(tool) + burnHtml(tool) + modelLimitsHtml(tool) + activityBlock + `</section>`;
+  return activityOnlyHtml(tool, host.self ? 'This machine' : host.label);
 }
 
 const LEGEND_HTML = `<div class="legend-strip">`
-  + `<span class="li"><b>Account limits</b> — the account's numbers; identical on every machine signed in to the same account. Shown once for same-account hosts.</span>`
+  + `<span class="li"><b>Account limits</b> — the account's numbers; matching accounts are shown once before every host.</span>`
   + `<span class="li"><b>Per-machine activity</b> — tokens, sessions, cache, value from each machine's own session logs. Genuinely different per host.</span>`
   + `</div>`;
 
@@ -528,15 +552,55 @@ function renderHosts(combined) {
   const toolsEl = document.getElementById('tools');
   const headEl = document.getElementById('headroom');
   const hosts = (combined && Array.isArray(combined.hosts)) ? combined.hosts : [];
+  const singleLimits = document.getElementById('single-limits');
+  const detailsHeading = document.getElementById('details-heading');
+  const toolGroups = document.getElementById('tool-groups');
+  const claudeGroup = document.getElementById('claude-tool-group');
+  const codexGroup = document.getElementById('codex-tool-group');
+  const claudeDetails = document.getElementById('claude-details');
+  const codexDetails = document.getElementById('codex-details');
+  const limitNotes = document.getElementById('limit-notes');
 
-  // Single-host mode: exactly one host and it's the local one → render EXACTLY
-  // today via #tools (no host chrome, no banner, no legend). The multi-host
-  // section stays empty.
+  const renderStaticGroups = (tools, localOnly = false) => {
+    const bySource = new Map((tools || []).map((tool) => [tool.source, tool]));
+    const claude = bySource.get('claude-code');
+    const codex = bySource.get('codex');
+    if (claudeGroup) claudeGroup.hidden = !claude;
+    if (codexGroup) codexGroup.hidden = !codex;
+    if (claudeDetails) {
+      claudeDetails.innerHTML = claude
+        ? (localOnly
+          ? `<div class="tool-group-head"><h2>${toolNameHtml(claude)}</h2><span class="group-summary">Trends · this machine</span></div>`
+          : toolCoreHtml(claude, 'this machine', null)) : '';
+    }
+    if (codexDetails) {
+      codexDetails.innerHTML = codex
+        ? (localOnly
+          ? `<div class="tool-group-head"><h2>${toolNameHtml(codex)}</h2><span class="group-summary">Deeper insights · trends · this machine</span></div>`
+          : toolCoreHtml(codex, 'this machine', null)) : '';
+    }
+    if (detailsHeading) detailsHeading.hidden = !claude && !codex;
+    if (toolGroups) toolGroups.hidden = !claude && !codex;
+    return Boolean(claudeDetails || codexDetails);
+  };
+
+  // Single-host mode: one account comparison, then two stable tool-group
+  // shells. Keeping the shells stable prevents the independent insights
+  // surface from being replaced by the one-second countdown render.
   if (hosts.length === 1 && hosts[0].self && hosts[0].state) {
     hostsEl.innerHTML = '';
     const st = hosts[0].state;
     renderHeadroom(st.headroom);
-    toolsEl.innerHTML = (st.tools || []).map(toolHtml).join('');
+    if (singleLimits) singleLimits.hidden = false;
+    const limitEntries = (st.tools || []).map((tool) => ({ tool }));
+    const lanes = limitEntries.map(({ tool }) => limitLaneHtml(tool)).join('');
+    const notes = limitNotesHtml(limitEntries);
+    if (limitNotes) limitNotes.innerHTML = notes;
+    const hasStaticGroups = renderStaticGroups(st.tools || []);
+    // Minimal-DOM unit harnesses don't instantiate index.html; retain a
+    // complete fallback render there without changing the product DOM.
+    toolsEl.innerHTML = hasStaticGroups ? lanes : lanes + (limitNotes ? '' : `<div class="limit-notes-inline">${notes}</div>`) + (st.tools || []).map((tool) =>
+      `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool)}</section>`).join('');
     const freshest = (st.tools || []).map((t) => t.dataAt).filter(Boolean).sort().pop();
     document.getElementById('age').textContent = freshest ? fmtAge(freshest) : 'no readings yet';
     document.getElementById('freshness').classList.toggle('stale', !freshest);
@@ -544,8 +608,11 @@ function renderHosts(combined) {
     return;
   }
 
-  // Multi-host mode: the account banner + one card per host + the legend.
+  // Multi-host mode: every unique account lane first, followed by host-first
+  // local tool stories. Offline stations are dimmed and sorted last.
   toolsEl.innerHTML = '';
+  if (singleLimits) singleLimits.hidden = true;
+  if (limitNotes) limitNotes.innerHTML = '';
   headEl.hidden = true; // headroom is a per-host, cross-tool cue; not shown at the aggregate level
   const groups = groupAccounts(hosts);
   const sharedKeys = {}; // source → Set(keys that group ≥2 hosts)
@@ -561,9 +628,20 @@ function renderHosts(combined) {
       return t ? fmtAge(t) : (h.fetchedAt ? fmtAge(h.fetchedAt) : null);
     },
   };
-  const banner = accountBannerHtml(groups);
-  const cards = hosts.map((h) => hostGroupHtml(h, ctx)).join('');
-  hostsEl.innerHTML = banner + cards + LEGEND_HTML;
+  const overview = accountOverviewHtml(hosts, groups);
+  const orderedHosts = hosts.slice().sort((a, b) => {
+    if (Boolean(a.reachable) !== Boolean(b.reachable)) return a.reachable ? -1 : 1;
+    if (Boolean(a.self) !== Boolean(b.self)) return a.self ? -1 : 1;
+    return 0;
+  });
+  const cards = orderedHosts.map((h) => hostGroupHtml(h, ctx)).join('');
+  hostsEl.innerHTML = overview + cards + LEGEND_HTML;
+
+  // Preserve local Codex insights and both local trend groups in multi-host
+  // mode without mixing them into a peer's activity. They follow the host-first
+  // read and remain explicitly scoped to this machine.
+  const self = hosts.find((host) => host.self && host.reachable && host.state);
+  renderStaticGroups(self && self.state ? self.state.tools || [] : [], true);
 
   // Header freshness: "N hosts · updated <age> ago" from the freshest reachable
   // host's newest capture.
@@ -1071,12 +1149,16 @@ function chartCard(title, src, svg, legend) {
 }
 
 function trendToolHtml(t, range) {
+  return `<section class="trend-tool ${toolToneClass(t)}"><div class="trend-tool-head">${toolNameHtml(t)}</div>`
+    + trendContentHtml(t, range) + `</section>`;
+}
+
+function trendContentHtml(t, range) {
   const fh = t.limits.five_hour || [], sd = t.limits.seven_day || [], daily = t.daily || [];
   const hasLimits = fh.length >= 2 || sd.length >= 2;
   const hasActivity = daily.length >= 1;
   if (!hasLimits && !hasActivity) {
-    return `<section class="trend-tool ${toolToneClass(t)}"><div class="trend-tool-head">${toolNameHtml(t)}</div>`
-      + `<div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div></section>`;
+    return `<div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div>`;
   }
   const pct = (v) => Math.round(v) + '%';
   const usd = (v) => '$' + Math.round(v);
@@ -1102,7 +1184,7 @@ function trendToolHtml(t, range) {
   const note = (hasLimits && !hasActivity)
     ? `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`
     : '';
-  return `<section class="trend-tool ${toolToneClass(t)}"><div class="trend-tool-head">${toolNameHtml(t)}</div><div class="charts">${cards.join('')}</div>${note}</section>`;
+  return `<div class="charts">${cards.join('')}</div>${note}`;
 }
 
 async function fetchTrends() {
@@ -1110,7 +1192,29 @@ async function fetchTrends() {
     const res = await fetch('/api/trends?range=' + encodeURIComponent(TREND_RANGE), { cache: 'no-store' });
     if (!res.ok) throw new Error('bad');
     const data = await res.json();
-    document.getElementById('trends').innerHTML = data.tools.map((t) => trendToolHtml(t, data.range)).join('');
+    const targets = {
+      'claude-code': document.getElementById('trends-claude'),
+      codex: document.getElementById('trends-codex'),
+    };
+    let renderedInGroups = false;
+    for (const tool of Array.isArray(data.tools) ? data.tools : []) {
+      const target = targets[tool.source];
+      if (!target) continue;
+      target.innerHTML = trendContentHtml(tool, data.range);
+      renderedInGroups = true;
+    }
+    for (const [source, target] of Object.entries(targets)) {
+      if (target && !(data.tools || []).some((tool) => tool.source === source)) {
+        target.innerHTML = `<div class="empty">Not enough data yet — trends fill in as you use this tool.</div>`;
+      }
+    }
+    const claudeCopy = document.getElementById('claude-trends-range');
+    const codexCopy = document.getElementById('codex-trends-range');
+    if (claudeCopy) claudeCopy.textContent = data.range;
+    if (codexCopy) codexCopy.textContent = data.range;
+    // Minimal-DOM and legacy embedding fallback.
+    const fallback = document.getElementById('trends');
+    if (!renderedInGroups && fallback) fallback.innerHTML = (data.tools || []).map((tool) => trendToolHtml(tool, data.range)).join('');
   } catch { /* keep the previous render */ }
 }
 
