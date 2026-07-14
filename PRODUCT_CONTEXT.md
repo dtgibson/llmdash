@@ -12,15 +12,14 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
   reached, with status pills), and activity stats from local logs: tokens (5h /
   week / today), cache hit rate, estimated value, weekly token mix, cache
   savings, and today's value. Limit snapshots are logged to SQLite.
-- **Codex usage and diagnostics** — Codex's live 5-hour and weekly limits sit
-  beside Claude with cross-tool headroom, account-wide plan/credit facts, and
-  range-aware local diagnostics for tokens, reasoning, turns, sessions, models,
-  effort, tools, context/compactions, latency, busiest day, and daily patterns,
-  while cache-subset accounting and explicit unavailable states keep every total
-  honest.
-- **Usage trends** — a Trends section below the gauges charts usage over time per
-  tool (limit burn, tokens per day, cache rate, estimated value) in vanilla SVG,
-  with a 24h / 7d / 30d range switch.
+- **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
+  Claude in the leading account-limit comparison, with absent windows left
+  unavailable and its account facts, local activity, reasoning, work mix,
+  context/compaction pressure, latency, and daily patterns grouped into one
+  honest Codex story.
+- **Usage trends** — each tool group closes with its own vanilla-SVG limit burn,
+  tokens-per-day, cache-rate, and estimated-value charts under one shared 24h /
+  7d / 30d range switch.
 - **Claude reading freshness & auto-refresh** — the Claude limit reading shows
   its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
   and keeps itself fresh automatically: while Claude is active, an activity-gated
@@ -61,15 +60,10 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
   entirely — either the menu-bar badge only, or completely (service, checkout,
   statusline wiring, and trust artifacts, each enumerated before it acts) — with no
   terminal, your usage history preserved by default, and SwiftBar never removed.
-- **Multi-host view** — one llmdash can show several of your tailnet machines
-  together: each host's account-wide limit windows and its per-machine activity,
-  side by side, honestly labeled and independently fresh / stale / offline. Because
-  limits are account-wide, same-account machines collapse into a single "Account
-  limits" banner (identical meters shown once, never N budgets) while each machine
-  leads with its own distinct activity; an unreachable host shows a named offline
-  callout, never a stale meter. It reads each peer's existing `/api/state` — no new
-  per-host data path. Unset (the default) leaves the single-host dashboard exactly
-  as before.
+- **Multi-host view** — one llmdash can place every unique reachable account's
+  Claude/Codex limits in the leading comparison, collapse matching accounts once,
+  and then group each tailnet machine's local activity by tool while keeping
+  offline hosts explicit and using only each peer's existing `/api/state`.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain
@@ -84,11 +78,13 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
   those active model caps until reset instead of deleting them. Activity stats are
   computed on demand from `~/.claude/projects/**/*.jsonl`.
 - Codex limits and account facts come from `codex app-server` (polled on the
-  interval, not per request) with a rollout-file fallback; a bounded local scanner
-  reduces `~/.codex/sessions` into cached aggregate activity and 24h/7d/30d
-  diagnostics for `/api/codex-insights`, never returning raw session content or
-  identifiers. Both tools still flow through the source-aware limit path; deeper
-  insight history is re-derived from logs and never written to `usage_snapshots`.
+  interval, not per request) with a rollout-file fallback; explicit duration
+  identifies each current window, a complete response can authoritatively omit a
+  window, and historical snapshot rows never repopulate that missing current
+  slot. A bounded local scanner reduces `~/.codex/sessions` into cached aggregate
+  activity and 24h/7d/30d diagnostics for `/api/codex-insights`, never returning
+  raw session content or identifiers; deeper insight history is re-derived from
+  logs and never written to `usage_snapshots`.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Static assets are served `no-store`; the CSP allows inline styles while

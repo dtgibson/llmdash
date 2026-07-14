@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-22 features shipped.
+23 features shipped.
 
-- **Last shipped:** Deeper Codex insights — the dashboard now explains local
-  reasoning, turn/session size, work mix, context/compaction pressure, latency,
-  and daily patterns while keeping live plan and credit facts account-wide.
-- **Previously:** Cross-surface visual refinement — the dashboard and native
-  menu share a calmer account-limits-first hierarchy across desktop, phone, and
-  menu-bar use.
+- **Last shipped:** Limits-first tool grouping — Claude and Codex limits now stay
+  together up front on desktop and mobile, supporting stats stay with their tool,
+  and Codex windows are identified by real duration evidence.
+- **Previously:** Deeper Codex insights — the dashboard explains local reasoning,
+  work mix, context/compaction pressure, latency, and daily patterns while
+  keeping live account facts separate.
 
 ---
 

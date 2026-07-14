@@ -199,6 +199,14 @@
   one. Each tool shows a pacing predictor for **both** windows at once; a maxed
   window (≈0 remaining) reads "limit reached" and is binding **per window** (one
   maxed window never suppresses the other's pacing line).
+- **Provider window identity follows explicit evidence, and a complete live
+  response is authoritative for the current window set.** For Codex, a
+  duration-bearing positional window maps 300 minutes to `five_hour` and 10,080
+  minutes to `seven_day`; an unknown explicit duration stays unavailable, while
+  explicitly named legacy fields keep their declared identity and positional
+  fallback is allowed only when duration metadata is absent. Per-window snapshot
+  rows are history for Trends, not proof that a window still exists now, so they
+  must never fill a slot omitted by a complete current response.
 - If a tool genuinely lacks token activity, render an honest "not available" state
   (never fabricated zeros) and omit its activity charts. (Codex *does* record
   activity — `~/.codex/sessions` rollout logs — so it shows full stats.)

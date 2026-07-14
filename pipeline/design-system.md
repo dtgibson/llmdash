@@ -48,12 +48,22 @@ Spacing & shape:
 - Generous internal padding (16–21px). Whitespace is intentional.
 
 ## Patterns
-- **Cross-surface reading order:** dashboard = account-window gauges → pacing →
-  supporting activity/provenance → trends; native menu = binding summary →
-  host/tool readings → attached diagnostics → settings/actions. Preserve this
-  order as either surface gains content.
+- **Cross-surface reading order:** dashboard = complete Claude/Codex account-
+  window comparison → one grouped tool story at a time (pacing → activity →
+  supplemental detail → trends); native menu = binding summary → host/tool
+  readings → attached diagnostics → settings/actions. Preserve this order as
+  either surface gains content; diagnostics never split the primary comparison.
+- **Account-limit comparison** (`.limits-overview` + `.limit-tools`): the first
+  data surface presents one lane per tool and two fixed window cells per lane.
+  Lanes sit side by side at desktop widths and stack on phones while each keeps a
+  two-column window grid, so all four Claude/Codex slots remain visible before
+  supporting statistics without horizontal scrolling at 320px.
 - **Primary metric panel** (`.panel`): headline figure + label + status bar + meta
   line. Account-window gauges are the only strongly elevated metric layer.
+- **Unavailable window panel** (`.limit-card.unavailable`): retain the primary
+  slot's geometry but replace the percentage, countdown, and filled meter with a
+  plain `Unavailable` state and source-specific explanation; another window is
+  never relabeled or copied in to fill the slot.
 - **Stat tile** (`.tile`): compact secondary stat (label + figure + small note),
   grouped into a flat divided band rather than a grid of elevated cards.
 - **Status bar** (`.bar` / `.bar-fill`): thin rounded bar; fill width = the
@@ -82,9 +92,11 @@ Spacing & shape:
 - **Freshness indicator:** pulse dot + "updated Ns ago", tabular-nums.
 - **Honesty line:** when a number's source or scope differs from the headline
   data, say so plainly (e.g. footer).
-- **Tool block** (`.tool` + `.tool-head`): the principal grouping surface for one
-  tool's gauges and activity. A slim `--tool-color` rail plus `◆` / `▲` mark
-  establishes identity; avoid nested equal-weight card shells inside it.
+- **Tool detail group** (`.tool-group` + `.tool-group-head`): the principal
+  supporting surface for one tool after the shared account comparison, carrying
+  pacing, local activity, supplemental caps/insights, and that tool's Trends in
+  one story. A slim `--tool-color` rail plus `◆` / `▲` establishes identity;
+  avoid nested equal-weight card shells inside it.
 - **Host group** (`.host-head` + `.host-pill`): the machine-scoped wrapper for
   multi-host views — one host's tool blocks sit under a header carrying its
   escaped label and a right-aligned status pill (`binding` / `you` accent or muted
@@ -92,8 +104,10 @@ Spacing & shape:
   age-pill grammar; fresh → an "updated Ns ago" with a good pulse dot and **no**
   pill, so escalation stays structural). It layers the host axis in front of the
   tool axis without forking the tool block. Honesty rules travel with it:
-  same-account limits (matching reset epochs) collapse to a single shared banner
-  shown **once** (never N budgets); an unreachable host is a named offline callout
+  same-account limits (matching reset epochs) collapse into the leading account
+  comparison and are shown **once** (never N budgets), while genuinely different
+  accounts add labeled lanes there before any host activity; an unreachable host
+  is a named offline callout
   (`.stale-note` grammar), never a stale meter; a monitoring-station host with no
   local readings is de-emphasized (dimmed, pinned last, `no local activity` idle
   pill) but still shown — no fabricated zeros. The menu-bar badge miniaturizes the
@@ -147,6 +161,10 @@ Spacing & shape:
   `cubic-bezier(.2,.8,.2,1)`; range state may transition for 160ms ease-out and
   focus for 120ms. Disable effective motion under `prefers-reduced-motion`; use
   no entrance, stagger, bounce, hover-scale, or continuous decoration.
+- **Responsive acceptance check:** for a limits-first surface, verify semantic
+  DOM order and measured geometry at the minimum supported width: document and
+  component scroll widths must fit the viewport, all fixed account slots must end
+  before diagnostics begin, and compact controls must retain their target size.
 
 ## References
 None supplied by the user; the direction is anchored to "vanilla, basic, fast,

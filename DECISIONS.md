@@ -1,5 +1,25 @@
 # Decisions — llmdash
 
+## Codex window identity and limits-first tool grouping — 2026-07-13 (improve)
+**Decision:** Explicit provider duration now identifies positional Codex windows:
+300 minutes is 5-hour and 10,080 minutes is weekly; unknown explicit durations
+remain unavailable, and a complete current response defines which windows exist
+without independent historical rows filling an omitted slot. The dashboard keeps
+each reachable account's Claude/Codex 5-hour and weekly slots in one leading
+comparison, then groups pacing, activity, supplemental caps or insights, and
+Trends beneath the tool they describe.
+**Rationale:** A live Pro response exposed only one 10,080-minute `primary`
+window, which the positional parser mislabeled as 5-hour while also reviving an
+older weekly snapshot. Making that incorrect reading more prominent would have
+violated the product's honesty promise; the source identity and presentation
+hierarchy had to be corrected together.
+**Implications:** Provider evidence outranks field position, missing current
+windows render as unavailable rather than guessed, and snapshot history remains
+chart evidence only. Multi-host limits still collapse by account in the leading
+comparison, per-machine activity remains host-first below it, shared Trends and
+independent Codex-insight ranges keep their existing semantics, and the menu-bar
+contract remains unchanged.
+
 ## Deeper Codex insights — local aggregate diagnostics, explicit availability, account-wide facts — 2026-07-13 (feature)
 **Decision:** Codex now has one secondary, independently ranged diagnostic section
 beneath the limits-first dashboard hierarchy. It reduces structured local rollout

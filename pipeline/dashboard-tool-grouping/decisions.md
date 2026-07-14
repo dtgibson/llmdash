@@ -15,3 +15,16 @@ must make a missing short window legible without fabricating a percentage.
 
 This expands the original presentation-only scope because making the mislabeled
 number more prominent would knowingly worsen the dashboard's core promise.
+
+## 2026-07-13 — Recover first, then avoid the launchd reload race
+
+The production installer again encountered macOS bootstrap error 5 immediately
+after unloading the existing job. The running service was restored on the
+previous revision before any further deployment attempt. A valid regenerated
+plist then loaded cleanly once launchd saw the job as fully absent, confirming
+the failure was in the immediate unload/reload handoff rather than this build.
+
+Because the dashboard release changed no service path or environment value, the
+final production restart used `launchctl kickstart -k` against the already
+loaded, freshly generated service definition. That kept the service boundary
+unchanged and avoided another unload/bootstrap race; all live checks passed.
