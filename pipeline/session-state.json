@@ -1,9 +1,9 @@
 {
-  "activeFeature": "dashboard-tool-grouping",
+  "activeFeature": null,
   "sessionType": "maintain",
   "entryPath": "new",
-  "currentStage": 7,
-  "lastCompletedStage": 6,
+  "currentStage": null,
+  "lastCompletedStage": 7,
   "lastCheckpointStatus": "approved",
   "confirmedArtifacts": [
     "pipeline/dashboard-tool-grouping/change-brief.md",
@@ -16,5 +16,5 @@
   "awaitingHuman": null,
   "ideaId": null,
   "createdAt": "2026-07-03T20:09:26Z",
-  "updatedAt": "2026-07-14T05:33:59Z"
+  "updatedAt": "2026-07-14T05:38:07Z"
 }
