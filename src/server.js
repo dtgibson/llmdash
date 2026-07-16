@@ -11,7 +11,7 @@ import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine } f
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity, getCodexInsights, refreshCodexAnalytics } from './codex-stats.js';
 import { buildTrends } from './trends.js';
-import { startPoller, stopPoller } from './poller.js';
+import { startPoller } from './poller.js';
 import { tailnetIPv4 } from './net.js';
 import { getCombined, setHost } from './host-cache.js';
 import { parseHosts } from './hosts.js';
@@ -286,17 +286,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       state: buildState(),
     });
   }
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    const forced = setTimeout(() => process.exit(0), 4000);
-    if (forced.unref) forced.unref();
-    await stopPoller();
-    server.close(() => process.exit(0));
-  };
-  process.once('SIGTERM', shutdown);
-  process.once('SIGINT', shutdown);
   startPoller();
   server.listen(config.port, config.host, () => {
     console.log(`llmdash running at http://${config.host}:${config.port}`);

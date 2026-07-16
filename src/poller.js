@@ -1,6 +1,6 @@
 import { insertSnapshot } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
-import { cleanupStaleClaudeProbes, maybeRefreshClaude, stopClaudeRefresh } from './claude-refresh.js';
+import { maybeRefreshClaude } from './claude-refresh.js';
 import { readCodexLimits } from './codex-limits.js';
 import { computeActivity, clearStatsCache } from './stats.js';
 import { refreshCodexAnalytics } from './codex-stats.js';
@@ -148,36 +148,12 @@ export async function pollOnce() {
 // Single-flight guard: a still-running fan-out from a slow prior tick must not
 // be restarted, so in-flight fetches never accumulate across ticks (FR-08).
 let inFlight = false;
-let intervalHandle = null;
-let clearActiveInterval = null;
-export function startPoller({
-  poll = pollOnce,
-  prepare = cleanupStaleClaudeProbes,
-  intervalMs = config.pollIntervalMs,
-  setIntervalImpl = setInterval,
-  clearIntervalImpl = clearInterval,
-} = {}) {
-  // Import cycles/tests/hot reloads may call start twice. One module owns one
-  // monitor loop; return the existing stop function instead of stacking ticks.
-  if (intervalHandle != null) return stopPoller;
+export function startPoller() {
   const run = () => {
     if (inFlight) return; // a prior tick's fan-out is still draining — skip
     inFlight = true;
-    Promise.resolve().then(prepare).then(poll)
-      .catch((e) => console.error('poll error:', e.message))
-      .finally(() => { inFlight = false; });
+    pollOnce().catch((e) => console.error('poll error:', e.message)).finally(() => { inFlight = false; });
   };
   run();
-  intervalHandle = setIntervalImpl(run, intervalMs);
-  clearActiveInterval = () => clearIntervalImpl(intervalHandle);
-  return stopPoller;
-}
-
-export async function stopPoller() {
-  if (intervalHandle != null && clearActiveInterval) clearActiveInterval();
-  intervalHandle = null;
-  clearActiveInterval = null;
-  // Do not wait for unrelated peer/Codex reads. The detached Claude probe is
-  // the descendant that can survive service exit, so terminate it explicitly.
-  await stopClaudeRefresh();
+  setInterval(run, config.pollIntervalMs);
 }
