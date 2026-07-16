@@ -5,22 +5,41 @@
 2. Run the focused tests:
 
    ```sh
-   node --test tests/claude-refresh-gates.test.js tests/claude-refresh-parse.test.js tests/claude-monitor-lifecycle.test.js tests/autorefresh-guard.test.js tests/server.test.js
+   node --test tests/claude-activity-scan.test.js tests/claude-refresh-gates.test.js tests/claude-refresh-parse.test.js tests/claude-monitor-lifecycle.test.js tests/autorefresh-guard.test.js tests/server.test.js
    ```
 
-   They verify that a timeout preserves the old good reading, new Claude
-   activity gets a later recovery attempt, the full probe process tree is
-   terminated, PID/PGID replacements and an unrelated Claude CLI are never
+   They verify that a timeout preserves the old good reading, advancing nested
+   subagent activity gets one later recovery attempt, stale activity remains
+   idle, scan budgets and symlink boundaries hold, the full probe process tree
+   is terminated, PID/PGID replacements and an unrelated Claude CLI are never
    selected, reload/exit awaits cleanup, and starting the monitor twice still
    creates one interval.
 
 3. Run the complete regression suite:
 
    ```sh
+   LLMDASH_CLAUDE_AUTOREFRESH=0 \
+   LLMDASH_CLAUDE_DIR=/tmp/llmdash-full-suite-no-claude \
+   LLMDASH_CODEX_DIR=/tmp/llmdash-full-suite-no-codex \
+   LLMDASH_CODEX_CMD=/usr/bin/false \
    npm test
    ```
 
-4. After the deploy stage restarts the installed service, keep a real Claude CLI
+   Those temporary, nonexistent provider roots keep this broad poller regression
+   isolated from any live Claude or Codex session. The focused tests above drive
+   the refresh behavior with controlled fixtures.
+
+4. With a Claude session active, verify that the monitor sees its newest direct
+   or nested transcript timestamp. This command reads filesystem metadata only:
+
+   ```sh
+   node --input-type=module -e 'import { config } from "./config.js"; import { newestTranscriptMtimeMs } from "./src/claude-refresh.js"; const m = newestTranscriptMtimeMs(config); console.log(m == null ? "no activity" : new Date(m).toISOString())'
+   ```
+
+   For current subagent sessions, this timestamp should advance even when the
+   direct project transcript does not.
+
+5. After the deploy stage restarts the installed service, keep a real Claude CLI
    session active and watch the reading timestamp:
 
    ```sh
@@ -34,7 +53,7 @@
    weekly used percentage should match Claude's `/usage` screen. Stop the loop
    with Control-C.
 
-5. Check both shared consumers:
+6. Check both shared consumers:
 
    ```sh
    curl -fsS http://127.0.0.1:8787/api/state
@@ -45,7 +64,7 @@
    and matching weekly `usedPct` / `remainingPct`. On the next SwiftBar refresh,
    its dropdown and the browser dashboard should show that same weekly value.
 
-6. Confirm the old probe leak is not recurring after one service reload and one
+7. Confirm the old probe leak is not recurring after one service reload and one
    completed refresh:
 
    ```sh

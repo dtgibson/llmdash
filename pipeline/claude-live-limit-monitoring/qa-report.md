@@ -3,11 +3,39 @@
 **Date:** 2026-07-16
 **Test Runner:** Node 24 `node:test` plus controlled process/server harnesses
 **Result:** PASSED
+**Needs-fix flags:** None
 
 This report includes the post-audit remediation rerun for the High PID/PGID
-reuse finding in `security-report.md`.
+reuse finding in `security-report.md` and the deployment-discovered nested
+transcript activity remediation.
+
+## Deployment-discovered activity remediation
+
+The first deployment proved that lifecycle cleanup and single-monitor startup
+worked, but both live `/usage` probes timed out and the reading remained stale.
+Metadata-only inspection then showed the active Claude work advancing at
+`<project>/<session>/subagents/workflows/<workflow>/*.jsonl` (file depth 6),
+while the direct project transcript had aged. The direct-only activity scanner
+therefore returned `idle` and could not open the intended normal-cadence retry.
+
+The remediated scanner searches the direct and current nested layouts using
+`lstat` and streamed directory entries only. It never reads transcript contents
+or follows file/directory symlinks. Fixed ceilings bound each scan to depth 6,
+512 directory attempts, 10,000 candidate JSONL metadata reads, and 20,000
+directory entries. Missing, unreadable, or racing entries do not suppress a
+valid transcript found elsewhere.
+
+The deployment report is retained unchanged as the evidence for this discovery.
+This remediation did not reload the service, signal a live Claude process,
+change the production reading, or clean existing orphans.
 
 ## Test results
+
+Every suite in this rerun used `LLMDASH_CLAUDE_AUTOREFRESH=0`, nonexistent
+Claude/Codex roots, and `/usr/bin/false` provider commands. The focused commands
+below omit that repeated environment prefix for readability; their tests use
+scratch filesystem fixtures and injected attempts where enabled behavior is
+required.
 
 Focused refresh, lifecycle, state, and SwiftBar regression suite:
 
@@ -22,6 +50,16 @@ node --test tests/claude-refresh-gates.test.js \
 ```
 
 104 passing, 0 failing.
+
+Focused nested activity and lifecycle remediation suite:
+
+```sh
+node --test tests/claude-activity-scan.test.js \
+  tests/claude-refresh-gates.test.js \
+  tests/claude-monitor-lifecycle.test.js
+```
+
+32 passing, 0 failing.
 
 Focused API/dashboard/SwiftBar contract suite:
 
@@ -38,10 +76,28 @@ node --test tests/state-unchanged.test.js \
 Full suite:
 
 ```sh
+LLMDASH_CLAUDE_AUTOREFRESH=0 \
+LLMDASH_CLAUDE_DIR=/tmp/llmdash-qa-no-claude-20260716 \
+LLMDASH_CODEX_DIR=/tmp/llmdash-qa-no-codex-20260716 \
+LLMDASH_CLAUDE_CMD=/usr/bin/false \
+LLMDASH_CODEX_CMD=/usr/bin/false \
 npm test
 ```
 
-564 tests total: 562 passing, 0 failing, 2 skipped.
+570 tests total: 568 passing, 0 failing, 2 skipped. The provider isolation keeps
+the general poller regression from inspecting local provider stores or starting
+a real probe while the user's Claude CLI is active. Focused gate and lifecycle
+tests use explicit injected configurations and attempts.
+
+Independent continuous-write cadence harness:
+
+- A stale direct transcript and a depth-6 nested workflow transcript were placed
+  in a scratch provider tree.
+- The nested mtime advanced on every simulated minute for 11 minutes.
+- Every injected probe attempt timed out.
+- Attempts occurred only at minutes 0, 5, and 10; all intervening ticks returned
+  `waiting`. The nested activity therefore opens one normal-cadence retry, never
+  a per-write probe storm.
 
 Whitespace check:
 
@@ -88,7 +144,8 @@ not read, signaled, changed, or removed by QA.
 
 | Criterion | Result | Evidence |
 |---|---|---|
-| An active Claude session can recover monitoring within the normal refresh interval after a timeout. | Pass | `new Claude activity recovers at normal cadence after a timeout instead of waiting an hour` advances transcript evidence across repeated timeouts, verifies the cadence floor, and succeeds on the later bounded retry. The unchanged-activity backoff test separately proves this does not create a catch-up burst. |
+| An active Claude session can recover monitoring within the normal refresh interval after a timeout. | Pass | `advancing depth-6 subagent activity recovers after timeout without duplicate probes` uses the real bounded scanner, advances a nested workflow transcript after a timeout, opens one retry at five minutes, succeeds, and keeps the following tick waiting. Existing unchanged-activity tests separately preserve exponential backoff. |
+| Activity discovery is bounded, metadata-only, and symlink-safe. | Pass | Dedicated tests cover the current depth-6 layout, exclude depth 7, exercise directory/file/streamed-entry budgets, skip external file and directory symlinks, tolerate unreadable/racing paths, and confirm stale direct plus nested activity spawns nothing. |
 | A timed-out probe preserves the last-known-good reading. | Pass | `a timed-out refresh preserves last-known-good, then a later active retry replaces it` verifies the old file byte-for-byte after failure and confirms only the successful later capture advances it. Startup scratch cleanup also leaves `claude-ratelimits.json` unchanged. |
 | A fresh capture reaches `/api/state` and `/api/hosts` with internally consistent weekly percentages. | Pass | A live scratch server served a synthetic fresh reading as `usedPct: 6`, `remainingPct: 94`, with identical `capturedAt` through both endpoints. Existing host-cache and state-contract suites remain green. |
 | Dashboard and SwiftBar keep consuming the same current shared state without contract changes. | Pass | The scratch server returned 200 for `/` and `/app.js`; the real SwiftBar script fetched `/api/hosts` and rendered `94% remaining — Claude Code · Weekly` plus the matching `Weekly: 94%` row. `public/*` and the SwiftBar implementation are unchanged. Dashboard/SwiftBar parity tests pass. |
@@ -104,7 +161,14 @@ not read, signaled, changed, or removed by QA.
 
 - Fresh readings still suppress probes, and idle Claude activity still performs no
   refresh work.
+- Current depth-6 subagent workflow transcripts count as activity; depth-7 files
+  are outside the explicit discovery boundary.
+- Directory, JSONL-stat, and streamed-entry budgets stop work at fixed ceilings.
+- File and directory symlinks are skipped, transcript contents are never opened,
+  and unreadable/racing entries are isolated.
 - Continuously advancing activity cannot bypass the normal cadence floor.
+- Eleven consecutive minute-by-minute nested writes produced attempts only at
+  minutes 0, 5, and 10 when every attempt timed out.
 - Unchanged activity follows the existing 5/10/20/40/60-minute capped backoff.
 - Sleep-spanning time gaps yield at most one attempt on the first wake tick.
 - A refresh cancelled during service shutdown is not recorded as another failure.
@@ -159,3 +223,5 @@ Claude session:
 - Production orphan accumulation and live freshness remain deferred to the
   deployment checklist because this rerun did not touch the installed service,
   production reading, existing orphan trees, or the user's active Claude CLI.
+- The nested-activity remediation is proven in provider-isolated fixtures but has
+  not yet been redeployed after the rollback recorded in `deployment-report.md`.
