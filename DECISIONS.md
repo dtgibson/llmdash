@@ -1,5 +1,25 @@
 # Decisions — llmdash
 
+## Claude live-limit monitoring recovery — 2026-07-16 (fix)
+
+**Bug:** The dashboard and SwiftBar dropdown agreed on a stale Claude weekly
+reading of 100% used / 0% remaining even while Claude CLI work was active, and
+timed-out refresh probes could leave descendants behind across reloads or exits.
+**Cause:** Failure backoff hid recovery attempts, activity discovery ignored the
+current nested subagent transcript layout, and probe lifecycle ownership was not
+complete; a logged-out Claude CLI explained the first redeploy timeout but not
+the monitor's inability to recover afterward.
+**Resolution:** Monitoring now discovers direct and nested activity with bounded
+metadata-only traversal, lets advancing activity retry at the normal cadence
+while preserving last-good data, and tears down only freshly identity-verified,
+marker-owned process trees on timeout, startup, reload, and shutdown. Production
+then captured a fresh authenticated reading (10% used / 90% remaining), with both
+APIs, the dashboard, and SwiftBar in agreement after a second clean restart.
+**Implications:** Claude refresh reliability depends on both provider
+authentication and the shared producer lifecycle; future subprocess cleanup must
+remain identity-bound and future activity layouts must stay within an explicit,
+bounded discovery contract.
+
 ## Codex window identity and limits-first tool grouping — 2026-07-13 (improve)
 **Decision:** Explicit provider duration now identifies positional Codex windows:
 300 minutes is 5-hour and 10,080 minutes is weekly; unknown explicit durations

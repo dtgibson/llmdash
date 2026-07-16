@@ -47,11 +47,3 @@ peer can be offline — rather than blindly trust an old reading.
 - **macOS LaunchAgent reload hardening** — deployment exposed a transient
   `bootout` → `bootstrap` error-5 race; make the installer wait or retry narrowly
   after confirming the old user-domain service is fully removed.
-- **Auto-refresh — settled:** the statusline/payload avenue is closed for good
-  (neither `/status` nor `/usage` populates `rate_limits`); the `/usage`
-  screen-scrape shipped instead (DECISIONS.md 2026-07-02). Two open threads
-  remain from it:
-  - **Auto-refresh teardown hardening** — an ungraceful llmdash exit mid-probe
-    can orphan one probe session and leave a stale typescript; a SIGTERM/exit
-    teardown hook plus a startup stale-typescript sweep would close it (accepted
-    OPEN security follow-up, a deliberate engineering change).

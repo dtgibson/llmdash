@@ -1,0 +1,11 @@
+# Weft: per-run files + run records (durable docs still commit)
+session-state.json
+*/handoff.md
+*/how-to-see.md
+*/qa-report.md
+*/security-report.md
+*/deployment-record.md
+
+# Repository-specific per-run names
+handoff.md
+*/deployment-report.md

@@ -194,7 +194,12 @@
   interpolated into a shell string), an explicit env **allowlist** (never inherit
   the parent's `CLAUDECODE*`/`ANTHROPIC_*`/`LLMDASH_*`), a dedicated fixed cwd, and
   ancestry-gated teardown that structurally cannot signal the user's live sessions.
-  This is the codebase form of the zero-shell-injection rule.
+  Destructive process control captures PID, kernel birth time, PGID, and session
+  while ancestry is intact, then freshly revalidates that identity before **every**
+  positive-PID TERM/KILL; PPID may change after reparenting, but missing or changed
+  stable identity fails closed, and negative-PGID signaling is forbidden when group
+  membership cannot be proven atomically. This is the codebase form of the
+  zero-shell-injection and identity-bound teardown rules.
 - Limit and headroom logic consider **all windows** (5-hour and weekly), not just
   one. Each tool shows a pacing predictor for **both** windows at once; a maxed
   window (≈0 remaining) reads "limit reached" and is binding **per window** (one
@@ -223,8 +228,12 @@
   zero remains zero, and absent/malformed evidence remains unavailable. Scanners
   need finite traversal/byte/event/result/cache budgets and atomic last-good cache
   replacement; a missing root is authoritative empty while transient read failures
-  retain the prior complete view. Parse caches shared by several ranges retain the
-  widest active horizon, and HTTP handlers never trigger a scan.
+  retain the prior complete view. A pathname `lstat` followed by a separate
+  pathname `open` skips static symlinks but is **not** a race-free no-follow
+  guarantee: if same-user path replacement is in scope, use descriptor-relative
+  no-follow traversal; otherwise document the narrower static-symlink boundary.
+  Parse caches shared by several ranges retain the widest active horizon, and HTTP
+  handlers never trigger a scan.
 - **Sparse account facts carry evidence age.** Plan/credit fields observed on a
   live account response expire after a bounded TTL, and an explicit plan change or
   unknown plan clears facts that could belong to the prior account. Display-bound

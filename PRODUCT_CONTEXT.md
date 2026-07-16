@@ -22,11 +22,10 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
   7d / 30d range switch.
 - **Claude reading freshness & auto-refresh** — the Claude limit reading shows
   its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
-  and keeps itself fresh automatically: while Claude is active, an activity-gated
-  probe scrapes a `/usage` pane into the reading file, so a desktop-app-only day
-  no longer leaves the headline number permanently stale — no manual CLI ritual.
-  It degrades honestly (a failing probe or a disabled one says so; gauges keep
-  rendering the last capture) and costs no usage quota.
+  and keeps itself fresh automatically while Claude is active (including nested
+  subagent work) and the Claude CLI is authenticated: the activity-gated probe
+  retries at a bounded cadence after timeouts, cleans up across reloads and exits,
+  degrades honestly when failing or disabled, and costs no usage quota.
 - **macOS menu-bar badge** — a glanceable badge in the menu bar (via SwiftBar/xbar)
   showing the most-constrained remaining % across Claude Code and Codex (both
   windows), with a dropdown carrying the full per-tool picture, including Claude
@@ -71,12 +70,15 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - Limit data comes from Claude Code's statusline: `scripts/statusline.js` writes
   the `rate_limits` block to `data/claude-ratelimits.json`, which the server
   reads. Readings also refresh on their own: when the reading goes stale and
-  Claude has been active, the interval poller spawns a short-lived session, sends
-  `/usage`, and scrapes that pane into the same reading file (the statusline
-  render itself never carries limits for a desktop-app user). The `/usage` scrape
-  can also add model-specific caps, and account-only statusline captures preserve
-  those active model caps until reset instead of deleting them. Activity stats are
-  computed on demand from `~/.claude/projects/**/*.jsonl`.
+  Claude has been active and the Claude CLI is authenticated, the interval poller
+  recognizes direct and nested subagent transcript activity through a bounded
+  metadata scan, spawns a short-lived session, sends `/usage`, and scrapes that
+  pane into the same reading file. A timeout preserves the last good reading;
+  advancing activity can retry at the normal cadence, and startup/shutdown clean
+  only marker-owned probe remnants. The `/usage` scrape can also add model-specific
+  caps, and account-only statusline captures preserve those active model caps until
+  reset instead of deleting them. Activity stats are computed on demand from
+  `~/.claude/projects/**/*.jsonl`.
 - Codex limits and account facts come from `codex app-server` (polled on the
   interval, not per request) with a rollout-file fallback; explicit duration
   identifies each current window, a complete response can authoritatively omit a
@@ -138,7 +140,7 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
   Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding,
-  LaunchAgent reload hardening, and the auto-refresh teardown follow-up).
+  and LaunchAgent reload hardening).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.
