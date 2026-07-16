@@ -11,7 +11,7 @@ import path from 'node:path';
 delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
 const {
-  maybeRefreshClaude, getRefreshState, _resetRefreshState, newestTranscriptMtimeMs,
+  maybeRefreshClaude, getRefreshState, _resetRefreshState, newestTranscriptMtimeMs, writeReadingIfNewer,
 } = await import('../src/claude-refresh.js');
 
 const MIN = 60_000;
@@ -108,7 +108,10 @@ test('single flight: a due trigger mid-attempt is skipped, not queued (FR-14)', 
 test('backoff schedule under consecutive failures: 5, 10, 20, 40, 60, 60 minutes (FR-15, QA-14)', async () => {
   const fail = { ok: false, cause: 'timeout' };
   const attempt = countingAttempt([fail, fail, fail, fail, fail, fail, { ok: true }]);
-  const stale = (now) => ({ now, readReading: readingAged(now, 999 * MIN), newestActivityMs: activityAged(now, 0), attempt, cfg });
+  // Keep the activity evidence fixed to exercise the unchanged exponential
+  // path. Newly advancing activity has its own recovery test below.
+  const activityAt = T0;
+  const stale = (now) => ({ now, readReading: readingAged(now, 999 * MIN), newestActivityMs: () => activityAt, attempt, cfg: { ...cfg, claudeStaleAfterMs: 24 * 60 * MIN } });
   let now = T0;
   const expectedGapsMin = [5, 10, 20, 40, 60, 60];
   for (const [i, gap] of expectedGapsMin.entries()) {
@@ -126,6 +129,66 @@ test('backoff schedule under consecutive failures: 5, 10, 20, 40, 60, 60 minutes
   // Normal spacing (the threshold) applies again after the success.
   assert.equal(await maybeRefreshClaude(stale(now + 4 * MIN)), 'waiting');
   assert.equal(await maybeRefreshClaude(stale(now + 5 * MIN)), 'refreshed');
+});
+
+test('new Claude activity recovers at normal cadence after a timeout instead of waiting an hour', async () => {
+  const attempt = countingAttempt([
+    { ok: false, cause: 'timeout' },
+    { ok: false, cause: 'timeout' },
+    { ok: false, cause: 'timeout' },
+    { ok: true },
+  ]);
+  const run = (now, activityMs) => maybeRefreshClaude({
+    now,
+    readReading: readingAged(now, 999 * MIN),
+    newestActivityMs: () => activityMs,
+    attempt,
+    cfg,
+  });
+
+  assert.equal(await run(T0, T0), 'failed');
+  assert.equal(await run(T0 + 5 * MIN, T0 + MIN), 'failed');
+  assert.equal(await run(T0 + 10 * MIN, T0 + 6 * MIN), 'failed');
+  // Three failures normally schedule the next try 20m out. A transcript that
+  // advanced again gets one bounded recovery try after the 5m cadence floor.
+  assert.equal(getRefreshState().nextAttemptAt, T0 + 30 * MIN);
+  assert.equal(await run(T0 + 15 * MIN - 1, T0 + 11 * MIN), 'waiting');
+  assert.equal(await run(T0 + 15 * MIN, T0 + 11 * MIN), 'refreshed');
+  assert.equal(attempt.calls.length, 4);
+});
+
+test('a timed-out refresh preserves last-known-good, then a later active retry replaces it', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-timeout-recovery-'));
+  const fileCfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  const payload = (capturedAt, used) => ({
+    rate_limits: {
+      five_hour: { used_percentage: used, resets_at: null },
+      seven_day: { used_percentage: used, resets_at: null },
+    },
+    capturedAt,
+  });
+  const old = payload('2026-07-02T10:00:00.000Z', 100);
+  writeReadingIfNewer(old, fileCfg);
+  let calls = 0;
+  const attempt = async () => {
+    calls++;
+    if (calls === 1) return { ok: false, cause: 'timeout' };
+    writeReadingIfNewer(payload('2026-07-02T12:05:00.000Z', 6), fileCfg);
+    return { ok: true };
+  };
+  const run = (now, activityMs) => maybeRefreshClaude({
+    now,
+    readReading: () => ({ capturedAt: old.capturedAt }),
+    newestActivityMs: () => activityMs,
+    attempt,
+    cfg,
+  });
+
+  assert.equal(await run(T0, T0), 'failed');
+  assert.deepEqual(JSON.parse(fs.readFileSync(fileCfg.rateLimitsFile, 'utf8')), old);
+  assert.equal(await run(T0 + 5 * MIN, T0 + MIN), 'refreshed');
+  assert.equal(JSON.parse(fs.readFileSync(fileCfg.rateLimitsFile, 'utf8')).rate_limits.seven_day.used_percentage, 6);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 test('a sleep-spanning gap fires at most ONE attempt on the first wake tick (FR-14, QA-13)', async () => {

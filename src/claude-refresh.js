@@ -29,6 +29,7 @@ const state = {
   disabled: !config.claudeAutoRefresh,
   inFlight: false,
   lastAttemptAt: null,
+  lastAttemptActivityAt: null,
   nextAttemptAt: null, // wall-clock ms before which no attempt may start
   consecutiveFailures: 0,
   lastFailureCause: null, // 'spawn-error' | 'timeout' | 'parse-failed' | 'no-reading-produced'
@@ -41,6 +42,7 @@ export function _resetRefreshState() {
   state.disabled = !config.claudeAutoRefresh;
   state.inFlight = false;
   state.lastAttemptAt = null;
+  state.lastAttemptActivityAt = null;
   state.nextAttemptAt = null;
   state.consecutiveFailures = 0;
   state.lastFailureCause = null;
@@ -101,14 +103,30 @@ export async function maybeRefreshClaude({
   //    sleep-spanning gap yields at most one attempt on the first wake tick —
   //    never a catch-up burst (FR-14).
   if (state.inFlight) return 'in-flight';
-  if (state.nextAttemptAt != null && now < state.nextAttemptAt) return 'waiting';
+  // A timeout can be environmental (slow startup, a transient TUI stall). Do
+  // not let an hour-long exponential backoff hide a newly-active CLI session:
+  // fresh transcript evidence may retry at the normal refresh cadence. The
+  // cadence floor remains, so continuously-written transcripts cannot create
+  // a probe storm.
+  const activityAdvanced = state.lastAttemptActivityAt != null
+    && activityMs > state.lastAttemptActivityAt;
+  const normalCadenceAt = state.lastAttemptAt == null
+    ? null
+    : state.lastAttemptAt + cfg.claudeMaxAgeMs;
+  const mayRecoverForNewActivity = state.consecutiveFailures > 0
+    && activityAdvanced
+    && normalCadenceAt != null
+    && now >= normalCadenceAt;
+  if (state.nextAttemptAt != null && now < state.nextAttemptAt && !mayRecoverForNewActivity) return 'waiting';
 
   // 5. Attempt.
   state.inFlight = true;
   state.lastAttemptAt = now;
+  state.lastAttemptActivityAt = activityMs;
   state.nextAttemptAt = now + cfg.claudeMaxAgeMs; // spacing floor; a failure lengthens it below
   try {
     const result = await attempt({ cfg });
+    if (result && result.cancelled) return 'cancelled';
     if (result && result.ok) {
       state.consecutiveFailures = 0;
       state.lastFailureCause = null;
@@ -176,44 +194,166 @@ function cleanEnv(claudePath) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
-// Find the probe's claude pid: one ps snapshot, matched by walking ppid links
-// back to OUR spawn — a process that isn't a descendant of the probe can never
-// match, so the user's live sessions are structurally untouchable (NFR-04).
-function findClaudePid(rootPid, claudePath) {
+export function parseProcessTable(stdout) {
+  const procs = [];
+  for (const line of String(stdout || '').split('\n')) {
+    // `lstart` is a kernel-reported process birth time rendered as a fixed
+    // 24-character field (for example "Thu Jul 16 07:30:58 2026"). Keep the
+    // exact value as part of the identity; do not reduce it to PID/liveness.
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(.{24})\s+(.*)$/);
+    if (!m) continue;
+    procs.push({
+      pid: Number(m[1]),
+      ppid: Number(m[2]),
+      pgid: Number(m[3]),
+      session: Number(m[4]),
+      startedAt: m[5],
+      cmd: m[6],
+    });
+  }
+  return procs;
+}
+
+function processTable(pid = null) {
   return new Promise((resolve) => {
-    execFile('/bin/ps', ['-axo', 'pid=,ppid=,command='], { maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-      if (err) return resolve(null);
-      const procs = [];
-      for (const line of stdout.split('\n')) {
-        const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-        if (m) procs.push({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3] });
-      }
-      const byPid = new Map(procs.map((p) => [p.pid, p]));
-      const base = path.basename(claudePath);
-      for (const p of procs) {
-        if (!(p.cmd.includes(claudePath) || p.cmd.includes(base))) continue;
-        for (let cur = p, depth = 0; cur && depth < 12; cur = byPid.get(cur.ppid), depth++) {
-          if (cur.pid === rootPid) return resolve(p.pid);
-        }
-      }
-      resolve(null);
+    const fields = 'pid=,ppid=,pgid=,sess=,lstart=,command=';
+    const args = pid == null ? ['-axo', fields] : ['-p', String(pid), '-o', fields];
+    execFile('/bin/ps', args, { maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return resolve([]);
+      resolve(parseProcessTable(stdout));
     });
   });
 }
 
-// Teardown: TERM the probe's own process group, 2s grace, then verify the
-// pty-orphaned claude pid followed (script's death SIGHUPs it); escalate
-// TERM→KILL on that pid only. Nothing not recorded at spawn time is signaled.
-async function teardown(child, claudePid) {
-  try { process.kill(-child.pid, 'SIGTERM'); } catch {}
-  await sleep(2000);
-  if (claudePid != null && alive(claudePid)) {
-    try { process.kill(claudePid, 'SIGTERM'); } catch {}
-    await sleep(1000);
-    if (alive(claudePid)) { try { process.kill(claudePid, 'SIGKILL'); } catch {} }
+async function captureProcessIdentity(pid, table = processTable) {
+  // The `spawn` event means the kernel child exists. A few bounded reads make
+  // startup robust to a momentarily incomplete `ps` without ever fabricating a
+  // PID-only identity.
+  for (let i = 0; i < 3; i++) {
+    const found = (await table(pid)).find((p) => p.pid === pid);
+    if (found) return found;
+    if (i < 2) await sleep(10);
   }
+  return null;
+}
+
+// PID alone is never an identity. PGID/session add fail-closed corroboration to
+// PID + kernel birth time; PPID is intentionally excluded because a captured
+// owned descendant may legitimately reparent after its runner receives TERM.
+export function sameProcessIdentity(expected, live) {
+  return !!expected && !!live
+    && Number.isInteger(expected.pid) && expected.pid > 0
+    && expected.pid === live.pid
+    && typeof expected.startedAt === 'string' && expected.startedAt.length > 0
+    && expected.startedAt === live.startedAt
+    && Number.isInteger(expected.pgid) && expected.pgid === live.pgid
+    && Number.isInteger(expected.session) && expected.session === live.session;
+}
+
+// Capture every descendant as a complete identity while ancestry is intact,
+// deepest first. Those identities survive later reparenting; a reused numeric
+// PID does not, because its birth/group/session tuple no longer matches.
+export function descendantProcesses(procs, rootIdentity) {
+  const root = procs.find((p) => sameProcessIdentity(rootIdentity, p));
+  if (!root) return [];
+  const byParent = new Map();
+  for (const p of procs) {
+    const children = byParent.get(p.ppid) || [];
+    children.push(p);
+    byParent.set(p.ppid, children);
+  }
+  const found = [];
+  const visit = (pid, depth) => {
+    for (const child of byParent.get(pid) || []) {
+      visit(child.pid, depth + 1);
+      found.push({ process: child, depth });
+    }
+  };
+  visit(root.pid, 1);
+  return found.sort((a, b) => b.depth - a.depth).map((p) => p.process);
+}
+
+const signal = (pid, name) => process.kill(pid, name);
+
+async function signalRevalidated(identity, name, { table, send }) {
+  // Reacquire immediately before EACH signal. An existence check is not proof:
+  // fail closed unless the live process is the same kernel-born identity.
+  const current = await table(identity.pid);
+  const live = current.find((p) => p.pid === identity.pid);
+  if (!sameProcessIdentity(identity, live)) return false;
+  try {
+    send(identity.pid, name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function terminateProbeTree(rootIdentity, {
+  table = processTable,
+  wait = sleep,
+  send = signal,
+  initialTable = null,
+} = {}) {
+  if (!rootIdentity || !Number.isInteger(rootIdentity.pid)) return;
+  const snapshot = initialTable || await table();
+  const root = snapshot.find((p) => sameProcessIdentity(rootIdentity, p));
+  if (!root) return; // initial ownership cannot be re-proven
+  const descendants = descendantProcesses(snapshot, root);
+
+  // No negative-PGID signals: a numeric process group can be reused and Node
+  // offers no atomic group handle. Signal only captured identities, freshly
+  // revalidated one by one. Root first prevents the fixed runner from doing
+  // more work; saved descendant identities remain valid after reparenting.
+  await signalRevalidated(root, 'SIGTERM', { table, send });
+  for (const child of descendants) {
+    await signalRevalidated(child, 'SIGTERM', { table, send });
+  }
+  await wait(350);
+  for (const child of descendants) {
+    await signalRevalidated(child, 'SIGKILL', { table, send });
+  }
+  await signalRevalidated(root, 'SIGKILL', { table, send });
+}
+
+// The generated typescript path is a fixed ownership marker. On startup it
+// lets a new service generation reap a probe orphaned by a hard reload/crash,
+// including legacy probes that predate graceful signal handling.
+export function staleProbeRoots(procs, cfg = config) {
+  const escaped = path.join(cfg.dataDir, 'claude-usage-probe-')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const marker = new RegExp(`(?:^|[\\s"'])${escaped}\\d+-\\d+\\.typescript(?:$|[\\s"'])`);
+  const owned = new Set(procs.filter((p) => marker.test(p.cmd)).map((p) => p.pid));
+  return procs.filter((p) => owned.has(p.pid) && !owned.has(p.ppid));
+}
+
+let staleCleanupDone = false;
+export async function cleanupStaleClaudeProbes({
+  cfg = config,
+  table = processTable,
+  terminate = terminateProbeTree,
+} = {}) {
+  if (staleCleanupDone) return;
+  staleCleanupDone = true;
+  const procs = await table();
+  for (const root of staleProbeRoots(procs, cfg)) {
+    await terminate(root, { initialTable: procs });
+  }
+  // Probe captures are scratch only. Never touch the last-known-good reading.
+  try {
+    for (const name of fs.readdirSync(cfg.dataDir)) {
+      if (/^claude-usage-probe-\d+-\d+\.typescript$/.test(name)) {
+        try { fs.unlinkSync(path.join(cfg.dataDir, name)); } catch {}
+      }
+    }
+  } catch {}
+}
+
+let activeProbeStop = null;
+export async function stopClaudeRefresh() {
+  const stop = activeProbeStop;
+  if (stop) await stop();
 }
 
 // One refresh attempt: spawn → poll the typescript for a parseable /usage
@@ -238,7 +378,7 @@ async function attemptRefresh({ cfg = config } = {}) {
     child = spawn('/bin/sh', ['-c', RUNNER_SRC, 'sh', tsPath, claudePath], {
       cwd: cfg.claudeRefreshCwd,
       env: cleanEnv(claudePath),
-      detached: true, // own process group → one-shot group kill at teardown
+      detached: true, // isolate runner; teardown revalidates each owned identity individually
       stdio: 'ignore', // script's stdin comes from the sh pipeline, never a Node pipe
     });
   } catch {
@@ -246,22 +386,41 @@ async function attemptRefresh({ cfg = config } = {}) {
     return { ok: false, cause: 'spawn-error' };
   }
 
+  const didSpawn = await new Promise((resolve) => {
+    child.once('spawn', () => resolve(true));
+    child.once('error', () => resolve(false));
+  });
+  if (!didSpawn) {
+    try { fs.unlinkSync(tsPath); } catch {}
+    return { ok: false, cause: 'spawn-error' };
+  }
+  const rootIdentity = await captureProcessIdentity(child.pid);
+
   return await new Promise((resolve) => {
     let settled = false;
     let sawPane = false;
     let bestParsed = null;
     let firstParsedAtMs = 0;
-    let claudePid = null;
+    let finishPromise = null;
     const timers = [];
 
-    const finish = async (result) => {
-      if (settled) return;
-      settled = true;
-      for (const t of timers) { clearTimeout(t); clearInterval(t); }
-      await teardown(child, claudePid);
-      try { fs.unlinkSync(tsPath); } catch {}
-      resolve(result);
+    const finish = (result) => {
+      // A shutdown can arrive while timeout teardown is already between TERM
+      // and KILL. Return that same promise so the signal handler waits for the
+      // descendants to be gone instead of exiting through the race window.
+      if (finishPromise) return finishPromise;
+      finishPromise = (async () => {
+        settled = true;
+        for (const t of timers) { clearTimeout(t); clearInterval(t); }
+        await terminateProbeTree(rootIdentity);
+        try { fs.unlinkSync(tsPath); } catch {}
+        if (activeProbeStop === cancel) activeProbeStop = null;
+        resolve(result);
+      })();
+      return finishPromise;
     };
+    const cancel = () => finish({ ok: false, cancelled: true });
+    activeProbeStop = cancel;
 
     const modelLimitCount = (parsed) => Array.isArray(parsed?.modelLimits) ? parsed.modelLimits.length : 0;
     const rememberParsed = (parsed) => {
@@ -290,11 +449,6 @@ async function attemptRefresh({ cfg = config } = {}) {
         finish({ ok: false, cause: sawPane ? 'parse-failed' : 'no-reading-produced' });
       }
     });
-
-    // Record the claude pid early (the TUI is up within a few seconds); a
-    // second look right when /usage is typed covers a slow start.
-    const notePid = async () => { if (claudePid == null && !settled) claudePid = await findClaudePid(child.pid, claudePath); };
-    timers.push(setTimeout(notePid, 2000), setTimeout(notePid, 6000));
 
     timers.push(setTimeout(() => {
       if (!completeWithBestParsed()) finish({ ok: false, cause: sawPane ? 'parse-failed' : 'timeout' });
