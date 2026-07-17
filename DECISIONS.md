@@ -1,5 +1,23 @@
 # Decisions — llmdash
 
+## Local cost analysis — separated spend, exact-model counterfactuals, and evidence-qualified history — 2026-07-16 (feature)
+
+**Decision:** Cost analysis is a local-machine 7d / 30d / 90d comparison of
+three measures that are never blended: owner-confirmed configured subscription
+spend, API-equivalent value for the same retained records with observed caching,
+and those records repriced without caching; cache effect is the signed difference
+between the two API estimates.
+**Rationale:** The product needed to compare fixed access cost with the value of
+recorded work without presenting an estimate as an invoice, inferring a plan
+price, rewriting old work with today's rates, or fabricating complete totals from
+missing evidence.
+**Implications:** Subscription amounts remain optional local owner data; pricing
+uses exact model IDs and reviewed effective intervals with no family/latest
+fallback; one bounded deduplicated ledger and fixed-point arithmetic feed an
+atomic poller cache and additive read-only endpoint. Partial, unavailable, and
+true-zero states remain distinct, while peer APIs and the menu bar stay cost-free
+until cross-host history has a bounded deduplication contract.
+
 ## Claude live-limit monitoring recovery — 2026-07-16 (fix)
 
 **Bug:** The dashboard and SwiftBar dropdown agreed on a stale Claude weekly

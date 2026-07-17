@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-23 features shipped.
+24 features shipped.
 
-- **Last shipped:** Limits-first tool grouping — Claude and Codex limits now stay
-  together up front on desktop and mobile, supporting stats stay with their tool,
-  and Codex windows are identified by real duration evidence.
-- **Previously:** Deeper Codex insights — the dashboard explains local reasoning,
-  work mix, context/compaction pressure, latency, and daily patterns while
-  keeping live account facts separate.
+- **Last shipped:** Local cost analysis — owner-confirmed subscription spend now
+  sits beside exact-model observed-cache and no-cache API-equivalent histories,
+  with signed cache effect and explicit evidence completeness.
+- **Previously:** Limits-first tool grouping — Claude and Codex limits stay
+  together up front while supporting stats remain with their tool and Codex
+  windows follow real duration evidence.
 
 ---
 
@@ -47,3 +47,6 @@ peer can be offline — rather than blindly trust an old reading.
 - **macOS LaunchAgent reload hardening** — deployment exposed a transient
   `bootout` → `bootstrap` error-5 race; make the installer wait or retry narrowly
   after confirming the old user-domain service is fully removed.
+- **Cross-host cost history** — only after a bounded peer-history and
+  deduplication contract exists; current cost analysis intentionally values one
+  machine's local logs so it cannot silently omit or double-count activity.

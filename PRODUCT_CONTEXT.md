@@ -1,25 +1,31 @@
 # Product Context — llmdash
 
 ## What It Is
-A personal, self-hosted dashboard showing your remaining AI coding usage. It runs
-on your own machine and is viewable on phone or laptop over Tailscale. It covers
-Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
+A personal, self-hosted dashboard showing remaining AI coding usage and a local
+comparison of configured subscription spend with API-equivalent value. It runs on
+your own machine, is viewable on phone or laptop over Tailscale, and covers Claude
+Code (Max) and Codex (the live ChatGPT account tier) side by side.
 
 ## Shipped Capabilities
 - **Claude Code live dashboard** — the 5-hour and weekly limit windows (remaining
   %, reset countdowns, status colors), model-specific weekly caps when Claude
   reports them, pacing predictors for **both** windows (on pace / at risk / limit
   reached, with status pills), and activity stats from local logs: tokens (5h /
-  week / today), cache hit rate, estimated value, weekly token mix, cache
-  savings, and today's value. Limit snapshots are logged to SQLite.
+  week / today), cache hit rate, session counts, and weekly token mix, with limit
+  snapshots logged to SQLite.
 - **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
   Claude in the leading account-limit comparison, with absent windows left
   unavailable and its account facts, local activity, reasoning, work mix,
   context/compaction pressure, latency, and daily patterns grouped into one
   honest Codex story.
+- **Local cost analysis** — an independent 7d / 30d / 90d view compares
+  owner-confirmed subscription spend with exact-model, effective-dated
+  API-equivalent values for the same retained Claude/Codex usage under observed
+  and no-cache pricing, with signed cache effect, reconciled histories,
+  provenance, and explicit evidence completeness for this machine.
 - **Usage trends** — each tool group closes with its own vanilla-SVG limit burn,
-  tokens-per-day, cache-rate, and estimated-value charts under one shared 24h /
-  7d / 30d range switch.
+  tokens-per-day, and cache-rate charts under one shared 24h / 7d / 30d range
+  switch.
 - **Claude reading freshness & auto-refresh** — the Claude limit reading shows
   its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
   and keeps itself fresh automatically while Claude is active (including nested
@@ -87,6 +93,11 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
   activity and 24h/7d/30d diagnostics for `/api/codex-insights`, never returning
   raw session content or identifiers; deeper insight history is re-derived from
   logs and never written to `usage_snapshots`.
+- Cost analysis reduces a bounded 90-day local Claude/Codex ledger on the poller,
+  combines optional owner-confirmed subscription periods with reviewed
+  effective-dated rates using fixed-point arithmetic, and atomically caches 7d,
+  30d, and 90d views for its read-only endpoint; requests never scan logs, and
+  cost history is not added to peer or menu contracts.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Static assets are served `no-store`; the CSP allows inline styles while
@@ -131,6 +142,10 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
   that machine's logs only. The UI states this distinction, and in multi-host mode
   it is load-bearing: same-account limits are shown once (never repeated as if
   independent budgets), while per-machine activity leads the differentiation.
+- **Configured subscription spend** is fixed access cost supplied by the owner;
+  **API-equivalent values** are counterfactual estimates from retained local logs,
+  not invoices or provider charges, and any missing source/rate coverage remains
+  visibly partial or unavailable.
 - A gauge with no reading yet names the cause and the remedy (statusline not
   reporting yet, codex command not runnable) instead of silent dashes, and the
   startup log prints a data-source health readout naming anything missing.
@@ -140,7 +155,7 @@ Claude Code (Max) and Codex (the live ChatGPT account tier) side by side.
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
   Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding,
-  and LaunchAgent reload hardening).
+  LaunchAgent reload hardening, and cross-host cost history).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

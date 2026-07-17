@@ -117,7 +117,9 @@
   future silent revert is caught. A default diff that lands unannounced reads as a
   regression; ratify it, disclose it, and pin it.
 - **Surface security-relevant defaults** (e.g. network binding) in the README and
-  the startup log — never silently.
+  the startup log — never silently. Treat `0.0.0.0` as **LAN plus tailnet**
+  exposure, never tailnet-only; when adding privacy-sensitive aggregates, disclose
+  that reachability and preserve the `127.0.0.1` local-only option.
 - HTTP responses carry baseline security headers (`nosniff`, CSP `default-src
   'self'`, `Referrer-Policy`) and reject non-GET/HEAD with 405.
 
@@ -221,6 +223,15 @@
   (non-cached input at the input rate). The Anthropic-style additive sum inflates
   tokens ~2x and cost ~6.6x. Bucket Codex per-day data by **UTC** timestamps (its
   session directories are named in local time).
+- **Financial comparisons keep source semantics separate and arithmetic exact.**
+  Owner financial configuration is explicit, local, and owner-confirmed; a plan
+  label or quota response never infers spend, and missing evidence stays
+  partial/unavailable rather than becoming zero. API-equivalent counterfactuals
+  use exact model IDs and reviewed effective-date intervals (never family/latest
+  fallback or pre-launch back-projection), price one shared comparison record set,
+  and use fixed-point aggregation before one canonical display rounding. Keep
+  configured spend, estimated API value, and signed cache effect distinct; never
+  relabel them as invoices, charges, or generic savings.
 - **Structured-log analytics are aggregate-only, capability-gated, bounded, and
   cache-served.** Raw content, paths, payloads, and identifiers may exist only as
   ephemeral parser keys; API records carry normalized aggregates and bounded
@@ -228,10 +239,14 @@
   zero remains zero, and absent/malformed evidence remains unavailable. Scanners
   need finite traversal/byte/event/result/cache budgets and atomic last-good cache
   replacement; a missing root is authoritative empty while transient read failures
-  retain the prior complete view. A pathname `lstat` followed by a separate
+  retain the prior complete view. New local JSON/JSONL readers enforce bounds at
+  the actual I/O boundary: open the final file descriptor with no-follow semantics,
+  validate regular-file identity and size from the descriptor, cap bytes before
+  allocation, revalidate before publication, and enforce directory/record/time
+  ceilings before cache insertion. A pathname `lstat` followed by a separate
   pathname `open` skips static symlinks but is **not** a race-free no-follow
-  guarantee: if same-user path replacement is in scope, use descriptor-relative
-  no-follow traversal; otherwise document the narrower static-symlink boundary.
+  guarantee: if same-user ancestor replacement is in scope, use descriptor-relative
+  traversal; otherwise document the narrower boundary.
   Parse caches shared by several ranges retain the widest active horizon, and HTTP
   handlers never trigger a scan.
 - **Sparse account facts carry evidence age.** Plan/credit fields observed on a

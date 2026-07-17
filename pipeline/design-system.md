@@ -8,8 +8,8 @@ Simple, functional, fast. A focused data readout for personal use. Library-light
 (no framework, no component kit), glanceable, and honest about where each number
 comes from. Mobile-first; at home on a phone over Tailscale. Account-window gauges
 lead, pacing follows as the actionable layer, and supporting activity, provenance,
-and trends stay quieter. The native menu mirrors that order in text instead of
-imitating web cards.
+trends, and cross-tool analysis stay quieter. The native menu mirrors its relevant
+subset in text instead of imitating web cards.
 
 ## Tokens
 
@@ -50,9 +50,11 @@ Spacing & shape:
 ## Patterns
 - **Cross-surface reading order:** dashboard = complete Claude/Codex account-
   window comparison → one grouped tool story at a time (pacing → activity →
-  supplemental detail → trends); native menu = binding summary → host/tool
-  readings → attached diagnostics → settings/actions. Preserve this order as
-  either surface gains content; diagnostics never split the primary comparison.
+  supplemental detail → trends) → secondary cross-tool analysis; native menu =
+  binding summary → host/tool readings → attached diagnostics → settings/actions.
+  Preserve this order as either surface gains content; diagnostics never split
+  the primary comparison, and secondary analysis never enters the native menu by
+  default.
 - **Account-limit comparison** (`.limits-overview` + `.limit-tools`): the first
   data surface presents one lane per tool and two fixed window cells per lane.
   Lanes sit side by side at desktop widths and stack on phones while each keeps a
