@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { isBoundedFileError, readBoundedRegularFile } from './bounded-file.js';
 
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -17,6 +18,7 @@ const DEFAULT_SCAN_LIMITS = Object.freeze({
   maxResultRecords: 500_000,
   maxCacheFiles: 20_000,
   maxCacheRecords: 500_000,
+  maxWallMs: 60_000,
 });
 const TOOL_CATEGORIES = Object.freeze(['Shell', 'File edits', 'Search', 'MCP', 'Subagents', 'Other']);
 const EMPTY_CAPABILITIES = Object.freeze({
@@ -29,19 +31,22 @@ const EMPTY_CAPABILITIES = Object.freeze({
 });
 
 const parsedFileCache = new Map();
+const usageParsedFileCache = new Map();
+const OPTION_CEILINGS = Object.freeze({ maxEventsPerFile: 2_000_000, maxWallMs: 300_000 });
 
 function scanLimits(overrides) {
   const source = object(overrides) || {};
   return Object.fromEntries(Object.entries(DEFAULT_SCAN_LIMITS).map(([key, fallback]) => {
     const value = source[key];
     return [key, typeof value === 'number' && Number.isFinite(value) && value >= 1
-      ? Math.min(fallback, Math.floor(value)) : fallback];
+      ? Math.min(OPTION_CEILINGS[key] || fallback, Math.floor(value)) : fallback];
   }));
 }
 
-function scanBudgetError() {
+function scanBudgetError(reason = 'scan_budget_records') {
   const error = new Error('Codex session scan exceeded its safety budget');
   error.code = 'CODEX_SCAN_BUDGET';
+  error.reason = reason;
   return error;
 }
 
@@ -219,9 +224,15 @@ function *inputLines(input) {
 // deterministic surrogate turn keys and never retain event payloads or content.
 export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   const result = blankResult();
+  const usageOnly = options.usageOnly === true;
   const sid = normalizeSessionKey(sessionKey);
   const limits = scanLimits(options.limits);
   const sharedBudget = object(options.eventBudget);
+  const nowFn = typeof options.nowFn === 'function'
+    ? options.nowFn : (typeof sharedBudget?.nowFn === 'function' ? sharedBudget.nowFn : Date.now);
+  const localDeadlineMs = nowFn() + limits.maxWallMs;
+  const deadlineMs = Number.isFinite(sharedBudget?.deadlineMs)
+    ? Math.min(localDeadlineMs, sharedBudget.deadlineMs) : localDeadlineMs;
   const turns = new Map();
   const contexts = new Map();
   const fingerprintsByTurn = new Map();
@@ -239,6 +250,11 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   let activeLegacyContext = { model: null, effort: null, contextWindow: null };
   let lastFallbackFingerprint = null;
   let eventsSeen = 0;
+  let acceptedRecords = 0;
+  const acceptRecord = (target, record) => {
+    if (++acceptedRecords > limits.maxResultRecords) throw scanBudgetError('scan_budget_records');
+    target.push(record);
+  };
 
   const turnFor = (raw) => {
     const id = internalIdentifier(raw);
@@ -275,30 +291,40 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   };
 
   for (const line of inputLines(input)) {
+    if (nowFn() > deadlineMs) throw scanBudgetError('scan_budget_time');
     let event;
     if (typeof line === 'string') {
       if (!line.trim()) continue;
       eventsSeen++;
-      if (eventsSeen > limits.maxEventsPerFile) throw scanBudgetError();
+      if (eventsSeen > limits.maxEventsPerFile) throw scanBudgetError('scan_budget_lines');
       if (sharedBudget) {
         sharedBudget.count = safeInteger(sharedBudget.count) ?? 0;
         sharedBudget.count++;
-        if (sharedBudget.count > limits.maxEventsPerScan) throw scanBudgetError();
+        if (sharedBudget.count > limits.maxEventsPerScan) throw scanBudgetError('scan_budget_lines');
       }
-      if (line.length > MAX_JSONL_LINE_CHARS) continue;
-      try { event = JSON.parse(line); } catch { continue; }
+      if (line.length > MAX_JSONL_LINE_CHARS) {
+        if (usageOnly) result.parseIncomplete ||= 'record_unsupported';
+        continue;
+      }
+      try { event = JSON.parse(line); } catch {
+        if (usageOnly) result.parseIncomplete ||= 'record_unsupported';
+        continue;
+      }
     } else {
       eventsSeen++;
-      if (eventsSeen > limits.maxEventsPerFile) throw scanBudgetError();
+      if (eventsSeen > limits.maxEventsPerFile) throw scanBudgetError('scan_budget_lines');
       if (sharedBudget) {
         sharedBudget.count = safeInteger(sharedBudget.count) ?? 0;
         sharedBudget.count++;
-        if (sharedBudget.count > limits.maxEventsPerScan) throw scanBudgetError();
+        if (sharedBudget.count > limits.maxEventsPerScan) throw scanBudgetError('scan_budget_lines');
       }
       event = line;
     }
     event = object(event);
-    if (!event) continue;
+    if (!event) {
+      if (usageOnly) result.parseIncomplete ||= 'record_unsupported';
+      continue;
+    }
     const outerType = typeof event.type === 'string' ? event.type : '';
     const rawPayload = object(event.payload);
     const payload = rawPayload || {};
@@ -347,7 +373,10 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       continue;
     }
 
+    const tokenCandidate = (outerType === 'event_msg' && innerType === 'token_count')
+      || outerType === 'token_count' || object(event.token_count) !== null;
     const tokenData = tokenPayload(event, outerType, rawPayload);
+    if (usageOnly && tokenCandidate && !tokenData) result.parseIncomplete ||= 'record_unsupported';
     if (tokenData) {
       const explicitTurn = turnFor(payload.turn_id ?? tokenData.token.turn_id ?? event.turn_id);
       const turnKey = explicitTurn || activeTurn;
@@ -356,7 +385,10 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       if (contextWindow !== null) result.capabilities.context = true;
       if (tokenData.usage.reasoningSupported) result.capabilities.reasoning = true;
       const tsMs = timestampMs(event, payload);
-      if (tsMs === null) continue;
+      if (tsMs === null) {
+        if (usageOnly) result.parseIncomplete ||= 'timestamp_invalid';
+        continue;
+      }
       const fingerprint = fingerprintOf(tokenData.usage, tokenData.cumulative, contextWindow);
       let duplicate = false;
       if (turnKey && tokenData.cumulative) {
@@ -370,7 +402,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
         lastFallbackFingerprint = fallback;
       }
       if (duplicate) continue;
-      result.usage.push({
+      acceptRecord(result.usage, {
         tsMs, sessionKey: sid, turnKey,
         input: tokenData.usage.input,
         cached: tokenData.usage.cached,
@@ -400,7 +432,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       if (tsMs !== null && !repeated) {
         if (turnKey !== null) seenCompletions.add(turnKey);
         const context = contextFor(turnKey) || activeLegacyContext;
-        result.completions.push({
+        if (!usageOnly) acceptRecord(result.completions, {
           tsMs, sessionKey: sid, turnKey, durationMs, firstTokenMs,
           model: context?.model ?? null, effort: context?.effort ?? null,
         });
@@ -436,7 +468,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       if (tsMs === null) continue;
       if (callId) seenCalls.add(callId);
       const turnKey = turnFor(payload.turn_id ?? event.turn_id) || activeTurn;
-      result.tools.push({
+      if (!usageOnly) acceptRecord(result.tools, {
         tsMs, sessionKey: sid, turnKey,
         category: classifyTool(payload.name ?? event.name, payload.namespace ?? event.namespace, innerType),
       });
@@ -455,7 +487,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       const seen = canonicalCompaction ? seenCanonicalCompactions : seenFallbackCompactions;
       if (dedupeId && seen.has(dedupeId)) continue;
       if (dedupeId) seen.add(dedupeId);
-      (canonicalCompaction ? canonicalCompactions : fallbackCompactions).push({ tsMs, sessionKey: sid });
+      if (!usageOnly) acceptRecord(canonicalCompaction ? canonicalCompactions : fallbackCompactions, { tsMs, sessionKey: sid });
     }
   }
 
@@ -469,8 +501,11 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       record.contextWindow = context?.contextWindow ?? sessionContextWindow;
     }
   }
+  if (usageOnly && result.usage.some((record) => record.model === null)) {
+    result.parseIncomplete ||= 'record_unsupported';
+  }
   result.capabilities.latency = result.completions.some((record) => record.durationMs !== null || record.firstTokenMs !== null);
-  result.compactions = sawCanonicalCompaction ? canonicalCompactions : fallbackCompactions;
+  result.compactions = usageOnly ? [] : (sawCanonicalCompaction ? canonicalCompactions : fallbackCompactions);
   return result;
 }
 
@@ -490,7 +525,17 @@ export function scanCodexRollouts(sinceMs, options = {}) {
   const lowerBound = typeof sinceMs === 'number' && Number.isFinite(sinceMs) ? Math.max(0, sinceMs) : 0;
   const io = options.fs || fs;
   const limits = scanLimits(options.limits);
-  const nextCache = new Map(parsedFileCache);
+  const nowFn = typeof options.nowFn === 'function' ? options.nowFn : Date.now;
+  const startedMs = nowFn();
+  const deadlineMs = startedMs + limits.maxWallMs;
+  const checkTime = () => {
+    if (nowFn() > deadlineMs) throw scanBudgetError('scan_budget_time');
+  };
+  // Cost analysis needs only normalized usage records. Keep that smaller parse
+  // cache separate so the normal insights scan and usage-only scan do not
+  // replace one another and force full reparses on alternating poller steps.
+  const activeCache = options.usageOnly === true ? usageParsedFileCache : parsedFileCache;
+  const nextCache = new Map(activeCache);
   const sessionsDir = path.resolve(options.sessionsDir || config.codexSessionsDir);
   const pruneBeforeMs = typeof options.pruneBeforeMs === 'number' && Number.isFinite(options.pruneBeforeMs)
     ? Math.max(0, options.pruneBeforeMs) : null;
@@ -499,35 +544,51 @@ export function scanCodexRollouts(sinceMs, options = {}) {
   const discovered = new Set();
   const unreadableSubtrees = [];
   let traversalFailed = false;
+  let sourceUnreadable = false;
   let entriesSeen = 0;
   const visitEntry = (entry, directory, depth) => {
+    checkTime();
     entriesSeen++;
-    if (entriesSeen > limits.maxEntries) throw scanBudgetError();
+    if (entriesSeen > limits.maxEntries) throw scanBudgetError('scan_budget_entries');
     const filePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (depth >= limits.maxDepth) throw scanBudgetError();
+    let entryStat;
+    try {
+      entryStat = typeof io.lstatSync === 'function' ? io.lstatSync(filePath) : io.statSync(filePath);
+    } catch {
+      sourceUnreadable = true;
+      return;
+    }
+    if (entryStat.isSymbolicLink?.()) return;
+    if (entryStat.isDirectory?.()) {
+      if (depth >= limits.maxDepth) throw scanBudgetError('scan_budget_depth');
       walk(filePath, false, depth + 1);
-    } else if (entry.isFile() && entry.name.startsWith('rollout-') && entry.name.endsWith('.jsonl')) {
+    } else if (entryStat.isFile?.() && entry.name.startsWith('rollout-') && entry.name.endsWith('.jsonl')) {
+      if (!discovered.has(filePath) && discovered.size >= limits.maxFiles) throw scanBudgetError('scan_budget_files');
       discovered.add(filePath);
-      if (discovered.size > limits.maxFiles) throw scanBudgetError();
-      let stat;
-      try { stat = io.statSync(filePath); } catch (error) {
-        const cached = nextCache.get(filePath);
-        if (error?.code !== 'ENOENT' && cached && cached.mtimeMs >= lowerBound) {
-          files.push({ filePath, stat: { mtimeMs: cached.mtimeMs, size: cached.size } });
-        }
-        return;
-      }
-      if (stat.mtimeMs >= lowerBound) files.push({ filePath, stat });
+      if (entryStat.mtimeMs >= lowerBound) files.push({ filePath, stat: entryStat });
     }
   };
   const walk = (directory, root = false, depth = 0) => {
+    checkTime();
+    if (root) {
+      try {
+        const rootStat = typeof io.lstatSync === 'function' ? io.lstatSync(directory) : io.statSync(directory);
+        if (rootStat.isSymbolicLink?.() || !rootStat.isDirectory?.()) {
+          traversalFailed = true;
+          return;
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') traversalFailed = true;
+        return;
+      }
+    }
     let directoryHandle;
     let entries;
     try {
       if (typeof io.opendirSync === 'function') directoryHandle = io.opendirSync(directory);
       else entries = io.readdirSync(directory, { withFileTypes: true });
     } catch (error) {
+      if (options.partialOnBudget === true) sourceUnreadable = true;
       if (root) {
         // An absent root is authoritative deletion/logout state, not a
         // transient read failure. Publish an empty scan and let the broad
@@ -535,6 +596,7 @@ export function scanCodexRollouts(sinceMs, options = {}) {
         if (error?.code !== 'ENOENT') traversalFailed = true;
       } else if (error?.code !== 'ENOENT') {
         unreadableSubtrees.push(directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`);
+        sourceUnreadable = true;
       }
       return;
     }
@@ -542,6 +604,14 @@ export function scanCodexRollouts(sinceMs, options = {}) {
       try {
         let entry;
         while ((entry = directoryHandle.readSync()) !== null) visitEntry(entry, directory, depth);
+      } catch (error) {
+        if (error?.code === 'CODEX_SCAN_BUDGET') throw error;
+        if (root) {
+          if (error?.code !== 'ENOENT') traversalFailed = true;
+        } else if (error?.code !== 'ENOENT') {
+          unreadableSubtrees.push(directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`);
+          sourceUnreadable = true;
+        }
       } finally {
         try { directoryHandle.closeSync(); } catch {}
       }
@@ -576,29 +646,62 @@ export function scanCodexRollouts(sinceMs, options = {}) {
     }
   }
 
+  if (options.usageOnly === true) {
+    // When a cold 90-day tree exceeds the read budget, prefer the newest files
+    // so a bounded partial result still represents the range users are looking
+    // at instead of exhausting the allowance on its oldest edge.
+    files.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs || a.filePath.localeCompare(b.filePath));
+  }
+
   let changedBytes = 0;
+  let preflightIncomplete = null;
+  const scanFiles = [];
   for (const { filePath, stat } of files) {
+    checkTime();
     const cached = nextCache.get(filePath);
-    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) continue;
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      scanFiles.push({ filePath, stat });
+      continue;
+    }
     if (typeof stat.size !== 'number' || !Number.isFinite(stat.size) || stat.size < 0
-      || stat.size > limits.maxFileBytes) throw scanBudgetError();
+      || stat.size > limits.maxFileBytes) {
+      if (options.partialOnBudget === true) { preflightIncomplete ||= 'file_too_large'; continue; }
+      throw scanBudgetError('scan_budget_file_bytes');
+    }
+    if (changedBytes + stat.size > limits.maxChangedBytesPerScan && options.partialOnBudget === true) {
+      preflightIncomplete ||= 'scan_budget_total_bytes';
+      break;
+    }
     changedBytes += stat.size;
-    if (changedBytes > limits.maxChangedBytesPerScan) throw scanBudgetError();
+    if (changedBytes > limits.maxChangedBytesPerScan) throw scanBudgetError('scan_budget_total_bytes');
+    scanFiles.push({ filePath, stat });
   }
 
   const result = blankResult();
-  const eventBudget = { count: 0 };
+  if (preflightIncomplete) result.scanIncomplete = preflightIncomplete;
+  if (sourceUnreadable || unreadableSubtrees.length) result.scanIncomplete ||= 'source_unreadable';
+  const eventBudget = { count: 0, deadlineMs, nowFn };
   let resultRecords = 0;
   const appendRecord = (key, record) => {
     resultRecords++;
-    if (resultRecords > limits.maxResultRecords) throw scanBudgetError();
+    if (resultRecords > limits.maxResultRecords) throw scanBudgetError('scan_budget_records');
     result[key].push({ ...record });
   };
-  for (const { filePath, stat } of files) {
-    let parsed = nextCache.get(filePath);
-    if (!parsed || parsed.mtimeMs !== stat.mtimeMs || parsed.size !== stat.size) {
+  filesLoop: for (const { filePath, stat } of scanFiles) {
+    checkTime();
+    try {
+      let parsed = nextCache.get(filePath);
+      if (!parsed || parsed.mtimeMs !== stat.mtimeMs || parsed.size !== stat.size) {
       let content;
-      try { content = io.readFileSync(filePath, 'utf8'); } catch {
+      try {
+        ({ content } = readBoundedRegularFile(filePath, {
+          fsImpl: io, maxBytes: limits.maxFileBytes, expectedStat: stat,
+        }));
+      } catch (error) {
+        if (isBoundedFileError(error, 'BOUNDED_FILE_TOO_LARGE')) {
+          throw scanBudgetError('scan_budget_file_bytes');
+        }
+        result.scanIncomplete ||= 'source_unreadable';
         // A prior complete parse is safer than dropping the whole refresh. With
         // no prior value, skip only this file and keep every readable session.
         if (parsed) {
@@ -609,20 +712,27 @@ export function scanCodexRollouts(sinceMs, options = {}) {
         }
         continue;
       }
-      const actualBytes = Buffer.byteLength(content, 'utf8');
-      if (actualBytes > limits.maxFileBytes) throw scanBudgetError();
-      changedBytes += actualBytes - stat.size;
-      if (changedBytes > limits.maxChangedBytesPerScan) throw scanBudgetError();
+      checkTime();
       parsed = {
         mtimeMs: stat.mtimeMs,
         size: stat.size,
-        value: scanCodexSession(content, path.basename(filePath), { limits, eventBudget }),
+        value: scanCodexSession(content, path.basename(filePath), {
+          limits, eventBudget, usageOnly: options.usageOnly === true, nowFn,
+        }),
       };
-      nextCache.set(filePath, parsed);
-    }
-    mergeCapabilities(result.capabilities, parsed.value.capabilities);
-    for (const key of ['usage', 'completions', 'compactions', 'tools']) {
-      for (const record of parsed.value[key]) if (record.tsMs >= lowerBound) appendRecord(key, record);
+        nextCache.set(filePath, parsed);
+      }
+      result.scanIncomplete ||= parsed.value.parseIncomplete;
+      mergeCapabilities(result.capabilities, parsed.value.capabilities);
+      for (const key of ['usage', 'completions', 'compactions', 'tools']) {
+        for (const record of parsed.value[key]) if (record.tsMs >= lowerBound) appendRecord(key, record);
+      }
+    } catch (error) {
+      if (options.partialOnBudget === true && error?.code === 'CODEX_SCAN_BUDGET') {
+        result.scanIncomplete ||= error.reason || 'scan_budget_records';
+        break filesLoop;
+      }
+      throw error;
     }
   }
   for (const key of ['usage', 'completions', 'compactions', 'tools']) result[key].sort(recordOrder);
@@ -636,8 +746,8 @@ export function scanCodexRollouts(sinceMs, options = {}) {
     nextCache.delete(cachedPath);
     cacheRecords -= cachedRecordCount(parsed);
   }
-  parsedFileCache.clear();
-  for (const [cachedPath, parsed] of nextCache) parsedFileCache.set(cachedPath, parsed);
+  activeCache.clear();
+  for (const [cachedPath, parsed] of nextCache) activeCache.set(cachedPath, parsed);
   return result;
 }
 
@@ -654,6 +764,7 @@ export function readCodexUsageRecords(sinceMs, options) {
 
 export function clearCodexEventCache() {
   parsedFileCache.clear();
+  usageParsedFileCache.clear();
 }
 
 export { TOOL_CATEGORIES };

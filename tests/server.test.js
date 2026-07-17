@@ -93,6 +93,32 @@ test('/api/codex-insights normalizes unknown ranges and supports HEAD', async ()
   assert.equal(head.body, '');
 });
 
+test('/api/cost-analysis is a no-store local-machine cache endpoint with HEAD parity', async () => {
+  const response = await hit('/api/cost-analysis?range=30d');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.match(response.headers['content-type'], /application\/json/);
+  assert.equal(response.headers['x-content-type-options'], 'nosniff');
+  const body = JSON.parse(response.body);
+  assert.equal(body.schemaVersion, 1);
+  assert.equal(body.source, 'local-logs-and-owner-config');
+  assert.equal(body.scope, 'local-machine');
+  assert.equal(body.range, '30d');
+  assert.deepEqual(Object.keys(body.scopes).sort(), ['claude', 'codex', 'combined']);
+  const head = await hit('/api/cost-analysis?range=7d', 'HEAD');
+  assert.equal(head.status, 200);
+  assert.equal(head.body, '');
+  assert.equal(head.headers['cache-control'], 'no-store');
+});
+
+test('/api/cost-analysis defaults unknown ranges without creating a write surface', async () => {
+  const response = await hit('/api/cost-analysis?range=constructor');
+  assert.equal(JSON.parse(response.body).range, '30d');
+  const post = await hit('/api/cost-analysis', 'POST');
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.allow, 'GET, HEAD');
+});
+
 // ── HTTP stays read-only: NO config-write endpoint (NFR-01 / QA-22) ───────────
 // multi-host-badge edits the host list via a LOCAL FILE the badge writes and the
 // poller re-reads — never over HTTP. The tailnet-exposed bind must gain NO write

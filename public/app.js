@@ -11,7 +11,6 @@ function fmtTokensHtml(n) {
   if (n >= 1e3) return Math.round(n / 1e3) + '<span class="u">k</span>';
   return String(n);
 }
-function fmtUSD(n) { return n == null ? '—' : '$' + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)); }
 function fmtDur(ms) {
   if (ms == null) return '—';
   if (ms <= 0) return 'now';
@@ -172,15 +171,7 @@ function tilesHtml(a) {
     + tile('Tokens · 5h', a ? fmtTokensHtml(t.last5h) : '—', a ? fmtTokensHtml(t.week) + ' this week' : '')
     + tile('Tokens · today', a ? fmtTokensHtml(t.today) : '—', a ? a.sessionsToday + ' sessions' : '')
     + tile('Cache hit rate', a ? Math.round(a.cacheHitRate * 100) + '<span class="u">%</span>' : '—', a && a.cachedIsSubsetOfInput ? 'cached ÷ input' : 'why limits last')
-    + tile('Est. value · wk', a ? fmtUSD(a.estValueWeek) : '—', 'at API rates')
-    + `</div>`;
-}
-
-function tiles2Html(a) {
-  if (!a) return '';
-  return `<div class="stat-grid grid2">`
-    + tile('Cache saved · wk', fmtUSD(a.cacheSavingsWeek), 'vs full input price')
-    + tile('Est. value · today', fmtUSD(a.estValueToday), 'at API rates')
+    + tile('Sessions · today', a ? String(a.sessionsToday) : '—', 'local transcript sessions')
     + `</div>`;
 }
 
@@ -279,7 +270,7 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
   // DO record usage locally once used). Never claim the limits are live here —
   // the gauges above speak for themselves.
   const activityBlock = hasActivity
-    ? (tilesHtml(a) + mixHtml(a) + tiles2Html(a))
+    ? (tilesHtml(a) + mixHtml(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   const summary = tool.source === 'claude-code'
     ? 'Pacing · activity · model caps · trends'
@@ -1161,7 +1152,6 @@ function trendContentHtml(t, range) {
     return `<div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div>`;
   }
   const pct = (v) => Math.round(v) + '%';
-  const usd = (v) => '$' + Math.round(v);
   const xDomain = [Date.now() - rangeToMs(range), Date.now()];
   const cards = [];
   const burn = lineSVG([
@@ -1174,12 +1164,9 @@ function trendContentHtml(t, range) {
     const codex = t.source === 'codex';
     const tokens = barsSVG(daily, fmtNum);
     const rate = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cacheHitRate * 100]), className: 'series-good' }], 100, pct, { xDomain });
-    const valMax = Math.max(0.01, ...daily.map((d) => d.cost));
-    const value = lineSVG([{ pts: daily.map((d) => [Date.parse(d.day), d.cost]), className: 'series-accent' }], valMax, usd, { xDomain, pointLabel: usd });
     const crLab = codex ? 'Cached input' : 'Cache';
     cards.push(chartCard('Tokens per day', codex ? 'local logs · UTC buckets' : 'local logs', tokens, legendHtml([['cr', crLab], ['in', 'Input'], ['out', 'Output']])));
     cards.push(chartCard('Cache hit rate', codex ? 'local logs · cached ÷ input' : 'local logs', rate, ''));
-    cards.push(chartCard('Est. value / day', 'local logs · API rates', value, ''));
   }
   const note = (hasLimits && !hasActivity)
     ? `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`
@@ -1237,3 +1224,323 @@ function setupRange() {
 setupRange();
 fetchTrends();
 setInterval(fetchTrends, TREND_REFRESH_MS);
+
+// --- Cost analysis ---------------------------------------------------------
+// This surface has an independent range and request sequence. It renders only
+// the poller-owned local snapshot; range clicks never trigger filesystem work.
+let COST_RANGE = '30d';
+let costRequestSequence = 0;
+let costHasRendered = false;
+const COST_REFRESH_MS = 120_000;
+const COST_RANGES = new Set(['7d', '30d', '90d']);
+const COST_METRICS = [
+  ['subscription', 'Configured subscription spend'],
+  ['observedCache', 'API-equivalent · observed cache'],
+  ['noCache', 'API-equivalent · no cache'],
+  ['cacheEffect', 'Cache effect · no cache − observed'],
+];
+const COST_REASON_COPY = Object.freeze({
+  subscription_missing: 'No owner-confirmed subscription coverage is configured.',
+  subscription_unreadable: 'The local subscription configuration could not be read.',
+  subscription_invalid_file: 'The local subscription configuration is invalid.',
+  subscription_invalid_entry: 'An invalid subscription period was excluded.',
+  subscription_unconfirmed: 'An unconfirmed subscription period was excluded.',
+  subscription_overlap: 'Overlapping subscription periods were excluded.',
+  subscription_gap: 'The selected range has a subscription coverage gap.',
+  rate_card_unreadable: 'The reviewed API rate card could not be read.',
+  rate_card_invalid: 'The reviewed API rate card is invalid.',
+  rate_invalid_entry: 'An invalid API rate was excluded.',
+  rate_overlap: 'Overlapping API rates were excluded.',
+  unknown_model: 'Usage from a model without an exact reviewed rate was excluded.',
+  rate_missing: 'A required token-channel rate was unavailable.',
+  timestamp_invalid: 'Usage with an invalid timestamp was excluded.',
+  token_record_invalid: 'Usage with an invalid token tuple was excluded.',
+  source_missing: 'A local usage root is not present.',
+  source_unreadable: 'A local usage root could not be read.',
+  source_traversal_error: 'Part of a local usage tree could not be traversed.',
+  file_too_large: 'An oversized local usage file was omitted.',
+  record_unsupported: 'An unsupported local usage record was omitted.',
+  dedupe_fallback: 'Some records lack a stable cross-file identity.',
+  scan_budget_depth: 'The bounded scan reached its directory-depth limit.',
+  scan_budget_directories: 'The bounded scan reached its directory limit.',
+  scan_budget_entries: 'The bounded scan reached its directory-entry limit.',
+  scan_budget_files: 'The bounded scan reached its file-count limit.',
+  scan_budget_file_bytes: 'The bounded scan reached its per-file byte limit.',
+  scan_budget_total_bytes: 'The bounded scan reached its total byte limit.',
+  scan_budget_lines: 'The bounded scan reached its line limit.',
+  scan_budget_records: 'The bounded scan reached its accepted-record limit.',
+  scan_budget_time: 'The bounded scan reached its time limit.',
+  amount_overflow: 'The supported amount exceeded the safe display range.',
+  cache_cold: 'Cost analysis is still warming.',
+  refresh_failed: 'The latest refresh failed; the prior snapshot is still shown.',
+});
+
+function costStatus(metric) {
+  return metric && ['complete', 'partial', 'unavailable'].includes(metric.status) ? metric.status : 'unavailable';
+}
+
+function costAmountText(metric, signed = false) {
+  const micros = metric && Number.isSafeInteger(metric.amountMicros) ? metric.amountMicros : null;
+  if (micros === null) return 'Unavailable';
+  if (signed && micros === 0 && metric?.belowResolution === true
+    && (metric.rawSign === -1 || metric.rawSign === 1)) {
+    return `${metric.rawSign < 0 ? '−' : '+'}<$0.01`;
+  }
+  const absolute = Math.abs(micros);
+  const prefix = signed && micros > 0 ? '+' : micros < 0 ? '−' : '';
+  if (absolute > 0 && absolute < 10_000) return `${prefix}<$0.01`;
+  const value = absolute / 1_000_000;
+  const formatted = new Intl.NumberFormat(undefined, {
+    style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(value);
+  return prefix + formatted;
+}
+
+function costAmountHtml(metric, signed = false) {
+  const status = costStatus(metric);
+  return `<span class="cost-amount${signed ? ' cost-signed' : ''}${status === 'unavailable' ? ' is-unavailable' : ''}">${esc(costAmountText(metric, signed))}</span>`;
+}
+
+function costBadge(metric) {
+  const status = costStatus(metric);
+  return `<span class="cost-badge is-${status}">${status}</span>`;
+}
+
+function costMetricNote(key, metric) {
+  if (costStatus(metric) === 'unavailable') {
+    const reason = Array.isArray(metric && metric.reasons)
+      ? metric.reasons.find((item) => Object.hasOwn(COST_REASON_COPY, item)) : null;
+    return reason ? COST_REASON_COPY[reason] : 'No supported amount is available.';
+  }
+  if (key === 'subscription') return 'owner-confirmed fixed access';
+  if (key === 'observedCache') return 'same local records · observed cache';
+  if (key === 'noCache') return 'same local records · normal input price';
+  return 'signed effect · not a provider bill';
+}
+
+function costSummaryHtml(summary) {
+  return `<div class="cost-summary">${COST_METRICS.map(([key, label]) => {
+    const metric = summary && summary[key];
+    return `<div class="cost-summary-cell"><div class="cost-metric-label">${esc(label)}</div>`
+      + `<div class="cost-value-line">${costAmountHtml(metric, key === 'cacheEffect')}${costBadge(metric)}</div>`
+      + `<div class="cost-metric-note">${esc(costMetricNote(key, metric))}</div></div>`;
+  }).join('')}</div>`;
+}
+
+function costBreakdownRow(scopeName, scope) {
+  const labels = { combined: 'Combined', claude: '◆ Claude', codex: '▲ Codex' };
+  return `<div class="cost-breakdown-row"><div class="cost-scope-name scope-${scopeName}">${esc(labels[scopeName])}</div>`
+    + COST_METRICS.map(([key]) => {
+      const short = { subscription: 'Subscription', observedCache: 'Observed cache', noCache: 'No cache', cacheEffect: 'Cache effect' }[key];
+      const metric = scope && scope.summary && scope.summary[key];
+      return `<div class="cost-breakdown-metric"><span>${short}</span><strong>${costAmountHtml(metric, key === 'cacheEffect')}</strong>${costBadge(metric)}</div>`;
+    }).join('') + `</div>`;
+}
+
+function costBreakdownHtml(scopes) {
+  return `<section class="cost-block cost-breakdown" aria-labelledby="cost-breakdown-title">`
+    + `<div class="cost-block-head"><h3 id="cost-breakdown-title">Reconciled breakdown</h3><span>Final cumulative values · USD</span></div>`
+    + `<div class="cost-breakdown-grid">${['combined', 'claude', 'codex'].map((name) => costBreakdownRow(name, scopes[name])).join('')}</div></section>`;
+}
+
+function costDateLabel(iso, timeZone, withTime = false) {
+  if (typeof iso !== 'string' && typeof iso !== 'number') return '—';
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '—';
+  try {
+    return new Intl.DateTimeFormat(undefined, withTime
+      ? { timeZone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }
+      : { timeZone, month: 'short', day: 'numeric' }).format(date);
+  } catch { return '—'; }
+}
+
+function costChartHtml(scopeName, scope, data) {
+  const width = 720, height = 230, x0 = 48, x1 = 650, y0 = 20, y1 = 184;
+  const cumulative = Array.isArray(scope && scope.cumulative) ? scope.cumulative.slice(0, 90) : [];
+  const specs = [
+    ['subscription', 'Configured subscription spend', 'subscription'],
+    ['observedCache', 'API-equivalent · observed cache', 'observed'],
+    ['noCache', 'API-equivalent · no cache', 'no-cache'],
+  ];
+  const numericValues = cumulative.flatMap((row) => specs.map(([key]) => row?.[key]?.amountMicros)
+    .filter((value) => Number.isSafeInteger(value) && value >= 0));
+  const names = { combined: 'Combined', claude: 'Claude', codex: 'Codex' };
+  const finalText = specs.map(([key, label]) => `${label}: ${costAmountText(scope?.summary?.[key])} (${costStatus(scope?.summary?.[key])})`).join('; ');
+  if (!numericValues.length) {
+    return `<section class="cost-chart cost-chart-${scopeName}"><div class="cost-chart-head"><h4>${names[scopeName]}</h4>${costBadge(scope?.summary?.observedCache)}</div>`
+      + `<div class="cost-chart-empty">No supported cumulative API value is available for this scope. Subscription setup and evidence details remain below.</div>`
+      + `<span class="sr-only">${esc(finalText)}</span></section>`;
+  }
+  const startMs = Date.parse(data.interval.start), endMs = Date.parse(data.interval.end);
+  const maxMicros = Math.max(1, ...numericValues);
+  const sx = (time) => x0 + ((time - startMs) / Math.max(1, endMs - startMs)) * (x1 - x0);
+  const sy = (value) => y1 - (value / maxMicros) * (y1 - y0);
+  const grid = [0, 0.5, 1].map((portion) => {
+    const y = y1 - portion * (y1 - y0);
+    const label = costAmountText({ amountMicros: Math.round(maxMicros * portion) });
+    return `<line class="cost-gridline" x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}"/><text class="cost-axis-label" x="0" y="${(y + 4).toFixed(1)}">${esc(label)}</text>`;
+  }).join('');
+  const lines = specs.map(([key, , cls]) => {
+    const firstMetric = cumulative.find((row) => Number.isSafeInteger(row?.[key]?.amountMicros))?.[key];
+    const points = [{ time: startMs, value: 0, status: costStatus(firstMetric) }]
+      .concat(cumulative.map((row) => ({
+        time: Date.parse(row.at), value: row?.[key]?.amountMicros,
+        status: costStatus(row?.[key]),
+      })));
+    let segments = '';
+    for (let index = 1; index < points.length; index++) {
+      const previous = points[index - 1], current = points[index];
+      if (!Number.isFinite(previous.time) || !Number.isFinite(current.time)
+        || !Number.isSafeInteger(previous.value) || !Number.isSafeInteger(current.value)) continue;
+      const partial = previous.status !== 'complete' || current.status !== 'complete';
+      segments += `<path class="cost-series series-${cls}${partial ? ' is-partial' : ''}" d="M${sx(previous.time).toFixed(1)} ${sy(previous.value).toFixed(1)} L${sx(current.time).toFixed(1)} ${sy(current.value).toFixed(1)}"/>`;
+    }
+    return segments;
+  }).join('');
+  const id = `cost-chart-${scopeName}`;
+  const desc = `${names[scopeName]} cumulative cost comparison for ${data.range}. ${finalText}.`;
+  const finals = specs.map(([key, label, cls]) => `<div><i class="cost-final-swatch series-${cls}"></i><span>${esc(label)}</span><strong>${esc(costAmountText(scope?.summary?.[key]))}</strong></div>`).join('');
+  return `<section class="cost-chart cost-chart-${scopeName}"><div class="cost-chart-head"><h4>${names[scopeName]}</h4>${costBadge(scope?.summary?.observedCache)}</div>`
+    + `<svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="${id}-title ${id}-desc"><title id="${id}-title">${names[scopeName]} cumulative comparison</title>`
+    + `<desc id="${id}-desc">${esc(desc)}</desc>${grid}${lines}`
+    + `<text class="cost-axis-label" x="${x0}" y="218">${esc(costDateLabel(data.interval.start, data.interval.timeZone))}</text>`
+    + `<text class="cost-axis-label" x="${x1}" y="218" text-anchor="end">${esc(costDateLabel(data.interval.end, data.interval.timeZone))}</text></svg>`
+    + `<div class="cost-chart-finals">${finals}</div><span class="sr-only">${esc(desc)}</span></section>`;
+}
+
+function costChartsHtml(data) {
+  const legend = `<div class="cost-legend"><span><i class="legend-line series-subscription"></i>Configured subscription spend</span>`
+    + `<span><i class="legend-line series-observed"></i>API-equivalent · observed cache</span>`
+    + `<span><i class="legend-line series-no-cache"></i>API-equivalent · no cache</span></div>`;
+  return `<section class="cost-block cost-charts" aria-labelledby="cost-charts-title"><div class="cost-block-head"><h3 id="cost-charts-title">Cumulative comparison</h3>`
+    + `<span>starts at $0 · today is partial through generation time</span></div>${legend}`
+    + costChartHtml('combined', data.scopes.combined, data)
+    + `<div class="cost-tool-charts">${costChartHtml('claude', data.scopes.claude, data)}${costChartHtml('codex', data.scopes.codex, data)}</div></section>`;
+}
+
+function coverageCopy(scope, toolLabel) {
+  const coverage = scope && scope.usageCoverage;
+  if (!coverage) return 'Usage coverage unavailable.';
+  const included = `${Number(coverage.comparableRecords || 0).toLocaleString()} of ${Number(coverage.recognizedRecords || 0).toLocaleString()} recognized records were comparable`;
+  return coverage.denominatorKnown ? `${included}.` : `${Number(coverage.comparableRecords || 0).toLocaleString()} ${toolLabel} records were comparable; additional usage may be omitted.`;
+}
+
+function costDiagnosticsHtml(data) {
+  const reasons = sortedClientReasons(
+    data.scopes?.combined?.summary?.subscription?.reasons,
+    data.scopes?.combined?.summary?.observedCache?.reasons,
+    data.refresh?.reasons,
+  );
+  if (!reasons.length) return '';
+  return `<div class="cost-diagnostics" role="note"><strong>Evidence notes</strong><ul>`
+    + reasons.slice(0, 6).map((reason) => `<li>${esc(Object.hasOwn(COST_REASON_COPY, reason)
+      ? COST_REASON_COPY[reason] : 'Some evidence could not be included.')}</li>`).join('') + `</ul></div>`;
+}
+
+function sortedClientReasons(...groups) {
+  return [...new Set(groups.flat().filter((reason) => typeof reason === 'string'))].sort();
+}
+
+function costProvenanceHtml(data) {
+  const combined = data.scopes.combined;
+  const sub = combined.subscriptionCoverage || {};
+  const pricing = data.provenance && data.provenance.pricing;
+  const sources = Array.isArray(pricing && pricing.sources) ? pricing.sources.slice(0, 16) : [];
+  const effectiveRates = Array.isArray(pricing && pricing.effectiveRates) ? pricing.effectiveRates.slice(0, 64) : [];
+  const sourceCopy = sources.length ? sources.map((source) => esc(source.label)).join(' · ') : 'No reviewed rate applied to comparable records';
+  const effectiveCopy = effectiveRates.length ? effectiveRates.map((rate) => {
+    const from = costDateLabel(rate.effectiveFrom, data.interval.timeZone);
+    const to = rate.effectiveTo ? costDateLabel(rate.effectiveTo, data.interval.timeZone) : 'current';
+    return `${rate.tool === 'claude' ? 'Claude' : 'Codex'} ${rate.model} · ${from}–${to}`;
+  }).join(' · ') : 'No effective rate interval applied';
+  const coveredPct = Number.isFinite(sub.ratio) ? `${Math.round(sub.ratio * 100)}% of tool-time covered` : 'coverage unavailable';
+  return `<section class="cost-block cost-provenance" aria-labelledby="cost-provenance-title"><div class="cost-block-head"><h3 id="cost-provenance-title">Evidence and provenance</h3><span>bounded local analysis</span></div>`
+    + `<div class="cost-proof-grid"><div><span>Subscription coverage</span><strong>${esc(coveredPct)}</strong><p>${Number(sub.gapCount || 0)} bounded gap${Number(sub.gapCount || 0) === 1 ? '' : 's'} · owner-confirmed periods only</p></div>`
+    + `<div><span>Usage and pricing coverage</span><strong>${esc(coverageCopy(data.scopes.claude, 'Claude'))}</strong><p>${esc(coverageCopy(data.scopes.codex, 'Codex'))}</p></div>`
+    + `<div><span>Effective pricing</span><strong>${sourceCopy}</strong><p>${esc(effectiveCopy)}</p><p>Rate card reviewed ${esc(costDateLabel(pricing && pricing.cardAsOf, data.interval.timeZone))}</p></div></div>`
+    + costDiagnosticsHtml(data)
+    + `<div class="cost-setup"><strong>Subscription values are never inferred.</strong> Add explicit confirmed Claude and Codex periods to <code>\${LLMDASH_DATA_DIR}/subscriptions.json</code>. No billing portal or API key is read.</div></section>`;
+}
+
+function renderCostAnalysis(data, announce = true) {
+  const surface = document.getElementById('cost-surface');
+  if (!surface) return;
+  const generated = fmtAge(data.generatedAt) || 'generation time unavailable';
+  const intervalCopy = `${costDateLabel(data.interval.start, data.interval.timeZone)}–${costDateLabel(data.interval.end, data.interval.timeZone)} · through ${costDateLabel(data.interval.end, data.interval.timeZone, true)}`;
+  const stale = data.refresh && data.refresh.status === 'stale'
+    ? `<div class="cost-stale">Last refresh failed · showing the snapshot generated ${esc(costDateLabel(data.generatedAt, data.interval.timeZone, true))}</div>` : '';
+  surface.innerHTML = stale
+    + `<div class="cost-meta"><strong>This machine · Claude + Codex</strong><span>${esc(intervalCopy)}</span><span>${esc(data.interval.timeZone)}</span><span>${esc(generated)}</span></div>`
+    + costSummaryHtml(data.scopes.combined.summary)
+    + `<div class="cost-honesty"><strong>What these mean</strong><span>Subscription spend is configured access cost. API-equivalent values reprice recorded local work; they are estimates, not charges or invoices.</span></div>`
+    + costBreakdownHtml(data.scopes)
+    + costChartsHtml(data)
+    + costProvenanceHtml(data);
+  surface.setAttribute('aria-busy', 'false');
+  const status = document.getElementById('cost-status');
+  if (status) {
+    status.textContent = announce ? `Updated · ${data.range}` : '';
+    if (announce) {
+      const request = costRequestSequence;
+      setTimeout(() => {
+        if (request === costRequestSequence && status.textContent.startsWith('Updated ·')) status.textContent = '';
+      }, 2000);
+    }
+  }
+}
+
+function renderCostError() {
+  const surface = document.getElementById('cost-surface');
+  if (!surface || costHasRendered) return;
+  surface.innerHTML = `<div class="cost-loading cost-error">Cost analysis is unavailable right now. Account limits, activity, and trends above are unaffected.</div>`;
+  surface.setAttribute('aria-busy', 'false');
+  const status = document.getElementById('cost-status');
+  if (status) status.textContent = 'Cost analysis unavailable';
+}
+
+async function fetchCostAnalysis({ announce = true } = {}) {
+  const surface = document.getElementById('cost-surface');
+  if (!surface) return;
+  const requestedRange = COST_RANGE;
+  const request = ++costRequestSequence;
+  surface.setAttribute('aria-busy', 'true');
+  const status = document.getElementById('cost-status');
+  if (status) status.textContent = costHasRendered ? 'Updating…' : 'Loading cost analysis…';
+  try {
+    const response = await fetch('/api/cost-analysis?range=' + encodeURIComponent(requestedRange), { cache: 'no-store' });
+    if (!response.ok) throw new Error('bad status');
+    const data = await response.json();
+    if (request !== costRequestSequence) return;
+    if (!data || data.schemaVersion !== 1 || data.source !== 'local-logs-and-owner-config'
+      || data.scope !== 'local-machine' || data.range !== requestedRange || !data.interval
+      || !data.scopes || !data.scopes.combined || !data.scopes.claude || !data.scopes.codex) throw new Error('bad payload');
+    costHasRendered = true;
+    renderCostAnalysis(data, announce);
+  } catch {
+    if (request !== costRequestSequence) return;
+    if (surface) surface.setAttribute('aria-busy', 'false');
+    if (status && costHasRendered) status.textContent = 'Refresh failed · showing prior snapshot';
+    renderCostError();
+  }
+}
+
+function setupCostRange() {
+  const range = document.getElementById('cost-range');
+  if (!range) return;
+  range.addEventListener('click', (event) => {
+    const button = event.target.closest('.pill');
+    const selected = button && button.dataset.range;
+    if (!button || !COST_RANGES.has(selected) || selected === COST_RANGE) return;
+    COST_RANGE = selected;
+    [...range.querySelectorAll('.pill')].forEach((pill) => {
+      const active = pill === button;
+      pill.classList.toggle('active', active);
+      pill.setAttribute('aria-pressed', String(active));
+    });
+    fetchCostAnalysis();
+  });
+}
+
+setupCostRange();
+fetchCostAnalysis();
+setInterval(() => fetchCostAnalysis({ announce: false }), COST_REFRESH_MS);

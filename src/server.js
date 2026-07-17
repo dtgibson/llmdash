@@ -16,6 +16,7 @@ import { tailnetIPv4 } from './net.js';
 import { getCombined, setHost } from './host-cache.js';
 import { parseHosts } from './hosts.js';
 import { readHostsConfig } from './host-config.js';
+import { getCostAnalysis, refreshCostAnalysis } from './cost-analysis.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -231,6 +232,17 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(head ? undefined : body);
   }
+  // Local-machine cost analysis is built atomically by the poller. This route
+  // is a pure cache read: no log/config traversal, subprocess, peer request, or
+  // price lookup happens on an HTTP request.
+  if (url.pathname === '/api/cost-analysis') {
+    const range = url.searchParams.get('range') || '30d';
+    let body;
+    try { body = JSON.stringify(getCostAnalysis(range)); }
+    catch { res.writeHead(500); return res.end('error'); }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(head ? undefined : body);
+  }
   // Multi-host combined view. A PURE cache read (getCombined) — no peer fetch,
   // no subprocess, no blocking I/O on the request path (the poller maintains the
   // cache). /api/state above is untouched. When no peers are configured the
@@ -254,6 +266,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Prime local analytics before the first state is published. Later refreshes
   // are poller-owned; HTTP getters never touch the session tree.
   refreshCodexAnalytics();
+  refreshCostAnalysis();
   // Data-source health readout: which sources are feeding the dashboard and,
   // when one isn't, why and how to fix it. Startup-only cheap fs checks —
   // never on the HTTP request path.

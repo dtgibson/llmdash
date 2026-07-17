@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { parseHosts, remoteHosts, fetchPeerState } from './hosts.js';
 import { setHost, retainHosts, seedOrder } from './host-cache.js';
 import { readHostsConfig } from './host-config.js';
+import { refreshCostAnalysis } from './cost-analysis.js';
 
 function snapshot(live) {
   if (!live) return 0;
@@ -102,6 +103,10 @@ export async function pollOnce() {
   try {
     if (!refreshCodexAnalytics(nowMs)) console.error('codex analytics: refresh failed; keeping the last good snapshot');
   } catch (e) { console.error('codex analytics:', e.message); }
+  // Cost analysis owns one immutable 90-day ledger/cache refresh for all three
+  // ranges. HTTP handlers only read this snapshot; they never traverse logs or
+  // owner configuration on the request path.
+  if (!refreshCostAnalysis(nowMs)) console.error('cost analysis: refresh failed; keeping the last good snapshot');
   // Auto-refresh runs first so a probe capture lands in this same tick's
   // snapshot; its own gates decide whether any work happens at all.
   try { await maybeRefreshClaude(); } catch (e) { console.error('claude refresh:', e.message); }

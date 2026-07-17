@@ -8,14 +8,23 @@ It tracks **Claude Code** (Max) and **Codex** (using the plan reported by the
 live Codex quota response) side by side: each
 tool's 5-hour and weekly limit windows with reset countdowns and a burn-rate
 projection, plus activity stats from your local logs (tokens, cache hit rate,
-estimated value, token mix, cache savings). When one tool maxes out, a headroom
+sessions, and token mix). When one tool maxes out, a headroom
 cue points you to the one with room left. A **Trends** section below the gauges
-charts usage over time — limit burn, tokens per day, cache hit rate, and value —
+charts usage over time — limit burn, tokens per day, and cache hit rate —
 with a 24h / 7d / 30d switch. Codex also has an independently ranged insights
 section for reasoning share, turn/session size, model/effort/tool mix, context
 pressure, compactions, explicit latency, busiest day, and daily patterns; it is
 derived locally from bounded structured aggregates and never exposes session
 content or identifiers.
+
+A separate **Cost analysis** surface compares three values over 7, 30, or 90
+local calendar days: owner-confirmed subscription access cost, API-equivalent
+value at the cache behavior recorded in local logs, and the same supported
+records repriced without caching. These values stay separate; API-equivalent
+figures are estimates, not provider charges or invoices. Combined, Claude, and
+Codex totals reconcile to cumulative charts, while partial scans, unknown exact
+model rates, and missing subscription periods remain visibly partial or
+unavailable instead of turning into zero.
 
 ## Why
 Claude Code's limit meters live inside the tool and are easy to lose track of.
@@ -507,6 +516,9 @@ All optional, via environment variables:
   time budget; clamped to 5000–300000 ms
 - `LLMDASH_CODEX_CMD` (default `codex`) — path to the codex binary for the limits read
 - `LLMDASH_CODEX_DIR` (default `~/.codex`) — where Codex's session logs live
+- `LLMDASH_DATA_DIR` (default `./data` inside the checkout) — local SQLite,
+  captured limits, host configuration, and the optional owner-confirmed
+  `subscriptions.json` file
 - `LLMDASH_HOSTS` (default unset = single-host) — a comma-separated list of other
   tailnet machines to aggregate into one view. See [Multi-host](#multi-host--optional).
 - `LLMDASH_PEER_TIMEOUT_MS` (default `3000`, clamped 500–30000) — per-peer fetch
@@ -522,8 +534,57 @@ server's — see [Menu-bar badge](#menu-bar-badge-swiftbar--optional)):
 - `LLMDASH_BADGE_HOST` (default `127.0.0.1`) — point the badge at a dashboard on
   another tailnet machine; drives both the badge's fetch and its *Open dashboard* link
 
-The pricing table behind "estimated value" lives in `config.js` — edit it freely.
-Snapshots and the captured reading are stored under `./data/` (gitignored).
+### Cost analysis setup
+
+API-equivalent values use the tracked, effective-dated
+[`config/api-rates.json`](config/api-rates.json). Its exact model IDs and token
+channels were reviewed against the official
+[Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing)
+and [OpenAI pricing](https://developers.openai.com/api/docs/pricing) pages on
+the card's `asOf` date. Effective starts are pinned to the official model
+launches for [Haiku 4.5](https://www.anthropic.com/news/claude-haiku-4-5),
+[Opus 4.8](https://www.anthropic.com/news/claude-opus-4-8),
+[Fable 5](https://www.anthropic.com/news/claude-fable-5-mythos-5),
+[Sonnet 5](https://www.anthropic.com/news/claude-sonnet-5), and
+[GPT-5.3-Codex](https://openai.com/index/introducing-gpt-5-3-codex/), so a
+current price is never projected before that exact model existed. There is no family/default fallback: an unlisted model
+is disclosed as unpriced until a reviewed exact entry is added. The dashboard
+does not scrape prices or make a pricing request at runtime.
+
+To show actual fixed-access spend, create
+`$LLMDASH_DATA_DIR/subscriptions.json` (by default
+`./data/subscriptions.json`) with periods you have personally confirmed:
+
+```json
+{
+  "schemaVersion": 1,
+  "currency": "USD",
+  "subscriptions": [
+    {
+      "tool": "claude",
+      "amountUsd": "200.00",
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "confirmed": true
+    },
+    {
+      "tool": "codex",
+      "amountUsd": "200.00",
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "confirmed": true
+    }
+  ]
+}
+```
+
+Replace the example amounts and dates with your actual access periods. A
+confirmed zero is valid; a missing, unconfirmed, overlapping, or gapped period
+is not silently inferred from the plan label. The file stays local and
+gitignored. No billing portal, provider API key, prompt, response, or session
+identifier is read or returned by cost analysis.
+
+Snapshots and the captured reading are stored under the data directory.
 
 ## Tests
 ```

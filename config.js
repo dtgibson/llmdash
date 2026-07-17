@@ -86,6 +86,11 @@ export const config = {
   // truth (seed-once precedence — see src/host-config.js). Neither set = today's
   // single-host behavior, so no dead knob.
   get hostsFile() { return path.join(this.dataDir, 'hosts.conf'); },
+  // Optional, owner-confirmed fixed-access subscription periods. This file is
+  // local machine state (never checked in and never inferred from plan labels).
+  get subscriptionsFile() { return path.join(this.dataDir, 'subscriptions.json'); },
+  // Reviewed, tracked, effective-dated public API rates used by cost analysis.
+  get apiRatesFile() { return path.join(root, 'config', 'api-rates.json'); },
 
   pollIntervalMs: Number(process.env.LLMDASH_POLL_MS || 60_000),
   dedupWindowMs: Number(process.env.LLMDASH_DEDUP_MS || 5 * 60_000),

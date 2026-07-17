@@ -364,6 +364,13 @@ test('scan safety budgets are bounded, content-free, and atomic', () => {
       && error.message === 'Codex session scan exceeded its safety budget'
       && !error.message.includes('PRIVATE-BUDGET'),
   );
+  assert.throws(
+    () => scanCodexSession([
+      token(at(1), { input_tokens: 4, output_tokens: 1 }),
+      token(at(2), { input_tokens: 5, output_tokens: 1 }),
+    ], 'PRIVATE-RECORD-BUDGET', { limits: { maxResultRecords: 1 } }),
+    (error) => error.code === 'CODEX_SCAN_BUDGET' && error.reason === 'scan_budget_records',
+  );
 
   clearCodexEventCache();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-budget-'));

@@ -92,8 +92,30 @@
       </section>
     </div>
 
+    <section class="cost-analysis" id="cost-analysis" aria-labelledby="cost-analysis-title">
+      <div class="cost-head">
+        <div>
+          <div class="section-kicker">Cost analysis <span class="scope-tag">This machine</span></div>
+          <h2 id="cost-analysis-title">Configured spend and API-equivalent value</h2>
+          <p>Claude + Codex local usage · fixed subscription access and two counterfactual API estimates stay separate.</p>
+        </div>
+        <div class="cost-control">
+          <span class="control-label">Cost range</span>
+          <div class="range" id="cost-range" role="group" aria-label="Cost analysis range">
+            <button class="pill" type="button" data-range="7d" aria-pressed="false">7d</button>
+            <button class="pill active" type="button" data-range="30d" aria-pressed="true">30d</button>
+            <button class="pill" type="button" data-range="90d" aria-pressed="false">90d</button>
+          </div>
+        </div>
+      </div>
+      <div class="cost-status" id="cost-status" role="status">Loading cost analysis…</div>
+      <div class="cost-surface" id="cost-surface" aria-busy="true">
+        <div class="cost-loading">Reading the latest bounded local cost snapshot…</div>
+      </div>
+    </section>
+
     <footer>
-      <span>Limits: account-wide · Activity and insights: this machine · Codex day buckets: UTC</span>
+      <span>Limits: account-wide · Activity, insights, and cost analysis: this machine · Codex activity buckets: UTC</span>
       <span>served over Tailscale</span>
     </footer>
   </div>

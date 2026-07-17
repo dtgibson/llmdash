@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "currency": "USD",
+  "asOf": "2026-07-16T00:00:00.000Z",
+  "sources": [
+    {
+      "id": "anthropic-fable-5-launch-2026-06-09",
+      "label": "Anthropic Fable 5 launch and API pricing",
+      "publishedAt": "2026-06-09T00:00:00.000Z"
+    },
+    {
+      "id": "anthropic-haiku-4-5-launch-2025-10-15",
+      "label": "Anthropic Haiku 4.5 launch and API pricing",
+      "publishedAt": "2025-10-15T00:00:00.000Z"
+    },
+    {
+      "id": "anthropic-opus-4-8-launch-2026-05-28",
+      "label": "Anthropic Opus 4.8 launch and API pricing",
+      "publishedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "anthropic-sonnet-5-launch-2026-06-30",
+      "label": "Anthropic Sonnet 5 launch and API pricing",
+      "publishedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "openai-gpt-5-3-codex-launch-2026-02-05",
+      "label": "OpenAI GPT-5.3-Codex launch and API pricing",
+      "publishedAt": "2026-02-05T00:00:00.000Z"
+    }
+  ],
+  "rates": [
+    {
+      "tool": "claude",
+      "model": "claude-fable-5",
+      "effectiveFrom": "2026-06-09T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "anthropic-fable-5-launch-2026-06-09",
+      "usdPerMillionTokens": { "input": "10.00", "output": "50.00", "cacheWrite": "12.50", "cacheRead": "1.00" }
+    },
+    {
+      "tool": "claude",
+      "model": "claude-opus-4-8",
+      "effectiveFrom": "2026-05-28T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "anthropic-opus-4-8-launch-2026-05-28",
+      "usdPerMillionTokens": { "input": "5.00", "output": "25.00", "cacheWrite": "6.25", "cacheRead": "0.50" }
+    },
+    {
+      "tool": "claude",
+      "model": "claude-sonnet-5",
+      "effectiveFrom": "2026-06-30T00:00:00.000Z",
+      "effectiveTo": "2026-09-01T00:00:00.000Z",
+      "sourceId": "anthropic-sonnet-5-launch-2026-06-30",
+      "usdPerMillionTokens": { "input": "2.00", "output": "10.00", "cacheWrite": "2.50", "cacheRead": "0.20" }
+    },
+    {
+      "tool": "claude",
+      "model": "claude-sonnet-5",
+      "effectiveFrom": "2026-09-01T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "anthropic-sonnet-5-launch-2026-06-30",
+      "usdPerMillionTokens": { "input": "3.00", "output": "15.00", "cacheWrite": "3.75", "cacheRead": "0.30" }
+    },
+    {
+      "tool": "claude",
+      "model": "claude-haiku-4-5-20251001",
+      "effectiveFrom": "2025-10-15T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "anthropic-haiku-4-5-launch-2025-10-15",
+      "usdPerMillionTokens": { "input": "1.00", "output": "5.00", "cacheWrite": "1.25", "cacheRead": "0.10" }
+    },
+    {
+      "tool": "codex",
+      "model": "gpt-5.3-codex",
+      "effectiveFrom": "2026-02-05T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "openai-gpt-5-3-codex-launch-2026-02-05",
+      "usdPerMillionTokens": { "input": "1.75", "output": "14.00", "cacheRead": "0.175" }
+    }
+  ]
+}
