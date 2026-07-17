@@ -222,24 +222,33 @@ reader.
   "asOf": "2026-07-16T00:00:00.000Z",
   "sources": [
     {
-      "id": "anthropic-public-2026-07-16",
-      "label": "Anthropic API pricing",
-      "publishedAt": "2026-07-16T00:00:00.000Z"
+      "id": "openai-gpt-5-6-sol-preview-2026-06-26",
+      "label": "OpenAI GPT-5.6 Sol preview and API pricing",
+      "publishedAt": "2026-06-26T00:00:00.000Z"
     }
   ],
   "rates": [
     {
-      "tool": "claude",
-      "model": "claude-sonnet-4-6",
-      "effectiveFrom": "2026-07-16T00:00:00.000Z",
+      "tool": "codex",
+      "model": "gpt-5.6-sol",
+      "effectiveFrom": "2026-06-26T00:00:00.000Z",
       "effectiveTo": null,
-      "sourceId": "anthropic-public-2026-07-16",
+      "sourceId": "openai-gpt-5-6-sol-preview-2026-06-26",
       "usdPerMillionTokens": {
-        "input": "3.00",
-        "output": "15.00",
-        "cacheWrite": "3.75",
-        "cacheRead": "0.30"
-      }
+        "input": "5.00",
+        "output": "30.00",
+        "cacheRead": "0.50"
+      },
+      "inputTokenTiers": [
+        {
+          "aboveInputTokens": 272000,
+          "usdPerMillionTokens": {
+            "input": "10.00",
+            "output": "45.00",
+            "cacheRead": "1.00"
+          }
+        }
+      ]
     }
   ]
 }
@@ -248,7 +257,7 @@ reader.
 Rate-card bounds and validation:
 
 - File size: at most 1 MiB; nesting: at most 10; sources: at most 128; rate
-  entries: at most 4,096.
+  entries: at most 4,096; input-token tiers: at most 8 per rate.
 - `asOf`, `publishedAt`, `effectiveFrom`, and non-null `effectiveTo` are canonical
   ISO-8601 UTC instants. `effectiveFrom < effectiveTo`; null is open-ended.
 - IDs and labels are printable, control-free UTF-8 capped at 64 and 96 code
@@ -259,6 +268,10 @@ Rate-card bounds and validation:
   fractional digits and a maximum `$100,000.000000` per million tokens.
 - Claude requires `input`, `output`, `cacheWrite`, and `cacheRead`; Codex requires
   `input`, `output`, and `cacheRead` and forbids `cacheWrite`.
+- Only Codex rates may declare `inputTokenTiers`. Thresholds are safe
+  nonnegative integers in strictly increasing order. A tier applies only when
+  total input tokens are greater than `aboveInputTokens`; its complete channel
+  rate set prices the full record for both observed-cache and no-cache views.
 - Every entry in an overlapping interval component for the same `(tool, model)`
   is rejected in full. Adjacent intervals are valid.
 - Historical price updates append/split explicit intervals. Adding a new
@@ -482,7 +495,7 @@ character removal and path redaction; they never enter the response.
     "pricing": {
       "cardAsOf": "2026-07-16T00:00:00.000Z",
       "sources": [{ "id": "anthropic-sonnet-5-launch-2026-06-30", "label": "Anthropic Sonnet 5 launch and API pricing", "publishedAt": "2026-06-30T00:00:00.000Z" }],
-      "effectiveRates": [{ "tool": "claude", "model": "claude-sonnet-5", "effectiveFrom": "2026-06-30T00:00:00.000Z", "effectiveTo": "2026-09-01T00:00:00.000Z", "sourceId": "anthropic-sonnet-5-launch-2026-06-30" }]
+      "effectiveRates": [{ "tool": "claude", "model": "claude-sonnet-5", "effectiveFrom": "2026-06-30T00:00:00.000Z", "effectiveTo": "2026-09-01T00:00:00.000Z", "sourceId": "anthropic-sonnet-5-launch-2026-06-30", "inputTokenThresholds": [] }]
     }
   },
   "scopes": {

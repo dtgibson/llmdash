@@ -1,6 +1,6 @@
 import { buildUsageLedger } from './usage-ledger.js';
 import { readSubscriptions } from './subscriptions.js';
-import { findRate, rateIssueReason, readRateCard } from './rate-card.js';
+import { findRate, rateIssueReason, ratesForInput, readRateCard } from './rate-card.js';
 
 const RANGE_DAYS = Object.freeze({ '7d': 7, '30d': 30, '90d': 90 });
 const PICOS_PER_MICRO = 1_000_000n;
@@ -222,17 +222,19 @@ function apiForTool(tool, range, ledger, card) {
     }
     const rate = findRate(card, tool, record.model, record.tsMs);
     if (!rate) { reasons.add(rateIssueReason(card, tool, record.model, record.tsMs)); continue; }
+    const appliedRates = ratesForInput(rate, record.input);
+    if (!appliedRates) { reasons.add('rate_invalid_entry'); continue; }
     const priced = tool === 'claude'
       ? {
-          observed: BigInt(record.input) * rate.rates.input + BigInt(record.output) * rate.rates.output
-            + BigInt(record.cacheWrite) * rate.rates.cacheWrite + BigInt(record.cacheRead) * rate.rates.cacheRead,
-          noCache: (BigInt(record.input) + BigInt(record.cacheWrite) + BigInt(record.cacheRead)) * rate.rates.input
-            + BigInt(record.output) * rate.rates.output,
+          observed: BigInt(record.input) * appliedRates.input + BigInt(record.output) * appliedRates.output
+            + BigInt(record.cacheWrite) * appliedRates.cacheWrite + BigInt(record.cacheRead) * appliedRates.cacheRead,
+          noCache: (BigInt(record.input) + BigInt(record.cacheWrite) + BigInt(record.cacheRead)) * appliedRates.input
+            + BigInt(record.output) * appliedRates.output,
         }
       : {
-          observed: BigInt(record.input - record.cacheRead) * rate.rates.input
-            + BigInt(record.cacheRead) * rate.rates.cacheRead + BigInt(record.output) * rate.rates.output,
-          noCache: BigInt(record.input) * rate.rates.input + BigInt(record.output) * rate.rates.output,
+          observed: BigInt(record.input - record.cacheRead) * appliedRates.input
+            + BigInt(record.cacheRead) * appliedRates.cacheRead + BigInt(record.output) * appliedRates.output,
+          noCache: BigInt(record.input) * appliedRates.input + BigInt(record.output) * appliedRates.output,
         };
     comparableRecords = safeCountAdd(comparableRecords, 1);
     comparableTokens = safeCountAdd(comparableTokens, tokenCount);
@@ -245,6 +247,7 @@ function apiForTool(tool, range, ledger, card) {
       effectiveFrom: rate.effectiveFrom,
       effectiveTo: rate.effectiveTo,
       sourceId: rate.sourceId,
+      inputTokenThresholds: rate.inputTokenTiers.map((tier) => tier.aboveInputTokens),
     });
     const index = range.buckets.findIndex((bucket) => record.tsMs >= bucket.start && record.tsMs < bucket.end);
     if (index >= 0) { dailyObserved[index] += priced.observed; dailyNoCache[index] += priced.noCache; }

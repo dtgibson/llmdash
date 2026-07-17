@@ -546,10 +546,17 @@ launches for [Haiku 4.5](https://www.anthropic.com/news/claude-haiku-4-5),
 [Opus 4.8](https://www.anthropic.com/news/claude-opus-4-8),
 [Fable 5](https://www.anthropic.com/news/claude-fable-5-mythos-5),
 [Sonnet 5](https://www.anthropic.com/news/claude-sonnet-5), and
-[GPT-5.3-Codex](https://openai.com/index/introducing-gpt-5-3-codex/), so a
+[GPT-5.3-Codex](https://openai.com/index/introducing-gpt-5-3-codex/),
+[GPT-5.5](https://openai.com/index/introducing-gpt-5-5/), and
+[GPT-5.6 Sol](https://openai.com/index/previewing-gpt-5-6-sol/), so a
 current price is never projected before that exact model existed. There is no family/default fallback: an unlisted model
 is disclosed as unpriced until a reviewed exact entry is added. The dashboard
 does not scrape prices or make a pricing request at runtime.
+
+Codex rate entries may also contain ordered `inputTokenTiers`. The reviewed
+GPT-5.5 and GPT-5.6 Sol entries apply OpenAI's full-request pricing above
+272,000 input tokens: 2x input pricing (including cached input) and 1.5x output
+pricing. Exactly 272,000 input tokens remains in the base tier.
 
 To show actual fixed-access spend, create
 `$LLMDASH_DATA_DIR/subscriptions.json` (by default

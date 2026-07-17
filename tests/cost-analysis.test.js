@@ -76,6 +76,31 @@ test('Claude and Codex formulas use one exact comparison set and reconcile combi
   ]);
 });
 
+test('Codex long-context pricing applies only above the exact input threshold', () => {
+  const tieredRate = codexRate({
+    usdPerMillionTokens: { input: '5', output: '30', cacheRead: '0.5' },
+    inputTokenTiers: [{
+      aboveInputTokens: 272000,
+      usdPerMillionTokens: { input: '10', output: '45', cacheRead: '1' },
+    }],
+  });
+  const boundary = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger([{ tool: 'codex', tsMs: NOW - 1, model: 'gpt-test', input: 272000, output: 0, cacheWrite: 0, cacheRead: 0 }]),
+    subscriptions: subscriptions(), rateCard: rateCard([tieredRate]),
+  });
+  assert.equal(boundary.scopes.codex.summary.observedCache.amountMicros, 1_360_000);
+
+  const long = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger([{ tool: 'codex', tsMs: NOW - 1, model: 'gpt-test', input: 300000, output: 100, cacheWrite: 0, cacheRead: 200000 }]),
+    subscriptions: subscriptions(), rateCard: rateCard([tieredRate]),
+  });
+  assert.equal(long.scopes.codex.summary.observedCache.amountMicros, 1_204_500);
+  assert.equal(long.scopes.codex.summary.noCache.amountMicros, 3_004_500);
+  assert.deepEqual(long.provenance.pricing.effectiveRates[0].inputTokenThresholds, [272000]);
+});
+
 test('zero-token records need no rate and remain comparable complete zero', () => {
   const payload = buildCostAnalysis({
     nowMs: NOW, timeZone: 'UTC', range: '7d',

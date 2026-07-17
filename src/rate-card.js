@@ -6,9 +6,11 @@ const MAX_BYTES = 1024 * 1024;
 const MAX_DEPTH = 10;
 const MAX_SOURCES = 128;
 const MAX_RATES = 4096;
+const MAX_INPUT_TOKEN_TIERS = 8;
 const TOP_KEYS = new Set(['schemaVersion', 'currency', 'asOf', 'sources', 'rates']);
 const SOURCE_KEYS = new Set(['id', 'label', 'publishedAt']);
-const RATE_KEYS = new Set(['tool', 'model', 'effectiveFrom', 'effectiveTo', 'sourceId', 'usdPerMillionTokens']);
+const RATE_KEYS = new Set(['tool', 'model', 'effectiveFrom', 'effectiveTo', 'sourceId', 'usdPerMillionTokens', 'inputTokenTiers']);
+const INPUT_TOKEN_TIER_KEYS = new Set(['aboveInputTokens', 'usdPerMillionTokens']);
 const CLAUDE_CHANNELS = new Set(['input', 'output', 'cacheWrite', 'cacheRead']);
 const CODEX_CHANNELS = new Set(['input', 'output', 'cacheRead']);
 const RATE_RE = /^(?:0|[1-9][0-9]{0,5})(?:\.[0-9]{1,6})?$/;
@@ -64,6 +66,17 @@ function validateSource(raw) {
   return { id: raw.id, label: raw.label, publishedAt: raw.publishedAt };
 }
 
+function parseChannelRates(raw, allowed) {
+  if (!exactKeys(raw, allowed) || Object.keys(raw).length !== allowed.size) return null;
+  const rates = {};
+  for (const channel of allowed) {
+    const parsed = parseRatePicosPerToken(raw[channel]);
+    if (parsed === null) return null;
+    rates[channel] = parsed;
+  }
+  return rates;
+}
+
 function validateRate(raw, sources, index) {
   const row = object(raw);
   if (!exactKeys(row, RATE_KEYS) || (row.tool !== 'claude' && row.tool !== 'codex')
@@ -72,17 +85,25 @@ function validateRate(raw, sources, index) {
   const toMs = row.effectiveTo === null ? Infinity : utcInstant(row.effectiveTo);
   if (fromMs === null || toMs === null || fromMs >= toMs) return null;
   const allowed = row.tool === 'claude' ? CLAUDE_CHANNELS : CODEX_CHANNELS;
-  if (!exactKeys(row.usdPerMillionTokens, allowed)
-    || Object.keys(row.usdPerMillionTokens).length !== allowed.size) return null;
-  const rates = {};
-  for (const channel of allowed) {
-    const parsed = parseRatePicosPerToken(row.usdPerMillionTokens[channel]);
-    if (parsed === null) return null;
-    rates[channel] = parsed;
+  const rates = parseChannelRates(row.usdPerMillionTokens, allowed);
+  if (!rates) return null;
+  const rawTiers = row.inputTokenTiers === undefined ? [] : row.inputTokenTiers;
+  if (!Array.isArray(rawTiers) || rawTiers.length > MAX_INPUT_TOKEN_TIERS
+    || (row.tool !== 'codex' && rawTiers.length > 0)) return null;
+  const inputTokenTiers = [];
+  let previousThreshold = -1;
+  for (const rawTier of rawTiers) {
+    const tier = object(rawTier);
+    if (!exactKeys(tier, INPUT_TOKEN_TIER_KEYS) || !Number.isSafeInteger(tier.aboveInputTokens)
+      || tier.aboveInputTokens < 0 || tier.aboveInputTokens <= previousThreshold) return null;
+    const tierRates = parseChannelRates(tier.usdPerMillionTokens, allowed);
+    if (!tierRates) return null;
+    inputTokenTiers.push({ aboveInputTokens: tier.aboveInputTokens, rates: tierRates });
+    previousThreshold = tier.aboveInputTokens;
   }
   return {
     tool: row.tool, model: row.model, fromMs, toMs, effectiveFrom: row.effectiveFrom,
-    effectiveTo: row.effectiveTo, sourceId: row.sourceId, rates, sourceIndex: index,
+    effectiveTo: row.effectiveTo, sourceId: row.sourceId, rates, inputTokenTiers, sourceIndex: index,
   };
 }
 
@@ -192,6 +213,16 @@ export function findRate(card, tool, model, atMs) {
     && atMs >= rate.fromMs && atMs < rate.toMs) || null;
 }
 
+export function ratesForInput(rate, inputTokens) {
+  if (!rate || !Number.isSafeInteger(inputTokens) || inputTokens < 0) return null;
+  let rates = rate.rates;
+  for (const tier of rate.inputTokenTiers || []) {
+    if (inputTokens <= tier.aboveInputTokens) break;
+    rates = tier.rates;
+  }
+  return rates;
+}
+
 export function rateIssueReason(card, tool, model, atMs) {
   if (card?.status !== 'valid') return card?.reason || 'rate_card_unreadable';
   const diagnostics = Array.isArray(card.diagnostics) ? card.diagnostics : [];
@@ -201,4 +232,7 @@ export function rateIssueReason(card, tool, model, atMs) {
   return 'unknown_model';
 }
 
-export const rateCardBounds = Object.freeze({ maxBytes: MAX_BYTES, maxDepth: MAX_DEPTH, maxSources: MAX_SOURCES, maxRates: MAX_RATES });
+export const rateCardBounds = Object.freeze({
+  maxBytes: MAX_BYTES, maxDepth: MAX_DEPTH, maxSources: MAX_SOURCES,
+  maxRates: MAX_RATES, maxInputTokenTiers: MAX_INPUT_TOKEN_TIERS,
+});
