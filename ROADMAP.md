@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-24 features shipped.
+25 features shipped.
 
-- **Last shipped:** Local cost analysis — owner-confirmed subscription spend now
+- **Last shipped:** LaunchAgent reload hardening — macOS install/reload now waits
+  for the old user-domain job to disappear before bootstrap and retries only one
+  status-5 transient; persistent and unrelated failures still fail loudly.
+- **Previously:** Local cost analysis — owner-confirmed subscription spend now
   sits beside exact-model observed-cache and no-cache API-equivalent histories,
   with signed cache effect and explicit evidence completeness.
-- **Previously:** Limits-first tool grouping — Claude and Codex limits stay
-  together up front while supporting stats remain with their tool and Codex
-  windows follow real duration evidence.
 
 ---
 
@@ -44,9 +44,9 @@ peer can be offline — rather than blindly trust an old reading.
   parity guard for any `public/app.js` helper it must copy.
 - Optional strict tailnet-only binding by default
 - A fourth source slots in via the source-aware path if ever wanted
-- **macOS LaunchAgent reload hardening** — deployment exposed a transient
-  `bootout` → `bootstrap` error-5 race; make the installer wait or retry narrowly
-  after confirming the old user-domain service is fully removed.
+- **LaunchAgent lifecycle follow-ups** — add hard per-subprocess wall-clock
+  deadlines to the attempt-bounded reload path, and preserve a non-benign
+  `bootout` diagnostic when the later absence check cannot complete.
 - **Cross-host cost history** — only after a bounded peer-history and
   deduplication contract exists; current cost analysis intentionally values one
   machine's local logs so it cannot silently omit or double-count activity.

@@ -1,5 +1,23 @@
 # Decisions — llmdash
 
+## LaunchAgent reload sequencing — observed absence before bounded error-5 retry — 2026-07-19 (improve)
+
+**Decision:** The shared macOS `load_service` path now treats reload as an
+observed user-domain state transition: after idempotent `bootout`,
+`launchctl print` status `0` means the old job is still registered, status `113`
+alone confirms absence, and every other status fails before `bootstrap`. Only a
+bootstrap status `5` is retried, once; persistent status `5` and all unrelated
+failures remain nonzero.
+**Rationale:** An immediate `bootout` → `bootstrap` handoff intermittently left a
+valid service stopped with launchctl error 5. Exact predicates and finite
+attempt/sleep budgets recover that known launchd race without turning other
+failures into success or duplicating behavior between installer entry points.
+**Implications:** Future LaunchAgent work must keep `install-macos.sh` as the
+single source of load semantics, stay in `gui/<uid>`, confirm absence before
+bootstrap, and preserve exact-status failure handling. The bounds limit attempts
+and scheduled sleeps, not the wall-clock duration of a hung subprocess. Shipped
+as `b29b2c5`; four consecutive production reloads and all health checks passed.
+
 ## Local cost analysis — separated spend, exact-model counterfactuals, and evidence-qualified history — 2026-07-16 (feature)
 
 **Decision:** Cost analysis is a local-machine 7d / 30d / 90d comparison of

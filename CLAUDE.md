@@ -65,6 +65,13 @@
   happen); and lives entirely in the **badge/helper process** — no new endpoint,
   `server.js` stays serve-only (405 for non-GET/HEAD), so the `0.0.0.0` bind gains
   no mutation surface and no remote peer can trigger it.
+- **A LaunchAgent reload is an observed state transition, never a bare
+  `bootout` → `bootstrap` pair.** Keep the main installer and `--service install`
+  on the shared `install-macos.sh` loader. After an idempotent user-domain
+  `bootout`, poll `launchctl print gui/<uid>/<label>`: status `0` is still
+  registered, status `113` alone is absent, and any other status fails before
+  bootstrap. Retry only bootstrap status `5`, once; persistent `5` and unrelated
+  statuses fail, and keep every poll/retry path finite.
 - **A path-ownership check before a destructive fs op is a whole-token path
   match, never a substring `includes()`.** Deciding "does this file/command belong
   to THIS checkout, so I may delete or revert it" on a bare `String(cmd).includes(

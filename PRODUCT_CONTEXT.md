@@ -121,12 +121,14 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   actions run `launchctl`/`fs` operations locally (user-domain, no sudo) through the
   installer's `--service`/`--uninstall` hooks (the single source of truth), each
   confirmed by a fixed-literal `osascript` dialog with the safe choice as default.
-  The service toggle reads the real launchd state, never a faked checkmark. The
-  complete uninstall runs as a detached, self-contained helper (temp-copied) so it
-  survives unloading its own service and deleting its own checkout; it rescues the
-  usage-history DB to `~/.llmdash/preserved-data` before removing a checkout that
-  contains it. The HTTP surface stays read-only — these are local mutations in the
-  badge/helper process, never an endpoint.
+  The service toggle reads the real launchd state, never a faked checkmark;
+  install/reload waits for the old registration to disappear before bootstrap and
+  retries only one launchctl status-5 transient. The complete uninstall runs as a
+  detached, self-contained helper (temp-copied) so it survives unloading its own
+  service and deleting its own checkout; it rescues the usage-history DB to
+  `~/.llmdash/preserved-data` before removing a checkout that contains it. The HTTP
+  surface stays read-only — these are local mutations in the badge/helper process,
+  never an endpoint.
 - Multi-host is a host dimension on top of the tool dimension. Set `LLMDASH_HOSTS`
   (`host[:port][=label]`, comma-separated; the local host is always included) and
   the interval poller fans out a bounded, credential-free `GET /api/state` to each
@@ -155,7 +157,7 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
   Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding,
-  LaunchAgent reload hardening, and cross-host cost history).
+  LaunchAgent lifecycle follow-ups, and cross-host cost history).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.
