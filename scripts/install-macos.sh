@@ -110,12 +110,68 @@ generate_plist() {
 # Load the generated plist with the MODERN per-domain verbs: bootout (idempotent
 # unregister of any prior instance) then bootstrap into gui/<uid>. RunAtLoad +
 # KeepAlive live in the template, so bootstrap starts it and keeps it alive. The
-# leading bootout makes install-when-installed a friendly reload (FR-07).
+# bounded print poll lets the prior job finish unregistering before bootstrap;
+# only launchctl's transient exit status 5 is retried, and only within the bound.
+SERVICE_BOOTOUT_WAIT_ATTEMPTS=50
+SERVICE_BOOTOUT_POLL_SECONDS=0.1
+SERVICE_BOOTSTRAP_ATTEMPTS=2
+SERVICE_BOOTSTRAP_RETRY_SECONDS=0.2
+
+wait_for_service_absent() {
+  local uid="$1" checks=0 print_output print_status
+  while :; do
+    if print_output="$(launchctl print "gui/$uid/$SERVICE_LABEL" 2>&1)"; then
+      print_status=0
+    else
+      print_status=$?
+    fi
+    if [ "$print_status" -eq 113 ]; then
+      return 0
+    fi
+    if [ "$print_status" -ne 0 ]; then
+      if [ -n "$print_output" ]; then
+        printf '%s\n' "$print_output" >&2
+      fi
+      echo "  Service: could not confirm $SERVICE_LABEL was absent from gui/$uid (launchctl print exited $print_status)." >&2
+      return "$print_status"
+    fi
+    checks=$((checks + 1))
+    if [ "$checks" -ge "$SERVICE_BOOTOUT_WAIT_ATTEMPTS" ]; then
+      echo "  Service: timed out waiting for $SERVICE_LABEL to unload from gui/$uid." >&2
+      return 1
+    fi
+    sleep "$SERVICE_BOOTOUT_POLL_SECONDS"
+  done
+}
+
+bootstrap_service() {
+  local uid="$1" attempt=1 bootstrap_output bootstrap_status
+  while [ "$attempt" -le "$SERVICE_BOOTSTRAP_ATTEMPTS" ]; do
+    if bootstrap_output="$(launchctl bootstrap "gui/$uid" "$PLIST" 2>&1)"; then
+      if [ -n "$bootstrap_output" ]; then
+        printf '%s\n' "$bootstrap_output"
+      fi
+      return 0
+    else
+      bootstrap_status=$?
+    fi
+    if [ "$bootstrap_status" -ne 5 ] || [ "$attempt" -ge "$SERVICE_BOOTSTRAP_ATTEMPTS" ]; then
+      if [ -n "$bootstrap_output" ]; then
+        printf '%s\n' "$bootstrap_output" >&2
+      fi
+      return "$bootstrap_status"
+    fi
+    attempt=$((attempt + 1))
+    sleep "$SERVICE_BOOTSTRAP_RETRY_SECONDS"
+  done
+}
+
 load_service() {
   local uid
   uid="$(service_uid)"
   launchctl bootout "gui/$uid/$SERVICE_LABEL" 2>/dev/null || true
-  launchctl bootstrap "gui/$uid" "$PLIST"
+  wait_for_service_absent "$uid"
+  bootstrap_service "$uid"
 }
 
 # Unregister + delete the plist — a TRUE remove (OQ-01 default), not a transient

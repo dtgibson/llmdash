@@ -38,6 +38,106 @@ function fakeBin(dir, name) {
   return fp;
 }
 
+function fakeLaunchctlHarness(mode) {
+  const dir = fs.mkdtempSync(path.join(tmp, `launchctl-${mode}-`));
+  const log = path.join(dir, 'calls.log');
+  const state = path.join(dir, 'state');
+  const printCount = path.join(dir, 'print-count');
+  const bootstrapCount = path.join(dir, 'bootstrap-count');
+  const launchctl = path.join(dir, 'launchctl');
+  fs.writeFileSync(launchctl, `#!/bin/sh
+set -u
+printf '%s\\n' "$*" >> "$LLMDASH_FAKE_LAUNCHCTL_LOG"
+command="$1"
+
+if [ "$command" = "bootout" ]; then
+  case "$LLMDASH_FAKE_LAUNCHCTL_MODE" in
+    delayed-absence|never-absent) printf '%s\\n' old > "$LLMDASH_FAKE_LAUNCHCTL_STATE" ;;
+    *) printf '%s\\n' absent > "$LLMDASH_FAKE_LAUNCHCTL_STATE" ;;
+  esac
+  exit 0
+fi
+
+current_state="absent"
+if [ -f "$LLMDASH_FAKE_LAUNCHCTL_STATE" ]; then
+  current_state="$(cat "$LLMDASH_FAKE_LAUNCHCTL_STATE")"
+fi
+
+if [ "$command" = "print" ]; then
+  if [ "$LLMDASH_FAKE_LAUNCHCTL_MODE" = "print-error" ]; then
+    echo 'Could not print service: 78: Function not implemented' >&2
+    exit 78
+  fi
+  if [ "$current_state" = "loaded" ]; then
+    exit 0
+  fi
+  if [ "$LLMDASH_FAKE_LAUNCHCTL_MODE" = "never-absent" ]; then
+    exit 0
+  fi
+  if [ "$LLMDASH_FAKE_LAUNCHCTL_MODE" = "delayed-absence" ] && [ "$current_state" = "old" ]; then
+    count=0
+    if [ -f "$LLMDASH_FAKE_LAUNCHCTL_PRINT_COUNT" ]; then
+      count="$(cat "$LLMDASH_FAKE_LAUNCHCTL_PRINT_COUNT")"
+    fi
+    count=$((count + 1))
+    printf '%s\\n' "$count" > "$LLMDASH_FAKE_LAUNCHCTL_PRINT_COUNT"
+    if [ "$count" -le 2 ]; then
+      exit 0
+    fi
+    printf '%s\\n' absent > "$LLMDASH_FAKE_LAUNCHCTL_STATE"
+  fi
+  exit 113
+fi
+
+if [ "$command" = "bootstrap" ]; then
+  count=0
+  if [ -f "$LLMDASH_FAKE_LAUNCHCTL_BOOTSTRAP_COUNT" ]; then
+    count="$(cat "$LLMDASH_FAKE_LAUNCHCTL_BOOTSTRAP_COUNT")"
+  fi
+  count=$((count + 1))
+  printf '%s\\n' "$count" > "$LLMDASH_FAKE_LAUNCHCTL_BOOTSTRAP_COUNT"
+  case "$LLMDASH_FAKE_LAUNCHCTL_MODE" in
+    error-5-once)
+      if [ "$count" -eq 1 ]; then
+        echo 'Bootstrap failed: 5: Input/output error' >&2
+        exit 5
+      fi
+      ;;
+    persistent-error-5)
+      echo 'Bootstrap failed: 5: Input/output error' >&2
+      exit 5
+      ;;
+    non-5-error)
+      echo 'Bootstrap failed: 78: Function not implemented' >&2
+      exit 78
+      ;;
+  esac
+  printf '%s\\n' loaded > "$LLMDASH_FAKE_LAUNCHCTL_STATE"
+  exit 0
+fi
+
+exit 64
+`);
+  fs.chmodSync(launchctl, 0o755);
+  const sleep = path.join(dir, 'sleep');
+  fs.writeFileSync(sleep, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(sleep, 0o755);
+  return {
+    dir,
+    env: {
+      LLMDASH_FAKE_LAUNCHCTL_MODE: mode,
+      LLMDASH_FAKE_LAUNCHCTL_LOG: log,
+      LLMDASH_FAKE_LAUNCHCTL_STATE: state,
+      LLMDASH_FAKE_LAUNCHCTL_PRINT_COUNT: printCount,
+      LLMDASH_FAKE_LAUNCHCTL_BOOTSTRAP_COUNT: bootstrapCount,
+    },
+    calls() {
+      if (!fs.existsSync(log)) return [];
+      return fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean);
+    },
+  };
+}
+
 // A scratch checkout: the plist template + a trivial (sleep-loop) server.js so a
 // bootstrap has a real program to run. NOT the real server.
 function scratchCheckout() {
@@ -59,10 +159,11 @@ const fakeCodex = fakeBin(binDir, 'codex');
 const fakeClaude = fakeBin(binDir, 'claude');
 const SYS_PATH = `${binDir}:/usr/bin:/bin:/usr/sbin:/sbin`;
 
-function runSvc(args, { label = LABEL, laDir, checkout, home } = {}) {
+function runSvc(args, { label = LABEL, laDir, checkout, home, commandDir, env = {} } = {}) {
   return spawnSync('/bin/bash', [script, ...args], {
     env: {
-      PATH: SYS_PATH,
+      ...env,
+      PATH: commandDir ? `${commandDir}:${SYS_PATH}` : SYS_PATH,
       HOME: home || path.join(tmp, 'home'),
       LLMDASH_SERVICE_LABEL: label,
       LLMDASH_LAUNCH_AGENTS_DIR: laDir,
@@ -130,16 +231,123 @@ test('--service status: stopped when the plist is present but not bootstrapped (
   assert.equal(r.stdout.trim(), 'stopped');
 });
 
-test('--service install is idempotent: install-when-installed reloads without error (QA-07)', () => {
+test('--service install is idempotent: repeated scratch-label reloads end running (QA-07)', () => {
   const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
   const checkout = scratchCheckout();
   const label = `${LABEL}-idem`;
   bootedLabels.add(label);
-  assert.equal(runSvc(['--service', 'install', checkout], { label, laDir }).status, 0);
-  // Second install = a friendly reload (bootout || true, then bootstrap), no error.
-  const again = runSvc(['--service', 'install', checkout], { label, laDir });
-  assert.equal(again.status, 0, again.stderr);
-  assert.match(again.stdout, /State: running/);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const result = runSvc(['--service', 'install', checkout], { label, laDir });
+    assert.equal(result.status, 0, `reload ${attempt + 1}: ${result.stderr}`);
+    assert.match(result.stdout, /State: running/);
+  }
+});
+
+test('--service install waits until the prior job is absent before bootstrap', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-wait`;
+  const fake = fakeLaunchctlHarness('delayed-absence');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /State: running/);
+  assert.deepEqual(fake.calls().map((call) => call.split(' ')[0]), [
+    'bootout',
+    'print',
+    'print',
+    'print',
+    'bootstrap',
+    'print',
+  ]);
+});
+
+test('--service install retries one bootstrap error 5 and recovers', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-retry5`;
+  const fake = fakeLaunchctlHarness('error-5-once');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, '');
+  assert.match(result.stdout, /State: running/);
+  assert.equal(fake.calls().filter((call) => call.startsWith('bootstrap ')).length, 2);
+});
+
+test('--service install bounds persistent bootstrap error 5 and fails loudly', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-persistent5`;
+  const fake = fakeLaunchctlHarness('persistent-error-5');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 5);
+  assert.match(result.stderr, /Bootstrap failed: 5: Input\/output error/);
+  assert.equal(fake.calls().filter((call) => call.startsWith('bootstrap ')).length, 2);
+});
+
+test('--service install does not retry a non-5 bootstrap failure', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-non5`;
+  const fake = fakeLaunchctlHarness('non-5-error');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 78);
+  assert.match(result.stderr, /Bootstrap failed: 78: Function not implemented/);
+  assert.equal(fake.calls().filter((call) => call.startsWith('bootstrap ')).length, 1);
+});
+
+test('--service install fails before bootstrap when the prior job never disappears', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-stuck`;
+  const fake = fakeLaunchctlHarness('never-absent');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`timed out waiting for ${label} to unload`));
+  assert.equal(fake.calls().filter((call) => call.startsWith('print ')).length, 50);
+  assert.equal(fake.calls().filter((call) => call.startsWith('bootstrap ')).length, 0);
+});
+
+test('--service install rejects a non-113 launchctl print failure without bootstrapping', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-print-error`;
+  const fake = fakeLaunchctlHarness('print-error');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 78);
+  assert.match(result.stderr, /Could not print service: 78: Function not implemented/);
+  assert.match(result.stderr, /launchctl print exited 78/);
+  assert.equal(fake.calls().filter((call) => call.startsWith('print ')).length, 1);
+  assert.equal(fake.calls().filter((call) => call.startsWith('bootstrap ')).length, 0);
 });
 
 test('--service remove is idempotent: remove-when-absent → "nothing to remove", exit 0 (QA-07)', () => {
@@ -170,7 +378,8 @@ test('the service hooks are the SINGLE source of truth — no second sed/launchc
   assert.equal(sedCount, 1, 'the plist sed substitution must live in exactly one place');
   // The main flow delegates to the shared functions (no second inline launchctl load).
   assert.match(src, /generate_plist "\$DIR" "\$NODE_BIN"/);
-  assert.match(src, /^load_service$/m);
+  assert.equal((src.match(/^\s*load_service$/gm) || []).length, 2,
+    'the service hook and main installer must both call the shared loader');
   // Modern per-domain verbs in the user domain — no sudo, no system domain.
   assert.match(src, /launchctl bootstrap "gui\/\$uid"/);
   assert.match(src, /launchctl bootout "gui\/\$uid\/\$SERVICE_LABEL"/);
