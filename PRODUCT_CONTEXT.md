@@ -122,10 +122,14 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   installer's `--service`/`--uninstall` hooks (the single source of truth), each
   confirmed by a fixed-literal `osascript` dialog with the safe choice as default.
   The service toggle reads the real launchd state, never a faked checkmark;
-  install/reload waits for the old registration to disappear before bootstrap and
-  retries only one launchctl status-5 transient. The complete uninstall runs as a
-  detached, self-contained helper (temp-copied) so it survives unloading its own
-  service and deleting its own checkout; it rescues the usage-history DB to
+  install/reload waits for the old registration to disappear before bootstrap,
+  puts every reload-path command and sleep under a hard wall-clock deadline,
+  fails closed on ambiguous deadline completion, preserves a natural child status
+  `124` separately from watchdog expiry, and retains non-benign bootout evidence
+  when absence cannot be confirmed. Only one launchctl status-5 transient is
+  retried. The complete uninstall runs as a detached, self-contained helper
+  (temp-copied) so it survives unloading its own service and deleting its own
+  checkout; it rescues the usage-history DB to
   `~/.llmdash/preserved-data` before removing a checkout that contains it. The HTTP
   surface stays read-only — these are local mutations in the badge/helper process,
   never an endpoint.
@@ -156,8 +160,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 
 ## Deferred / Not yet built
 - Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
-  Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding,
-  LaunchAgent lifecycle follow-ups, and cross-host cost history).
+  Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding, and
+  cross-host cost history).
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

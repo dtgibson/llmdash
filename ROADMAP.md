@@ -8,14 +8,15 @@ product. Update it freely.
 
 ## Shipped
 
-25 features shipped.
+26 features shipped.
 
-- **Last shipped:** LaunchAgent reload hardening — macOS install/reload now waits
+- **Last shipped:** LaunchAgent reload resilience — every reload subprocess now
+  has a hard deadline, ambiguous deadline completion fails closed, a natural
+  status `124` stays distinct from timeout, and uncertain absence retains the
+  original bootout evidence.
+- **Previously:** LaunchAgent reload hardening — macOS install/reload now waits
   for the old user-domain job to disappear before bootstrap and retries only one
   status-5 transient; persistent and unrelated failures still fail loudly.
-- **Previously:** Local cost analysis — owner-confirmed subscription spend now
-  sits beside exact-model observed-cache and no-cache API-equivalent histories,
-  with signed cache effect and explicit evidence completeness.
 
 ---
 
@@ -44,9 +45,6 @@ peer can be offline — rather than blindly trust an old reading.
   parity guard for any `public/app.js` helper it must copy.
 - Optional strict tailnet-only binding by default
 - A fourth source slots in via the source-aware path if ever wanted
-- **LaunchAgent lifecycle follow-ups** — add hard per-subprocess wall-clock
-  deadlines to the attempt-bounded reload path, and preserve a non-benign
-  `bootout` diagnostic when the later absence check cannot complete.
 - **Cross-host cost history** — only after a bounded peer-history and
   deduplication contract exists; current cost analysis intentionally values one
   machine's local logs so it cannot silently omit or double-count activity.

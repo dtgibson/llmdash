@@ -1,5 +1,32 @@
 # Decisions — llmdash
 
+## LaunchAgent reload deadlines — fail-closed timer authority with exact-child scope — 2026-07-20 (improve)
+
+**Decision:** Every reload-path `bootout`, absence `print`, poll/retry `sleep`,
+and `bootstrap` now has a fixed per-process wall-clock deadline. The stock Bash
+3.2 watchdog owns the target and an absolute `/bin/sleep` timer as direct
+children. Success requires observing the target stopped and then the timer still
+running; timer completion or a both-finished observation is conservatively a
+timeout. Timeout identity travels out of band because `launchctl` can naturally
+exit `124`; prompt child status and diagnostics therefore remain exact instead
+of being relabeled from the numeric status alone. Non-benign `bootout` evidence
+is retained and emitted if the later absence check cannot establish status
+`113`, and bootstrap remains blocked while prior state is uncertain.
+**Rationale:** Attempt counts do not bound a hung subprocess, and once both
+children are finished Bash cannot recover their completion order safely.
+Accepting that ambiguity could authorize bootstrap after the deadline. Making
+the timer authoritative trades a narrow false timeout for fail-closed lifecycle
+state, while separate timeout state avoids confusing a real macOS status `124`
+with watchdog expiry. Exact-PID direct-child signaling is the least-broad stock
+Bash 3.2 boundary; regular-file capture prevents an out-of-scope wrapper
+descendant from retaining a completion pipe and stalling the caller.
+**Implications:** Future reload work must preserve deadlines for every process,
+out-of-band timeout identity, exact status `113`/`5` semantics, original bootout
+evidence, and the shared installer entry point. The guarantee ends at the exact
+direct child; PATH-resolved targets remain a trusted same-user seam, and no code
+may claim arbitrary descendant-tree cleanup without a different process-control
+design. Shipped as `0614338`; four production loads and all health checks passed.
+
 ## LaunchAgent reload sequencing — observed absence before bounded error-5 retry — 2026-07-19 (improve)
 
 **Decision:** The shared macOS `load_service` path now treats reload as an
@@ -14,9 +41,10 @@ attempt/sleep budgets recover that known launchd race without turning other
 failures into success or duplicating behavior between installer entry points.
 **Implications:** Future LaunchAgent work must keep `install-macos.sh` as the
 single source of load semantics, stay in `gui/<uid>`, confirm absence before
-bootstrap, and preserve exact-status failure handling. The bounds limit attempts
-and scheduled sleeps, not the wall-clock duration of a hung subprocess. Shipped
-as `b29b2c5`; four consecutive production reloads and all health checks passed.
+bootstrap, and preserve exact-status failure handling. This first release bounded
+attempts and scheduled sleeps but not a hung subprocess's wall-clock duration;
+the 2026-07-20 deadline decision above closes that follow-up. Shipped as
+`b29b2c5`; four consecutive production reloads and all health checks passed.
 
 ## Local cost analysis — separated spend, exact-model counterfactuals, and evidence-qualified history — 2026-07-16 (feature)
 

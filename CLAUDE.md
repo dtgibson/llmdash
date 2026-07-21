@@ -65,13 +65,23 @@
   happen); and lives entirely in the **badge/helper process** — no new endpoint,
   `server.js` stays serve-only (405 for non-GET/HEAD), so the `0.0.0.0` bind gains
   no mutation surface and no remote peer can trigger it.
-- **A LaunchAgent reload is an observed state transition, never a bare
-  `bootout` → `bootstrap` pair.** Keep the main installer and `--service install`
-  on the shared `install-macos.sh` loader. After an idempotent user-domain
-  `bootout`, poll `launchctl print gui/<uid>/<label>`: status `0` is still
-  registered, status `113` alone is absent, and any other status fails before
-  bootstrap. Retry only bootstrap status `5`, once; persistent `5` and unrelated
-  statuses fail, and keep every poll/retry path finite.
+- **A LaunchAgent reload is an observed, wall-clock-bounded state transition,
+  never a bare `bootout` → `bootstrap` pair.** Keep the main installer and
+  `--service install` on the shared `install-macos.sh` loader. Put every
+  user-domain `bootout`, absence `print`, poll/retry `sleep`, and `bootstrap`
+  under a hard per-process deadline. On stock Bash 3.2, keep the command and an
+  absolute `/bin/sleep` timer as direct children: success requires observing the
+  command stopped and then the timer still running; timer completion or a
+  both-finished ambiguity fails closed. Carry deadline identity out of band —
+  `launchctl` can naturally exit `124`, so status alone must never mean timeout —
+  and preserve the child's exact status and diagnostic. After bootout, status `0`
+  from `launchctl print gui/<uid>/<label>` is still registered, status `113`
+  alone is absent, and every other status blocks bootstrap; if absence cannot be
+  confirmed, emit the original non-benign bootout evidence before the terminal
+  failure. Retry only bootstrap status `5`, once. The watchdog's trust boundary
+  is its exact direct child: PATH-resolved targets are a same-user trusted seam,
+  arbitrary descendants are not controlled, and regular-file capture must keep
+  such a descendant from holding a completion pipe open.
 - **A path-ownership check before a destructive fs op is a whole-token path
   match, never a substring `includes()`.** Deciding "does this file/command belong
   to THIS checkout, so I may delete or revert it" on a bare `String(cmd).includes(
