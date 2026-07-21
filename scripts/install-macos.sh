@@ -116,21 +116,125 @@ SERVICE_BOOTOUT_WAIT_ATTEMPTS=50
 SERVICE_BOOTOUT_POLL_SECONDS=0.1
 SERVICE_BOOTSTRAP_ATTEMPTS=2
 SERVICE_BOOTSTRAP_RETRY_SECONDS=0.2
+SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5
+SERVICE_SLEEP_DEADLINE_SECONDS=1
+SERVICE_WATCHDOG_POLL_SECONDS=0.01
+SERVICE_WATCHDOG_GRACE_ATTEMPTS=10
+RUN_WITH_DEADLINE_TIMED_OUT=0
+RUN_WITH_DEADLINE_OUTPUT=""
+RUN_CAPTURED_OUTPUT=""
+
+background_job_running() {
+  local wanted_pid="$1" running_pid
+  for running_pid in $(jobs -pr); do
+    if [ "$running_pid" = "$wanted_pid" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+stop_background_job() {
+  local job_pid="$1" grace_check=0
+  if background_job_running "$job_pid"; then
+    kill -TERM "$job_pid" 2>/dev/null || true
+  fi
+  while background_job_running "$job_pid" && [ "$grace_check" -lt "$SERVICE_WATCHDOG_GRACE_ATTEMPTS" ]; do
+    /bin/sleep "$SERVICE_WATCHDOG_POLL_SECONDS"
+    grace_check=$((grace_check + 1))
+  done
+  if background_job_running "$job_pid"; then
+    kill -KILL "$job_pid" 2>/dev/null || true
+  fi
+  wait "$job_pid" 2>/dev/null || true
+}
+
+run_with_deadline() {
+  local deadline_seconds="$1" command_pid deadline_pid command_status
+  shift
+  RUN_WITH_DEADLINE_TIMED_OUT=0
+
+  "$@" &
+  command_pid=$!
+  /bin/sleep "$deadline_seconds" &
+  deadline_pid=$!
+
+  while background_job_running "$deadline_pid"; do
+    if ! background_job_running "$command_pid"; then
+      if background_job_running "$deadline_pid"; then
+        stop_background_job "$deadline_pid" 2>/dev/null
+        if wait "$command_pid"; then
+          command_status=0
+        else
+          command_status=$?
+        fi
+        return "$command_status"
+      fi
+      break
+    fi
+    /bin/sleep "$SERVICE_WATCHDOG_POLL_SECONDS"
+  done
+
+  stop_background_job "$command_pid" 2>/dev/null
+  stop_background_job "$deadline_pid" 2>/dev/null
+  RUN_WITH_DEADLINE_TIMED_OUT=1
+  return 124
+}
+
+run_captured() {
+  local output_file captured_status captured_timed_out
+  RUN_CAPTURED_OUTPUT=""
+  if output_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/llmdash-deadline.XXXXXX")"; then
+    :
+  else
+    RUN_CAPTURED_OUTPUT="  Service: could not create a secure deadline output file."
+    return 1
+  fi
+  if "$@" >"$output_file" 2>&1; then
+    captured_status=0
+  else
+    captured_status=$?
+  fi
+  captured_timed_out="$RUN_WITH_DEADLINE_TIMED_OUT"
+  RUN_CAPTURED_OUTPUT="$(< "$output_file")"
+  /bin/rm -f "$output_file"
+  RUN_WITH_DEADLINE_TIMED_OUT="$captured_timed_out"
+  return "$captured_status"
+}
+
+run_with_deadline_capture() {
+  local command_status
+  RUN_WITH_DEADLINE_OUTPUT=""
+  RUN_WITH_DEADLINE_TIMED_OUT=0
+  if run_captured run_with_deadline "$@"; then
+    command_status=0
+  else
+    command_status=$?
+  fi
+  RUN_WITH_DEADLINE_OUTPUT="$RUN_CAPTURED_OUTPUT"
+  return "$command_status"
+}
 
 wait_for_service_absent() {
-  local uid="$1" checks=0 print_output print_status
+  local uid="$1" checks=0 print_output print_status print_timed_out sleep_status
   while :; do
-    if print_output="$(launchctl print "gui/$uid/$SERVICE_LABEL" 2>&1)"; then
+    if run_with_deadline_capture "$SERVICE_LAUNCHCTL_DEADLINE_SECONDS" launchctl print "gui/$uid/$SERVICE_LABEL"; then
       print_status=0
     else
       print_status=$?
     fi
+    print_output="$RUN_WITH_DEADLINE_OUTPUT"
+    print_timed_out="$RUN_WITH_DEADLINE_TIMED_OUT"
     if [ "$print_status" -eq 113 ]; then
       return 0
     fi
     if [ "$print_status" -ne 0 ]; then
       if [ -n "$print_output" ]; then
         printf '%s\n' "$print_output" >&2
+      fi
+      if [ "$print_timed_out" -eq 1 ]; then
+        echo "  Service: timed out confirming $SERVICE_LABEL was absent from gui/$uid (launchctl print exceeded ${SERVICE_LAUNCHCTL_DEADLINE_SECONDS}s)." >&2
+        return 124
       fi
       echo "  Service: could not confirm $SERVICE_LABEL was absent from gui/$uid (launchctl print exited $print_status)." >&2
       return "$print_status"
@@ -140,20 +244,40 @@ wait_for_service_absent() {
       echo "  Service: timed out waiting for $SERVICE_LABEL to unload from gui/$uid." >&2
       return 1
     fi
-    sleep "$SERVICE_BOOTOUT_POLL_SECONDS"
+    if run_with_deadline "$SERVICE_SLEEP_DEADLINE_SECONDS" sleep "$SERVICE_BOOTOUT_POLL_SECONDS"; then
+      :
+    else
+      sleep_status=$?
+      if [ "$RUN_WITH_DEADLINE_TIMED_OUT" -eq 1 ]; then
+        echo "  Service: timed out during the unload poll delay (sleep exceeded ${SERVICE_SLEEP_DEADLINE_SECONDS}s)." >&2
+      else
+        echo "  Service: unload poll delay failed (sleep exited $sleep_status)." >&2
+      fi
+      return "$sleep_status"
+    fi
   done
 }
 
 bootstrap_service() {
-  local uid="$1" attempt=1 bootstrap_output bootstrap_status
+  local uid="$1" attempt=1 bootstrap_output bootstrap_status bootstrap_timed_out sleep_status
   while [ "$attempt" -le "$SERVICE_BOOTSTRAP_ATTEMPTS" ]; do
-    if bootstrap_output="$(launchctl bootstrap "gui/$uid" "$PLIST" 2>&1)"; then
+    if run_with_deadline_capture "$SERVICE_LAUNCHCTL_DEADLINE_SECONDS" launchctl bootstrap "gui/$uid" "$PLIST"; then
+      bootstrap_output="$RUN_WITH_DEADLINE_OUTPUT"
       if [ -n "$bootstrap_output" ]; then
         printf '%s\n' "$bootstrap_output"
       fi
       return 0
     else
       bootstrap_status=$?
+    fi
+    bootstrap_output="$RUN_WITH_DEADLINE_OUTPUT"
+    bootstrap_timed_out="$RUN_WITH_DEADLINE_TIMED_OUT"
+    if [ "$bootstrap_timed_out" -eq 1 ]; then
+      if [ -n "$bootstrap_output" ]; then
+        printf '%s\n' "$bootstrap_output" >&2
+      fi
+      echo "  Service: timed out loading $SERVICE_LABEL into gui/$uid (launchctl bootstrap exceeded ${SERVICE_LAUNCHCTL_DEADLINE_SECONDS}s)." >&2
+      return 124
     fi
     if [ "$bootstrap_status" -ne 5 ] || [ "$attempt" -ge "$SERVICE_BOOTSTRAP_ATTEMPTS" ]; then
       if [ -n "$bootstrap_output" ]; then
@@ -162,15 +286,53 @@ bootstrap_service() {
       return "$bootstrap_status"
     fi
     attempt=$((attempt + 1))
-    sleep "$SERVICE_BOOTSTRAP_RETRY_SECONDS"
+    if run_with_deadline "$SERVICE_SLEEP_DEADLINE_SECONDS" sleep "$SERVICE_BOOTSTRAP_RETRY_SECONDS"; then
+      :
+    else
+      sleep_status=$?
+      if [ "$RUN_WITH_DEADLINE_TIMED_OUT" -eq 1 ]; then
+        echo "  Service: timed out before retrying $SERVICE_LABEL (sleep exceeded ${SERVICE_SLEEP_DEADLINE_SECONDS}s)." >&2
+      else
+        echo "  Service: bootstrap retry delay failed (sleep exited $sleep_status)." >&2
+      fi
+      return "$sleep_status"
+    fi
   done
 }
 
 load_service() {
-  local uid
+  local uid bootout_output bootout_status bootout_timed_out absence_output absence_status
   uid="$(service_uid)"
-  launchctl bootout "gui/$uid/$SERVICE_LABEL" 2>/dev/null || true
-  wait_for_service_absent "$uid"
+  if run_with_deadline_capture "$SERVICE_LAUNCHCTL_DEADLINE_SECONDS" launchctl bootout "gui/$uid/$SERVICE_LABEL"; then
+    bootout_status=0
+  else
+    bootout_status=$?
+  fi
+  bootout_output="$RUN_WITH_DEADLINE_OUTPUT"
+  bootout_timed_out="$RUN_WITH_DEADLINE_TIMED_OUT"
+  if [ "$bootout_timed_out" -eq 1 ]; then
+    if [ -n "$bootout_output" ]; then
+      printf '%s\n' "$bootout_output" >&2
+    fi
+    echo "  Service: timed out unloading $SERVICE_LABEL from gui/$uid (launchctl bootout exceeded ${SERVICE_LAUNCHCTL_DEADLINE_SECONDS}s)." >&2
+    return 124
+  fi
+  if run_captured wait_for_service_absent "$uid"; then
+    :
+  else
+    absence_status=$?
+    absence_output="$RUN_CAPTURED_OUTPUT"
+    if [ "$bootout_status" -ne 0 ]; then
+      if [ -n "$bootout_output" ]; then
+        printf '%s\n' "$bootout_output" >&2
+      fi
+      echo "  Service: launchctl bootout for $SERVICE_LABEL in gui/$uid exited $bootout_status." >&2
+    fi
+    if [ -n "$absence_output" ]; then
+      printf '%s\n' "$absence_output" >&2
+    fi
+    return "$absence_status"
+  fi
   bootstrap_service "$uid"
 }
 
