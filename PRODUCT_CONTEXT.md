@@ -23,6 +23,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   API-equivalent values for the same retained Claude/Codex usage under observed
   and no-cache pricing, with signed cache effect, reconciled histories,
   provenance, and explicit evidence completeness for this machine.
+- **Reset and billing settings** — an owner can save a daylight-saving-aware
+  Claude weekly fallback, maintain automatically recurring monthly Claude/Codex
+  access-cost history, and view or download every fixed billing input over the
+  same local or Tailscale origin while current provider reset evidence still wins.
 - **Usage trends** — each tool group closes with its own vanilla-SVG limit burn,
   tokens-per-day, and cache-rate charts under one shared 24h / 7d / 30d range
   switch.
@@ -36,8 +40,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   showing the most-constrained remaining % across Claude Code and Codex (both
   windows), with a dropdown carrying the full per-tool picture, including Claude
   model-specific caps when present, and a link to the dashboard. It is a pure
-  consumer of the local instance's data (no second data path, no recomputed
-  limits), honest about freshness and offline state (five honesty states
+  consumer of the local instance: `/api/hosts` remains its sole usage source, and
+  one optional bounded reset/billing GET can supply only the local Claude weekly
+  reset presentation. It never recomputes limits or changes freshness/offline
+  state (five honesty states
   mirroring the dashboard, with `◷` for aging and `⚠` for stale), and names the
   binding tool (◆ Claude / ▲ Codex). Its dropdown keeps summary,
   detail, diagnostics, Display controls, and Legend copy readable as explicit
@@ -64,7 +70,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   full local monitor or a badge-only monitoring station) and uninstall llmdash
   entirely — either the menu-bar badge only, or completely (service, checkout,
   statusline wiring, and trust artifacts, each enumerated before it acts) — with no
-  terminal, your usage history preserved by default, and SwiftBar never removed.
+  terminal, your usage history and reset/billing configuration preserved by
+  default, and SwiftBar never removed.
 - **Multi-host view** — one llmdash can place every unique reachable account's
   Claude/Codex limits in the leading comparison, collapse matching accounts once,
   and then group each tailnet machine's local activity by tool while keeping
@@ -98,6 +105,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   effective-dated rates using fixed-point arithmetic, and atomically caches 7d,
   30d, and 90d views for its read-only endpoint; requests never scan logs, and
   cost history is not added to peer or menu contracts.
+- Reset and recurring-plan configuration lives in a strict versioned
+  `account-config.json`; the focused `/settings` page writes it atomically through
+  one trusted-authority, same-origin, CSRF- and ETag-protected route, while legacy
+  `subscriptions.json` and the tracked rate card remain fixed read-only inputs.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Static assets are served `no-store`; the CSP allows inline styles while
@@ -105,9 +116,11 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - Served on `0.0.0.0:8787`, reachable over the tailnet. This Mac runs it as the
   `com.llmdash.dashboard` user LaunchAgent; Linux installs can use the documented
   systemd user service.
-- The menu-bar badge is a zero-dependency Node plugin that only does a loopback
-  read of its local instance's combined `GET /api/hosts` (no outbound peer fetch
-  of its own — the local instance does the fan-out). SwiftBar is a user-installed
+- The menu-bar badge is a zero-dependency Node plugin that reads its local
+  instance's combined `GET /api/hosts` for usage and makes one optional bounded
+  `GET /api/config/reset-billing` solely for local Claude weekly reset
+  presentation (no outbound peer fetch of its own — the local instance does the
+  fan-out). SwiftBar is a user-installed
   prerequisite (llmdash never installs it); `--setup-badge` wires it in by
   generating a wrapper in SwiftBar's plugin dir that runs the tracked plugin, so
   the checkout is never modified and the badge updates on pull (`--remove-badge`
@@ -115,8 +128,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   `hosts.conf` under the data dir that the badge edits **locally** (Add/Remove →
   a native `osascript` dialog → sanitize/validate → atomic write); `LLMDASH_HOSTS`
   seeds it once, after which the file is the source of truth (so a removed host
-  can't ghost back), and the poller re-reads it each tick. The HTTP surface stays
-  read-only — config edits are a local file write, never an HTTP endpoint.
+  can't ghost back), and the poller re-reads it each tick. Host-list edits remain
+  local file writes; the protected reset-and-billing route cannot modify them.
 - The install-lifecycle controls are the same badge-process pattern: dropdown
   actions run `launchctl`/`fs` operations locally (user-domain, no sudo) through the
   installer's `--service`/`--uninstall` hooks (the single source of truth), each
@@ -129,10 +142,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   when absence cannot be confirmed. Only one launchctl status-5 transient is
   retried. The complete uninstall runs as a detached, self-contained helper
   (temp-copied) so it survives unloading its own service and deleting its own
-  checkout; it rescues the usage-history DB to
-  `~/.llmdash/preserved-data` before removing a checkout that contains it. The HTTP
-  surface stays read-only — these are local mutations in the badge/helper process,
-  never an endpoint.
+  checkout; it rescues the named usage-history and reset/billing configuration
+  files to `~/.llmdash/preserved-data` before removing a checkout that contains
+  them. These lifecycle mutations stay in the badge/helper process and expose no
+  HTTP endpoint.
 - Multi-host is a host dimension on top of the tool dimension. Set `LLMDASH_HOSTS`
   (`host[:port][=label]`, comma-separated; the local host is always included) and
   the interval poller fans out a bounded, credential-free `GET /api/state` to each
@@ -159,9 +172,11 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   history from the logs.
 
 ## Deferred / Not yet built
-- Nothing major queued. See `ROADMAP.md` → Up Next (limit alerts) and On the
-  Horizon (a tmux/terminal statusline emitter, strict tailnet-only binding, and
-  cross-host cost history).
+- Complete-uninstall hardening: prove the service has stopped before destructive
+  work, preserve `llmdash.db-journal` with the other database files, and report
+  detached teardown results plus every recovery location to the operator.
+- See `ROADMAP.md` → Up Next (limit alerts) and On the Horizon for the remaining
+  planned work.
 - Kagi (Ultimate is unlimited; no meter to show).
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.

@@ -36,12 +36,14 @@
   mixed-case `.local` Bonjour key wrote case-preserved, read lowercased, failed the
   intersection, and silently fell back to `all`; read/write/`addr` must all be
   case-consistent.
-- **A local config *write* stays a local file write — never an HTTP mutation
-  endpoint.** llmdash is serve-only (read-only over the `0.0.0.0` tailnet bind);
-  the badge's Add/Remove edits `hosts.conf` in its **own process**, so the bind
-  gains no write surface (`server.js` keeps no POST/PUT/DELETE/PATCH — still 405
-  for non-GET/HEAD). When such a write ingests a user-typed value (the
-  `osascript` Add dialog), harden it structurally: a **fixed-literal** AppleScript
+- **Runtime configuration stays local-file-first; the owner-managed settings write
+  is one narrow HTTP exception.** The badge's Add/Remove still edits `hosts.conf`
+  in its **own process**. The only network-served mutation is the exact
+  `PUT /api/config/reset-billing` route: its authority must belong to the receiving
+  socket, its origin must match, and it requires CSRF plus strong ETag/version
+  proof, strict bounded JSON, and a fixed server-selected target. Every other
+  mutation path remains unavailable. When a local write ingests a user-typed value
+  (the `osascript` Add dialog), harden it structurally: a **fixed-literal** AppleScript
   run via `execFileSync('/usr/bin/osascript', ['-e', <constant>])` (**no shell**),
   the typed value returning on stdout and reaching the writer as a **plain ARGV
   string** only (never concatenated into the script or a command); write
@@ -49,6 +51,10 @@
   from input → no traversal); **validate before the write lands** (`parseHosts` +
   `sanitizeHostPort`, reject writes nothing); and **strip embedded newlines** per
   record so a value can't smuggle a second config line or a directive.
+- **Deployment-specific owner values use the validated settings workflow, never a
+  source default, installer seed, or startup side effect.** A clean install has no
+  reset fallback or recurring amount. An approved deployment seed goes through the
+  same versioned API as an in-app save and changes only the fields the owner named.
 - **A menu-bar-driven destructive or system action stays user-domain, confirmed,
   marker-gated, and never an HTTP endpoint** — this extends the local-write rule to
   `launchctl`/`fs` mutations (the service toggle, the two-tier uninstall). Every
@@ -62,9 +68,8 @@
   `hasOwnProperty`, the plist only for the resolved label's file, the checkout only
   the resolved dir — never a user's own file); is **honest on partial failure**
   (each step reports its own concrete outcome; never claim a removal that didn't
-  happen); and lives entirely in the **badge/helper process** — no new endpoint,
-  `server.js` stays serve-only (405 for non-GET/HEAD), so the `0.0.0.0` bind gains
-  no mutation surface and no remote peer can trigger it.
+  happen); and lives entirely in the **badge/helper process** — there is no
+  service-control or uninstall endpoint, so a remote peer cannot trigger it.
 - **A LaunchAgent reload is an observed, wall-clock-bounded state transition,
   never a bare `bootout` → `bootstrap` pair.** Keep the main installer and
   `--service install` on the shared `install-macos.sh` loader. Put every
@@ -138,7 +143,8 @@
   exposure, never tailnet-only; when adding privacy-sensitive aggregates, disclose
   that reachability and preserve the `127.0.0.1` local-only option.
 - HTTP responses carry baseline security headers (`nosniff`, CSP `default-src
-  'self'`, `Referrer-Policy`) and reject non-GET/HEAD with 405.
+  'self'`, `Referrer-Policy`) and reject mutation methods with 405 except for the
+  exact protected reset-and-billing PUT described above.
 
 ## Multi-source
 - The dashboard is **source-aware**: each tool is a `source` value in
@@ -194,8 +200,8 @@
   `LLMDASH_CLAUDE_AUTOREFRESH=0`. The TUI scrape is version-brittle; a layout it
   can't parse fails loudly as `parse-failed`, never a partial or fabricated reading.
 - **Any outbound HTTP llmdash makes follows the hardened-fetch template** in
-  `src/hosts.js` (`fetchPeerState`). llmdash is otherwise serve-only; a peer/host
-  read is the one outbound surface, and it is SSRF-shaped. The rules: target
+  `src/hosts.js` (`fetchPeerState`). A peer/host read is the one outbound surface,
+  and it is SSRF-shaped. The rules: target
   **only** an explicitly-configured host (from `LLMDASH_HOSTS` via `parseHosts` —
   **never** a host derived from a fetched payload, so there is no transitive
   fan-out); a **credential-free `GET`** of a fixed path only (no auth header, no
@@ -223,6 +229,10 @@
   one. Each tool shows a pacing predictor for **both** windows at once; a maxed
   window (≈0 remaining) reads "limit reached" and is binding **per window** (one
   maxed window never suppresses the other's pacing line).
+- **Live provider reset evidence outranks owner fallback configuration.** Use the
+  saved IANA-zone weekly schedule only when the live account reset is missing,
+  expired, invalid, or non-current; label it configured, and never let it refresh
+  or re-label the age of the associated usage percentage.
 - **Provider window identity follows explicit evidence, and a complete live
   response is authoritative for the current window set.** For Codex, a
   duration-bearing positional window maps 300 minutes to `five_hour` and 10,080
@@ -249,6 +259,11 @@
   and use fixed-point aggregation before one canonical display rounding. Keep
   configured spend, estimated API value, and signed cache effect distinct; never
   relabel them as invoices, charges, or generic savings.
+- **Recurring access-cost history is append-only and effective-dated.** Expand an
+  owner-confirmed monthly plan in memory from its preserved billing anchor (days
+  29–31 clamp without drifting), close prior records at validated boundaries, and
+  let explicit legacy fixed periods retain precedence without rewriting either
+  source.
 - **Structured-log analytics are aggregate-only, capability-gated, bounded, and
   cache-served.** Raw content, paths, payloads, and identifiers may exist only as
   ephemeral parser keys; API records carry normalized aggregates and bounded

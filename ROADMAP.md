@@ -8,15 +8,16 @@ product. Update it freely.
 
 ## Shipped
 
-26 features shipped.
+27 features shipped.
 
-- **Last shipped:** LaunchAgent reload resilience — every reload subprocess now
-  has a hard deadline, ambiguous deadline completion fails closed, a natural
-  status `124` stays distinct from timeout, and uncertain absence retains the
-  original bootout evidence.
-- **Previously:** LaunchAgent reload hardening — macOS install/reload now waits
-  for the old user-domain job to disappear before bootstrap and retries only one
-  status-5 transient; persistent and unrelated failures still fail loudly.
+- **Last shipped:** Reset and billing configuration — Claude now has an
+  owner-saved weekly fallback when live reset evidence is unavailable, recurring
+  monthly Claude/Codex access costs update automatically, and every fixed billing
+  input is reachable from the protected settings page over Tailscale.
+- **Previously:** LaunchAgent reload resilience — every reload subprocess has a
+  hard deadline, ambiguous deadline completion fails closed, a natural status
+  `124` stays distinct from timeout, and uncertain absence retains the original
+  bootout evidence.
 
 ---
 
@@ -39,6 +40,9 @@ peer can be offline — rather than blindly trust an old reading.
 
 ## On the Horizon
 
+- **Complete-uninstall hardening** — verify service shutdown before destructive
+  work, preserve `llmdash.db-journal`, and report detached teardown results and
+  recovery locations; the full follow-up is saved for a future Weft run.
 - **tmux / terminal statusline emitter** — the same `/api/state` → most-
   constrained-glyph logic feeding the terminal statusline the user lives in.
   Would reuse the badge's selection + honesty model and (per CLAUDE.md) ship a

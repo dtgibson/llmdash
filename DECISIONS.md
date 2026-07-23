@@ -1,5 +1,30 @@
 # Decisions — llmdash
 
+## Reset and billing configuration — evidence-first resets and protected recurring owner data — 2026-07-23 (feature)
+
+**Decision:** A current usable Claude account reset remains authoritative; an
+owner-saved weekday, wall-clock time, and IANA zone is a labeled fallback only and
+never changes usage freshness. Claude and Codex subscription spend is optional,
+owner-confirmed recurring history: each effective-dated plan preserves its billing
+anchor, expands automatically by month, and coexists with higher-precedence legacy
+fixed periods. The focused settings page exposes fixed View/Download resources and
+one exact configuration PUT protected by socket-bound authority, same origin, CSRF,
+strong ETag/version checks, strict bounds, and a server-selected file path.
+**Rationale:** The dashboard needed a trustworthy reset when Claude could no longer
+refresh its statusline, plus monthly cost data that did not require hand-maintained
+periods or pretend provider estimates were invoices. A narrow owner-managed write
+path keeps those values editable on the local network or over Tailscale without
+creating a generic filesystem or mutation API.
+**Implications:** The production instance running release `78723ca` was explicitly
+configured only with Friday 23:00 `America/Los_Angeles`; no billing amount was
+inferred or configured. Future reset and
+financial work must preserve evidence precedence, immutable recurring history, and
+the protected exact-route write boundary. The security review also exposed three
+pre-existing complete-uninstall gaps, saved for the next run as Weft idea
+`c1a037ee-9c7c-43df-9b18-700daffc650a`: verify service shutdown before destructive
+work, preserve `llmdash.db-journal`, and deliver detached teardown outcomes and
+recovery locations.
+
 ## LaunchAgent reload deadlines — fail-closed timer authority with exact-child scope — 2026-07-20 (improve)
 
 **Decision:** Every reload-path `bootout`, absence `print`, poll/retry `sleep`,
