@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   computeBadge, emit, fmtDur, ageBand, sanitize, diagLine, statusClass, baseUrl,
-  sanitizeHostPort, wrapMenuText, windowRowLine,
+  sanitizeHostPort, wrapMenuText, windowRowLine, applyConfiguredWeeklyReset,
 } from '../scripts/menubar/llmdash.5s.js';
 
 // ── fixture loader ──────────────────────────────────────────────────────────
@@ -96,6 +96,105 @@ test('windowRowLine is the shared semantic presentation for account/model window
     windowRowLine({ label: 'Weekly', remaining: null, resetsAt: null, maxed: false }),
     '  Weekly:  not available | font=Menlo size=12 color=#3f4754 bash=/usr/bin/true terminal=false refresh=false',
   );
+});
+
+function resetView(source, nextResetAt) {
+  return {
+    resetSchedule: source === 'configured'
+      ? { isoWeekday: 5, localTime: '23:00', timeZone: 'America/Los_Angeles' }
+      : null,
+    resetSelection: { source, nextResetAt },
+  };
+}
+
+function hostReading(state, { self = true, label = 'This machine' } = {}) {
+  return {
+    host: self ? 'local' : 'peer', label, port: 8787, self,
+    reachable: true, hostDiagnostic: null, state,
+  };
+}
+
+test('configured weekly fallback fills only local Claude presentation and keeps stale honesty', () => {
+  const now = Date.now();
+  const local = loadFixture('state-stale', now);
+  const remote = loadFixture('state-stale', now);
+  local.tools.find((tool) => tool.source === 'claude-code').limits.seven_day.resetsAt = null;
+  remote.tools.find((tool) => tool.source === 'claude-code').limits.seven_day.resetsAt = null;
+  const combined = { hosts: [hostReading(local), hostReading(remote, { self: false, label: 'Remote' })] };
+  const configuredAt = new Date(now + 2 * 86400_000).toISOString();
+  const rawBytes = JSON.stringify(combined);
+  const rawClaude = local.tools.find((tool) => tool.source === 'claude-code');
+  const rawCodex = local.tools.find((tool) => tool.source === 'codex');
+
+  const presented = applyConfiguredWeeklyReset(
+    combined, resetView('configured', configuredAt), now,
+  );
+  const shownClaude = presented.hosts[0].state.tools.find((tool) => tool.source === 'claude-code');
+
+  assert.notStrictEqual(presented, combined);
+  assert.equal(JSON.stringify(combined), rawBytes, 'the fetched /api/hosts bytes are not mutated');
+  assert.equal(JSON.stringify(presented), rawBytes,
+    'the private presentation clone preserves the serialized /api/hosts contract too');
+  assert.equal(rawClaude.limits.seven_day.resetsAt, null, 'raw provider reset stays missing');
+  assert.equal(shownClaude.limits.seven_day.resetsAt, null,
+    'even the presentation clone keeps the provider-owned identity timestamp raw');
+  assert.equal(shownClaude.limits.seven_day.remainingPct, rawClaude.limits.seven_day.remainingPct);
+  assert.strictEqual(shownClaude.limits.five_hour, rawClaude.limits.five_hour);
+  assert.strictEqual(presented.hosts[0].state.tools.find((tool) => tool.source === 'codex'), rawCodex,
+    'Codex stays untouched');
+  assert.strictEqual(presented.hosts[1], combined.hosts[1], 'a remote host stays untouched');
+  assert.deepEqual(shownClaude.freshness, rawClaude.freshness);
+  assert.deepEqual(shownClaude.limitsDiagnostic, rawClaude.limitsDiagnostic);
+
+  const badge = computeBadge(presented.hosts[0].state);
+  assert.equal(badge.toolViews.find((tool) => tool.source === 'claude-code')
+    .rows.find((row) => row.label === 'Weekly').resetsAt, configuredAt,
+  'only the disposable menu row receives the configured countdown');
+  const out = emit(badge);
+  assert.equal(badge.state, 'stale', 'configured timing never freshens usage');
+  assert.match(out, /^ {2}Weekly: {2}\d+% · resets .+ · Configured \|/m);
+  assert.match(out, /^ {2}Stale reading —/m, 'the stale diagnostic remains visible');
+});
+
+test('a current provider weekly reset wins a conflicting configured fallback', () => {
+  const now = Date.now();
+  const state = loadFixture('state-fresh', now);
+  const claude = state.tools.find((tool) => tool.source === 'claude-code');
+  const providerAt = claude.limits.seven_day.resetsAt;
+  const combined = { hosts: [hostReading(state)] };
+
+  const presented = applyConfiguredWeeklyReset(combined,
+    resetView('configured', new Date(now + 6 * 86400_000).toISOString()), now);
+
+  assert.strictEqual(presented, combined, 'no presentation clone is needed when provider evidence is current');
+  assert.equal(claude.limits.seven_day.resetsAt, providerAt);
+  const out = emit(computeBadge(state));
+  assert.doesNotMatch(out, /Configured/, 'the provider row is not mislabeled as configured');
+});
+
+test('invalid, unavailable, or expired reset views do nothing and never synthesize a weekly window', () => {
+  const now = Date.now();
+  const state = loadFixture('state-stale', now);
+  const claude = state.tools.find((tool) => tool.source === 'claude-code');
+  claude.limits.seven_day.resetsAt = null;
+  const combined = { hosts: [hostReading(state)] };
+  const invalidViews = [
+    null,
+    { resetSelection: { source: 'unavailable', nextResetAt: null } },
+    resetView('configured', 'not-a-date'),
+    resetView('configured', new Date(now - 60_000).toISOString()),
+    { resetSchedule: null, resetSelection: {
+      source: 'configured', nextResetAt: new Date(now + 86400_000).toISOString(),
+    } },
+  ];
+  for (const view of invalidViews) {
+    assert.strictEqual(applyConfiguredWeeklyReset(combined, view, now), combined);
+  }
+
+  claude.limits.seven_day = null;
+  assert.strictEqual(applyConfiguredWeeklyReset(combined,
+    resetView('configured', new Date(now + 86400_000).toISOString()), now), combined,
+  'configuration supplies timing only; it never invents a usage window');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

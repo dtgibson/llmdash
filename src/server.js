@@ -17,6 +17,8 @@ import { getCombined, setHost } from './host-cache.js';
 import { parseHosts } from './hosts.js';
 import { readHostsConfig } from './host-config.js';
 import { getCostAnalysis, refreshCostAnalysis } from './cost-analysis.js';
+import { refreshAccountConfig } from './account-config.js';
+import { handleResetBillingRequest, isResetBillingRoute } from './reset-billing-api.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -190,6 +192,18 @@ export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
 const server = http.createServer((req, res) => {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
 
+  // The one intentionally mutable HTTP surface is matched against the raw
+  // request target before URL normalization and before the server-wide
+  // GET/HEAD gate. Its handler enforces its own exact GET/PUT method, query,
+  // same-origin, CSRF, ETag, body, and fixed-file rules.
+  if (isResetBillingRoute(req.url)) {
+    void handleResetBillingRequest(req, res).catch(() => {
+      if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+      if (!res.writableEnded) res.end('{"error":"internal_error"}');
+    });
+    return;
+  }
+
   // Node accepts a few malformed request-targets that the WHATWG URL parser
   // rejects. Treat them as bad input instead of letting the parser exception
   // escape the request callback and terminate the process.
@@ -255,8 +269,10 @@ const server = http.createServer((req, res) => {
     return res.end(head ? undefined : body);
   }
   if (url.pathname === '/' || url.pathname === '/index.html') return serveStatic(res, 'index.html', head);
+  if (url.pathname === '/settings' || url.pathname === '/settings.html') return serveStatic(res, 'settings.html', head);
   if (url.pathname === '/styles.css') return serveStatic(res, 'styles.css', head);
   if (url.pathname === '/app.js') return serveStatic(res, 'app.js', head);
+  if (url.pathname === '/settings.js') return serveStatic(res, 'settings.js', head);
   res.writeHead(404);
   res.end(head ? undefined : 'not found');
 });
@@ -266,6 +282,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Prime local analytics before the first state is published. Later refreshes
   // are poller-owned; HTTP getters never touch the session tree.
   refreshCodexAnalytics();
+  refreshAccountConfig();
   refreshCostAnalysis();
   // Data-source health readout: which sources are feeding the dashboard and,
   // when one isn't, why and how to fix it. Startup-only cheap fs checks —

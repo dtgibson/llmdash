@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { config } from '../config.js';
-import { isBoundedFileError, readBoundedRegularFile } from './bounded-file.js';
+import { readSecureRegularFile } from './secure-config-file.js';
 
 const MAX_BYTES = 1024 * 1024;
 const MAX_DEPTH = 10;
@@ -15,6 +16,10 @@ const CLAUDE_CHANNELS = new Set(['input', 'output', 'cacheWrite', 'cacheRead']);
 const CODEX_CHANNELS = new Set(['input', 'output', 'cacheRead']);
 const RATE_RE = /^(?:0|[1-9][0-9]{0,5})(?:\.[0-9]{1,6})?$/;
 const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
+const UNSAFE_FILE_CODES = new Set([
+  'SECURE_PATH_INVALID', 'SECURE_PARENT_INVALID', 'SECURE_PARENT_CHANGED',
+  'SECURE_TARGET_INVALID', 'SECURE_TARGET_TOO_LARGE', 'SECURE_TARGET_CHANGED',
+]);
 
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null; }
 function exactKeys(value, allowed) { return object(value) && Object.keys(value).every((key) => allowed.has(key)); }
@@ -47,10 +52,6 @@ function boundedText(value, max, ascii = false) {
     && wellFormedUnicode(value) && !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(value)
     && !/[\p{Cf}\p{Zl}\p{Zp}]/u.test(value)
     && (!ascii || PRINTABLE_ASCII.test(value));
-}
-
-function fileStat(file, fsImpl) {
-  return typeof fsImpl.lstatSync === 'function' ? fsImpl.lstatSync(file) : fsImpl.statSync(file);
 }
 
 export function parseRatePicosPerToken(value) {
@@ -184,24 +185,21 @@ export function parseRateCard(value) {
   };
 }
 
-export function readRateCard({ file = config.apiRatesFile, fsImpl = fs } = {}) {
-  let stat;
-  try { stat = fileStat(file, fsImpl); }
-  catch { return { status: 'unreadable', reason: 'rate_card_unreadable', asOf: null, sources: [], rates: [], diagnostics: [] }; }
-  if (stat.isSymbolicLink?.() || !stat.isFile?.() || !Number.isFinite(stat.size)
-    || stat.size < 0 || stat.size > MAX_BYTES) {
-    return { status: 'invalid', reason: 'rate_card_invalid', asOf: null, sources: [], rates: [], diagnostics: [] };
-  }
-  let content;
-  try { ({ content } = readBoundedRegularFile(file, { fsImpl, maxBytes: MAX_BYTES, expectedStat: stat })); }
+export function readRateCard({
+  file = config.apiRatesFile,
+  root = path.dirname(file),
+  fsImpl = fs,
+} = {}) {
+  let read;
+  try { read = readSecureRegularFile(file, { root, maxBytes: MAX_BYTES, fsImpl }); }
   catch (error) {
-    if (isBoundedFileError(error, 'BOUNDED_FILE_INVALID', 'BOUNDED_FILE_TOO_LARGE', 'BOUNDED_FILE_CHANGED')) {
+    if (UNSAFE_FILE_CODES.has(error?.code)) {
       return { status: 'invalid', reason: 'rate_card_invalid', asOf: null, sources: [], rates: [], diagnostics: [] };
     }
     return { status: 'unreadable', reason: 'rate_card_unreadable', asOf: null, sources: [], rates: [], diagnostics: [] };
   }
   let parsed;
-  try { parsed = JSON.parse(content); }
+  try { parsed = JSON.parse(read.buffer.toString('utf8')); }
   catch { return { status: 'invalid', reason: 'rate_card_invalid', asOf: null, sources: [], rates: [], diagnostics: [] }; }
   return parseRateCard(parsed);
 }

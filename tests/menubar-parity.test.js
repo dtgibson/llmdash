@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fmtDur, ageBand, diagLine } from '../scripts/menubar/llmdash.5s.js';
+import {
+  fmtDur, ageBand, diagLine, applyConfiguredWeeklyReset, computeMultiBadge,
+} from '../scripts/menubar/llmdash.5s.js';
 
 // The badge plugin can't import browser JS, so it copies public/app.js's
 // presentation helpers (fmtDur, ageBand) VERBATIM and mirrors limitsNoteHtml's
@@ -97,4 +99,139 @@ test('parity: the plugin uses the SAME own-key hasOwnProperty guard app.js uses'
   // inherited-key ('__proto__'/'constructor') reason can't bypass the fallback.
   assert.match(pluginJs, /Object\.prototype\.hasOwnProperty\.call\(DIAG_LINES, d\.reason\)/);
   assert.match(appJs, /Object\.prototype\.hasOwnProperty\.call\(AUTOREFRESH_CAUSE_SENTENCES, d\.cause\)/);
+});
+
+function dashboardResetFns() {
+  return new Function(
+    `${extractFn(appJs, 'function ageBand(f)')}\n`
+    + `${extractFn(appJs, 'function normalizeDashboardResetSelection(value, schedule = null)')}\n`
+    + `${extractFn(appJs, 'function providerResetIsCurrent(tool, resetMs)')}\n`
+    + `${extractFn(appJs, 'function dashboardWindowReset(tool, windowKey, selection = null)')}\n`
+    + 'return { normalizeDashboardResetSelection, dashboardWindowReset };',
+  )();
+}
+
+function accountKeyLikeDashboard(tool) {
+  if (!tool || !tool.limits) return null;
+  const epoch = (windowKey) => {
+    const win = tool.limits[windowKey];
+    if (!win || !win.resetsAt) return null;
+    const ms = Date.parse(win.resetsAt);
+    return Number.isFinite(ms) ? Math.round(ms / 60_000) : null;
+  };
+  const fiveHour = epoch('five_hour');
+  const weekly = epoch('seven_day');
+  return fiveHour == null && weekly == null ? null : `${fiveHour}|${weekly}`;
+}
+
+test('parity: configured reset overlay matches dashboard precedence without changing raw identity or freshness', () => {
+  const now = Date.now();
+  const configuredAt = new Date(now + 2 * 86400_000).toISOString();
+  const tool = {
+    source: 'claude-code', label: 'Claude Code',
+    limits: {
+      five_hour: { remainingPct: 28, resetsAt: new Date(now + 2 * 3600_000).toISOString() },
+      seven_day: { remainingPct: 4, resetsAt: new Date(now + 30 * 60_000).toISOString() },
+    },
+    freshness: {
+      capturedAt: new Date(now - 15 * 60_000).toISOString(),
+      freshForMs: 300_000, staleAfterMs: 600_000,
+    },
+    limitsDiagnostic: { reason: 'stale-reading' },
+  };
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true,
+    reachable: true, state: { tools: [tool] },
+  }] };
+  const view = {
+    resetSchedule: { isoWeekday: 5, localTime: '23:00', timeZone: 'America/Los_Angeles' },
+    resetSelection: { source: 'configured', label: 'untrusted label', nextResetAt: configuredAt },
+  };
+  const rawJson = JSON.stringify(combined);
+  const rawIdentity = accountKeyLikeDashboard(tool);
+  const dashboard = dashboardResetFns();
+  const dashboardSelection = dashboard.normalizeDashboardResetSelection(
+    view.resetSelection, view.resetSchedule,
+  );
+  const dashboardReset = dashboard.dashboardWindowReset(tool, 'seven_day', dashboardSelection);
+
+  const presented = applyConfiguredWeeklyReset(combined, view, now);
+  const presentedTool = presented.hosts[0].state.tools[0];
+  const multi = computeMultiBadge(presented);
+  const presentedWeeklyRow = multi.hostViews[0].badge.toolViews[0].rows
+    .find((row) => row.label === 'Weekly');
+  assert.equal(dashboardReset.source, 'configured');
+  assert.equal(dashboardReset.nextResetAt, configuredAt);
+  assert.equal(presentedWeeklyRow.resetsAt, dashboardReset.nextResetAt,
+    'badge and dashboard select the same display fallback instant');
+  assert.equal(presentedTool.limits.seven_day.resetsAt, tool.limits.seven_day.resetsAt,
+    'identity-bearing limits remain provider-owned through computeMultiBadge');
+  assert.equal(JSON.stringify(combined), rawJson, 'the raw host/state contract is byte-stable');
+  assert.equal(accountKeyLikeDashboard(tool), rawIdentity,
+    'dashboard account grouping continues to use raw provider timing');
+  assert.equal(accountKeyLikeDashboard(presentedTool), rawIdentity,
+    'the presentation clone cannot alter account grouping identity');
+  assert.strictEqual(presentedTool.freshness, tool.freshness,
+    'the display overlay does not replace or freshen freshness evidence');
+  assert.strictEqual(presentedTool.limitsDiagnostic, tool.limitsDiagnostic);
+  assert.equal(presentedTool.limits.seven_day.remainingPct, tool.limits.seven_day.remainingPct);
+
+  tool.freshness.capturedAt = new Date(now - 30_000).toISOString();
+  tool.limitsDiagnostic = null;
+  const currentDashboardReset = dashboard.dashboardWindowReset(tool, 'seven_day', dashboardSelection);
+  const providerWins = applyConfiguredWeeklyReset(combined, view, now);
+  assert.equal(currentDashboardReset.source, 'live');
+  assert.equal(currentDashboardReset.nextResetAt, tool.limits.seven_day.resetsAt);
+  assert.strictEqual(providerWins, combined, 'current provider evidence wins in both clients');
+});
+
+test('parity: multi-host fallback cannot merge distinct provider account identities', () => {
+  const now = Date.now();
+  const fiveHourAt = new Date(now + 2 * 3600_000).toISOString();
+  const configuredAt = new Date(now + 2 * 86400_000).toISOString();
+  const makeTool = (weeklyReset, remainingPct) => ({
+    source: 'claude-code', label: 'Claude Code',
+    limits: {
+      five_hour: { remainingPct: remainingPct + 5, resetsAt: fiveHourAt },
+      seven_day: { remainingPct, resetsAt: weeklyReset },
+    },
+    freshness: {
+      capturedAt: new Date(now - 30_000).toISOString(),
+      freshForMs: 300_000, staleAfterMs: 600_000,
+    },
+    limitsDiagnostic: null,
+  });
+  const localTool = makeTool(null, 10);
+  const remoteTool = makeTool(configuredAt, 60);
+  const combined = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, state: { tools: [localTool] } },
+    { host: 'peer', label: 'Remote', port: 8787, self: false, reachable: true, state: { tools: [remoteTool] } },
+  ] };
+  const view = {
+    resetSchedule: { isoWeekday: 5, localTime: '23:00', timeZone: 'America/Los_Angeles' },
+    resetSelection: { source: 'configured', nextResetAt: configuredAt },
+  };
+  const rawKeys = combined.hosts.map((host) => accountKeyLikeDashboard(host.state.tools[0]));
+  assert.notEqual(rawKeys[0], rawKeys[1], 'the provider payload describes distinct account identities');
+
+  const presented = applyConfiguredWeeklyReset(combined, view, now);
+  const presentedKeys = presented.hosts
+    .map((host) => accountKeyLikeDashboard(host.state.tools[0]));
+  assert.deepEqual(presentedKeys, rawKeys,
+    'configured display timing cannot make the raw reset-key identities converge');
+
+  const multi = computeMultiBadge(presented);
+  const localView = multi.hostViews.find((host) => host.self);
+  const localWeekly = localView.badge.toolViews[0].rows.find((row) => row.label === 'Weekly');
+  assert.equal(localWeekly.resetsAt, configuredAt,
+    'the local dropdown still receives its configured display countdown');
+  assert.equal(presented.hosts[0].state.tools[0].limits.seven_day.resetsAt, null);
+  assert.equal(presented.hosts[1].state.tools[0].limits.seven_day.resetsAt, configuredAt);
+});
+
+test('parity: both clients consume reset configuration independently of the hosts contract', () => {
+  assert.match(appJs, /fetch\('\/api\/config\/reset-billing'/);
+  assert.match(pluginJs, /path: '\/api\/config\/reset-billing'/);
+  assert.match(appJs, /fetch\('\/api\/hosts'/);
+  assert.match(pluginJs, /path: '\/api\/hosts'/);
 });

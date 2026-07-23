@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light dark" />
+<title>Reset &amp; billing settings · llmdash</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell settings-page">
+    <header class="settings-header">
+      <div class="wordmark">llmdash<span class="dot">·</span><span class="scope">settings</span><span class="wordmark-sub">Local usage intelligence for Claude Code + Codex</span></div>
+      <a class="settings-back" href="/">← Dashboard</a>
+    </header>
+
+    <main id="settings-main">
+      <div class="settings-heading">
+        <div>
+          <div class="section-kicker">Cost analysis · configuration</div>
+          <h1>Reset &amp; billing</h1>
+          <p>Set the fallback reset schedule and owner-confirmed recurring access costs used by this machine.</p>
+        </div>
+        <div class="settings-version" id="settings-version">account-config.json</div>
+      </div>
+
+      <div class="settings-banner" id="settings-banner" role="status" tabindex="-1" hidden>
+        <span class="settings-banner-icon" id="settings-banner-icon" aria-hidden="true">!</span>
+        <div>
+          <strong id="settings-banner-title"></strong>
+          <span id="settings-banner-copy"></span>
+          <div class="settings-banner-actions" id="settings-conflict-actions" hidden>
+            <button class="settings-button" id="settings-reload" type="button">Reload latest</button>
+            <button class="settings-button quiet" id="settings-keep-reviewing" type="button">Keep reviewing</button>
+          </div>
+        </div>
+      </div>
+
+      <section class="settings-load-state" id="settings-loading" aria-labelledby="settings-loading-title">
+        <strong id="settings-loading-title">Reading local configuration…</strong>
+        <span>Checking account-config.json and fixed billing sources.</span>
+      </section>
+
+      <section class="settings-load-state is-error" id="settings-load-error" aria-labelledby="settings-load-error-title" hidden>
+        <strong id="settings-load-error-title">Configuration is unavailable</strong>
+        <span>The dashboard is still available. Nothing has been changed.</span>
+        <button class="settings-button" id="settings-load-retry" type="button">Try again</button>
+      </section>
+
+      <form id="settings-form" novalidate hidden>
+        <div class="settings-surface" id="settings-surface" aria-busy="false">
+          <section class="settings-section" aria-labelledby="settings-reset-title">
+            <div class="settings-section-head">
+              <div>
+                <h2 id="settings-reset-title">Next reset</h2>
+                <p>Live provider data wins. The saved schedule is used only when a usable live account reset is absent.</p>
+              </div>
+              <span>account window</span>
+            </div>
+
+            <div class="settings-selection" id="settings-selection">
+              <div>
+                <div class="settings-selection-label" id="settings-selection-label">Selected source · Unavailable</div>
+                <h3 id="settings-selection-time">No next reset available</h3>
+                <p id="settings-selection-detail">Waiting for provider data or a configured fallback.</p>
+              </div>
+              <span class="settings-source-pill" id="settings-source-pill">Unavailable</span>
+            </div>
+
+            <dl class="settings-provenance-list">
+              <div>
+                <dt><strong>Live provider reset</strong><small>Authoritative when current and usable</small></dt>
+                <dd id="settings-live-value">Unavailable<small id="settings-live-detail">No usable account reset</small></dd>
+              </div>
+              <div>
+                <dt><strong>Configured fallback</strong><small>Daylight-saving-aware wall-clock schedule</small></dt>
+                <dd id="settings-configured-value">Not configured<small id="settings-configured-detail">No saved fallback</small></dd>
+              </div>
+            </dl>
+
+            <div class="settings-freshness-note" id="settings-freshness-note"><strong>Checking Claude usage freshness.</strong> Saving a fallback changes reset timing only; it never refreshes or re-labels the usage percentage.</div>
+
+            <fieldset class="settings-fieldset">
+              <legend>Configured fallback</legend>
+              <label class="settings-enable-row" for="settings-schedule-enabled">
+                <input id="settings-schedule-enabled" type="checkbox" />
+                <span><strong>Use a configured fallback</strong> when the live account reset is unavailable.</span>
+              </label>
+              <div class="settings-field-row" id="settings-schedule-fields">
+                <div class="settings-field">
+                  <label for="settings-weekday">Weekday</label>
+                  <select id="settings-weekday" aria-describedby="settings-weekday-error">
+                    <option value="">Select day</option>
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="7">Sunday</option>
+                  </select>
+                  <p class="settings-field-error" id="settings-weekday-error" hidden>Select a weekday.</p>
+                </div>
+                <div class="settings-field">
+                  <label for="settings-reset-time">Local time</label>
+                  <input id="settings-reset-time" type="time" aria-describedby="settings-reset-time-help settings-reset-time-error" />
+                  <p class="settings-field-help" id="settings-reset-time-help">24-hour wall-clock time</p>
+                  <p class="settings-field-error" id="settings-reset-time-error" hidden>Enter a local reset time.</p>
+                </div>
+                <div class="settings-field">
+                  <label for="settings-time-zone">IANA time zone</label>
+                  <input id="settings-time-zone" type="text" list="settings-time-zone-options" autocomplete="off" maxlength="128" placeholder="America/Los_Angeles" aria-describedby="settings-time-zone-help settings-time-zone-error" />
+                  <datalist id="settings-time-zone-options"></datalist>
+                  <p class="settings-field-help" id="settings-time-zone-help">Canonical zone name; local DST rules apply</p>
+                  <p class="settings-field-error" id="settings-time-zone-error" hidden>Enter a canonical supported IANA time zone.</p>
+                </div>
+              </div>
+            </fieldset>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-plans-title">
+            <div class="settings-section-head">
+              <div>
+                <h2 id="settings-plans-title">Recurring monthly plans</h2>
+                <p>Confirmed configured access costs only. Changes close the open history record and append a new immutable version.</p>
+              </div>
+              <span>USD · monthly</span>
+            </div>
+
+            <div class="settings-plan-list">
+              <article class="settings-plan" data-tool="claude">
+                <div class="settings-plan-summary">
+                  <div class="settings-plan-name"><span class="settings-tool-mark" aria-hidden="true">◆</span>Claude</div>
+                  <div class="settings-plan-amount" id="claude-current-amount">Not configured</div>
+                  <div class="settings-plan-dates" id="claude-current-dates">No recurring plan</div>
+                  <div class="settings-field settings-plan-action-field">
+                    <label for="claude-action">Plan action</label>
+                    <select id="claude-action">
+                      <option value="none">No change</option>
+                      <option value="set">Start plan</option>
+                      <option value="cancel" disabled>Cancel plan</option>
+                    </select>
+                  </div>
+                </div>
+                <fieldset class="settings-plan-editor" id="claude-editor" hidden>
+                  <legend class="sr-only">Claude plan change</legend>
+                  <div class="settings-billing-fields">
+                    <div class="settings-field" id="claude-amount-field">
+                      <label for="claude-amount">Monthly amount</label>
+                      <div class="settings-money-input"><span aria-hidden="true">$</span><input id="claude-amount" inputmode="decimal" autocomplete="off" aria-describedby="claude-amount-help claude-amount-error" /></div>
+                      <p class="settings-field-help" id="claude-amount-help">USD · up to 2 decimal places</p>
+                      <p class="settings-field-error" id="claude-amount-error" hidden>Enter $0.01–$1,000,000.00 with at most 2 decimal places.</p>
+                    </div>
+                    <div class="settings-field">
+                      <label for="claude-date">Effective date</label>
+                      <input id="claude-date" type="date" min="2000-01-01" max="2100-12-31" aria-describedby="claude-date-help claude-date-error" />
+                      <p class="settings-field-help" id="claude-date-help">Inclusive · must be a billing boundary</p>
+                      <p class="settings-field-error" id="claude-date-error" hidden>Enter a valid billing-boundary date.</p>
+                    </div>
+                    <div class="settings-field" id="claude-anchor-field">
+                      <label for="claude-anchor">Anchor day</label>
+                      <input id="claude-anchor" type="number" min="1" max="31" step="1" aria-describedby="claude-anchor-help claude-anchor-error" />
+                      <p class="settings-field-help" id="claude-anchor-help">Days 29–31 clamp at month end</p>
+                      <p class="settings-field-error" id="claude-anchor-error" hidden>Enter an anchor day from 1 through 31.</p>
+                    </div>
+                  </div>
+                  <label class="settings-confirm-row" for="claude-confirm"><input id="claude-confirm" type="checkbox" aria-describedby="claude-confirm-error" /><span id="claude-confirm-copy"><strong>Confirm this Claude plan change.</strong> The prior record will close on the effective date.</span></label>
+                  <p class="settings-field-error" id="claude-confirm-error" hidden>Confirm this plan action before saving.</p>
+                </fieldset>
+              </article>
+
+              <article class="settings-plan" data-tool="codex">
+                <div class="settings-plan-summary">
+                  <div class="settings-plan-name"><span class="settings-tool-mark" aria-hidden="true">▲</span>Codex</div>
+                  <div class="settings-plan-amount" id="codex-current-amount">Not configured</div>
+                  <div class="settings-plan-dates" id="codex-current-dates">No recurring plan</div>
+                  <div class="settings-field settings-plan-action-field">
+                    <label for="codex-action">Plan action</label>
+                    <select id="codex-action">
+                      <option value="none">No change</option>
+                      <option value="set">Start plan</option>
+                      <option value="cancel" disabled>Cancel plan</option>
+                    </select>
+                  </div>
+                </div>
+                <fieldset class="settings-plan-editor" id="codex-editor" hidden>
+                  <legend class="sr-only">Codex plan change</legend>
+                  <div class="settings-billing-fields">
+                    <div class="settings-field" id="codex-amount-field">
+                      <label for="codex-amount">Monthly amount</label>
+                      <div class="settings-money-input"><span aria-hidden="true">$</span><input id="codex-amount" inputmode="decimal" autocomplete="off" aria-describedby="codex-amount-help codex-amount-error" /></div>
+                      <p class="settings-field-help" id="codex-amount-help">USD · up to 2 decimal places</p>
+                      <p class="settings-field-error" id="codex-amount-error" hidden>Enter $0.01–$1,000,000.00 with at most 2 decimal places.</p>
+                    </div>
+                    <div class="settings-field">
+                      <label for="codex-date">Effective date</label>
+                      <input id="codex-date" type="date" min="2000-01-01" max="2100-12-31" aria-describedby="codex-date-help codex-date-error" />
+                      <p class="settings-field-help" id="codex-date-help">Inclusive · must be a billing boundary</p>
+                      <p class="settings-field-error" id="codex-date-error" hidden>Enter a valid billing-boundary date.</p>
+                    </div>
+                    <div class="settings-field" id="codex-anchor-field">
+                      <label for="codex-anchor">Anchor day</label>
+                      <input id="codex-anchor" type="number" min="1" max="31" step="1" aria-describedby="codex-anchor-help codex-anchor-error" />
+                      <p class="settings-field-help" id="codex-anchor-help">Days 29–31 clamp at month end</p>
+                      <p class="settings-field-error" id="codex-anchor-error" hidden>Enter an anchor day from 1 through 31.</p>
+                    </div>
+                  </div>
+                  <label class="settings-confirm-row" for="codex-confirm"><input id="codex-confirm" type="checkbox" aria-describedby="codex-confirm-error" /><span id="codex-confirm-copy"><strong>Confirm this Codex plan change.</strong> The prior record will close on the effective date.</span></label>
+                  <p class="settings-field-error" id="codex-confirm-error" hidden>Confirm this plan action before saving.</p>
+                </fieldset>
+              </article>
+            </div>
+            <p class="settings-history-note" id="settings-history-note"><strong>History stays immutable.</strong> Recurring versions and legacy fixed periods remain separate.</p>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-resources-title">
+            <div class="settings-section-head">
+              <div>
+                <h2 id="settings-resources-title">Billing inputs</h2>
+                <p>Read or download the three fixed local resources. Displayed paths are never used as links.</p>
+              </div>
+              <span>read only</span>
+            </div>
+            <div class="settings-resource-list">
+              <div class="settings-resource">
+                <div><strong>Active account configuration</strong><p id="account-config-path">Path unavailable</p><small id="account-config-status">Checking…</small></div>
+                <div class="settings-resource-actions"><a id="account-config-view" aria-disabled="true">View</a><a id="account-config-download" aria-disabled="true">Download</a></div>
+              </div>
+              <div class="settings-resource">
+                <div><strong>Legacy subscriptions</strong><p id="subscriptions-path">Path unavailable</p><small id="subscriptions-status">Checking…</small></div>
+                <div class="settings-resource-actions"><a id="subscriptions-view" aria-disabled="true">View</a><a id="subscriptions-download" aria-disabled="true">Download</a></div>
+              </div>
+              <div class="settings-resource">
+                <div><strong>API rate card</strong><p id="rate-card-path">Path unavailable</p><small id="rate-card-status">Reviewed reference · read only</small></div>
+                <div class="settings-resource-actions"><a id="rate-card-view" aria-disabled="true">View</a><a id="rate-card-download" aria-disabled="true">Download</a></div>
+              </div>
+            </div>
+          </section>
+
+          <div class="settings-save-bar">
+            <div class="settings-save-copy"><strong id="settings-change-summary">No unsaved changes</strong><span>Saved locally · protected by version and CSRF checks</span></div>
+            <div class="settings-save-actions">
+              <button class="settings-button" id="settings-discard" type="button" disabled>Discard</button>
+              <button class="settings-button primary" id="settings-save" type="submit" disabled>Save changes</button>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <p class="sr-only" id="settings-announcer" role="status" aria-live="polite"></p>
+    </main>
+
+    <footer>
+      <span>Configuration: this machine · usage freshness remains provider-owned</span>
+      <span>served over Tailscale</span>
+    </footer>
+  </div>
+  <script src="/settings.js"></script>
+</body>
+</html>

@@ -49,15 +49,18 @@ const uninstallBody = (dir) =>
   + '  • the Claude Code statusline wiring (restoring your settings.json.bak if present)\n'
   + '  • the auto-refresh trust folder (~/.llmdash/claude-refresh-cwd) and its ~/.claude.json entry\n'
   + '\n'
-  + 'Your usage-history database (llmdash.db) is PRESERVED — it\'s the only thing here\n'
-  + 'that can\'t be rebuilt, so it\'s kept unless you say otherwise on the next step.\n'
+  + 'Your local data is PRESERVED by default: usage history (llmdash.db), reset and\n'
+  + 'billing configuration (account-config.json), and legacy fixed periods\n'
+  + '(subscriptions.json). These can\'t be rebuilt, so they\'re kept unless you say\n'
+  + 'otherwise on the next step.\n'
   + 'SwiftBar is not removed — uninstall it yourself with: brew uninstall --cask swiftbar';
 
-const DATA_TITLE = 'Also delete your usage history?';
+const DATA_TITLE = 'Also delete your local data?';
 const DATA_BODY =
-  'Your snapshot database (llmdash.db) holds every limit reading llmdash has ever\n'
-  + 'recorded. Removing llmdash doesn\'t need to delete it — and this can\'t be undone.\n'
-  + 'Keep it unless you\'re sure; it\'s the only data here that can\'t be rebuilt by reinstalling.';
+  'This deletes your snapshot history (llmdash.db), reset and recurring billing\n'
+  + 'configuration (account-config.json), and legacy fixed periods\n'
+  + '(subscriptions.json). Removing llmdash doesn\'t need to delete them, and this\n'
+  + 'can\'t be undone. Keep them unless you\'re sure.';
 
 const SERVICE_REMOVE_TITLE = 'Remove the local llmdash service?';
 const SERVICE_REMOVE_BODY =
@@ -284,8 +287,19 @@ function stepWrapper(p, env) {
 }
 
 // The llmdash-owned files under the data dir (own-file names only — a data-delete
-// never blindly rm's the whole dir, which a user may point elsewhere).
-const DATA_FILES = ['llmdash.db', 'llmdash.db-wal', 'llmdash.db-shm', 'claude-ratelimits.json', 'hosts.conf'];
+// never blindly rm's the whole dir, which a user may point elsewhere). Keep the
+// active reset/billing history and legacy fixed periods in the same lifecycle as
+// the usage database: preserve them by default, delete them only on explicit
+// --delete-data.
+const DATA_FILES = [
+  'llmdash.db',
+  'llmdash.db-wal',
+  'llmdash.db-shm',
+  'claude-ratelimits.json',
+  'hosts.conf',
+  'account-config.json',
+  'subscriptions.json',
+];
 
 // Is childPath inside (or equal to) parentDir? Used to detect a data dir that
 // lives UNDER the checkout (config.js's default: dataDir = <checkout>/data), which
@@ -295,26 +309,74 @@ function isUnder(childPath, parentDir) {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+// Unlike existsSync, do not turn a permission/I/O error into "missing" while a
+// preservation decision is being made. Only a definite absent path is false;
+// every other error fails the rescue closed so the checkout is retained.
+function rescuePathExists(file) {
+  try {
+    fs.lstatSync(file);
+    return true;
+  } catch (e) {
+    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false;
+    throw e;
+  }
+}
+
 // Pre-checkout data rescue (FR-12): when PRESERVING data and the data dir lives
-// UNDER the checkout, move the llmdash-owned files to a safe preserved location
-// (~/.llmdash/preserved-data) BEFORE the checkout is deleted — otherwise the
-// "preserved by default" promise would be silently broken. Returns the rescued
+// UNDER the checkout, move the llmdash-owned files to a fresh private directory
+// below ~/.llmdash/preserved-data BEFORE the checkout is deleted — otherwise the
+// "preserved by default" promise would be silently broken. A unique directory per
+// uninstall means an older rescue is never overwritten. Returns the rescued
 // location (or null when no rescue was needed). NEVER throws.
 function rescueDataIfNeeded(p, deleteData) {
-  if (deleteData) return { ok: true, rescuedTo: null }; // deletion path: no rescue
-  if (!isUnder(p.dataDir, p.checkout)) return { ok: true, rescuedTo: null }; // data is safe outside the checkout
-  const dest = p.preservedDataDir || path.join(p.llmdashDir, 'preserved-data');
+  if (deleteData) return { ok: true, rescuedTo: null, moved: [] }; // deletion path: no rescue
+  if (!isUnder(p.dataDir, p.checkout)) return { ok: true, rescuedTo: null, moved: [] }; // data is safe outside the checkout
+  const base = p.preservedDataDir || path.join(p.llmdashDir, 'preserved-data');
+  let dest = null;
   const moved = [];
+  let sources = [];
   try {
-    if (!fs.existsSync(p.dataDir)) return { ok: true, rescuedTo: null };
-    fs.mkdirSync(dest, { recursive: true });
-    for (const f of DATA_FILES) {
+    if (!rescuePathExists(p.dataDir)) return { ok: true, rescuedTo: null, moved };
+    sources = DATA_FILES.filter((f) => rescuePathExists(path.join(p.dataDir, f)));
+    if (!sources.length) return { ok: true, rescuedTo: null, moved };
+    if (isUnder(path.resolve(base), path.resolve(p.checkout))) {
+      const error = new Error('the preservation directory is inside the checkout');
+      error.code = 'EINVAL';
+      throw error;
+    }
+    fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+    // Resolve symlinks after creating the base. A lexical path outside the
+    // checkout is not safe if it ultimately points back inside the checkout.
+    if (isUnder(fs.realpathSync(base), fs.realpathSync(p.checkout))) {
+      const error = new Error('the preservation directory resolves inside the checkout');
+      error.code = 'EINVAL';
+      throw error;
+    }
+    dest = fs.mkdtempSync(path.join(base, 'uninstall-'));
+    for (const f of sources) {
       const src = path.join(p.dataDir, f);
-      if (fs.existsSync(src)) { fs.renameSync(src, path.join(dest, f)); moved.push(f); }
+      const target = path.join(dest, f);
+      // mkdtemp gives this uninstall an empty directory. Keep an explicit
+      // collision refusal too: renameSync replaces an existing file on POSIX.
+      if (rescuePathExists(target)) {
+        const error = new Error(`refusing to overwrite ${target}`);
+        error.code = 'EEXIST';
+        throw error;
+      }
+      fs.renameSync(src, target);
+      moved.push(f);
     }
     return { ok: true, rescuedTo: moved.length ? dest : null, moved };
   } catch (e) {
-    return { ok: false, detail: `could not preserve your usage history to ${dest} (${e.code || e.message})`, rescuedTo: null };
+    const attempted = dest || base;
+    const remaining = sources.filter((f) => !moved.includes(f));
+    return {
+      ok: false,
+      detail: `could not preserve all of your local data to ${attempted} (${e.code || e.message})`,
+      rescuedTo: dest,
+      moved,
+      remaining,
+    };
   }
 }
 
@@ -336,12 +398,25 @@ function stepData(p, deleteData, rescue = { ok: true, rescuedTo: null }) {
   if (!deleteData) {
     // Preserved. If the data lived under the checkout it was rescued (moved) BEFORE
     // the checkout delete; name where it now lives. If the rescue itself failed,
-    // surface that honestly (the DB may have been lost with the checkout).
-    if (!rescue.ok) return { ok: false, detail: rescue.detail || 'could not preserve your usage history', preserved: true };
+    // surface that honestly. runTeardown retains the checkout on this path, so
+    // unmoved files remain there; files moved before the error remain in the
+    // partial unique rescue directory.
+    if (!rescue.ok) {
+      const partial = rescue.rescuedTo && rescue.moved && rescue.moved.length
+        ? ` Data remains protected between the retained checkout at ${p.checkout} and the partial rescue at ${rescue.rescuedTo} (moved: ${rescue.moved.join(', ')}).`
+        : ` Your local data remains protected in the retained checkout at ${p.checkout}.`;
+      return {
+        ok: false,
+        detail: `${rescue.detail || 'could not preserve all of your local data'}.${partial}`,
+        preserved: true,
+        rescuedTo: rescue.rescuedTo,
+        moved: rescue.moved || [],
+      };
+    }
     const where = rescue.rescuedTo
-      ? ` — the database now lives at ${rescue.rescuedTo} (it was under the checkout, so it was moved to safety before the checkout was deleted)`
+      ? ` — the named data files now live at ${rescue.rescuedTo} (they were under the checkout, so they were moved to safety before the checkout was deleted)`
       : '';
-    return { ok: true, detail: `PRESERVED your usage history (llmdash.db)${where}`, preserved: true, rescuedTo: rescue.rescuedTo };
+    return { ok: true, detail: `PRESERVED your local usage history and configuration${where}`, preserved: true, rescuedTo: rescue.rescuedTo };
   }
   // If the data dir lived UNDER the checkout, the checkout rm (step 5) already
   // deleted it — the deletion the user asked for is done; say so honestly rather
@@ -358,11 +433,11 @@ function stepData(p, deleteData, rescue = { ok: true, rescuedTo: null }) {
       if (fs.existsSync(p.dataDir) && fs.readdirSync(p.dataDir).length === 0) fs.rmdirSync(p.dataDir);
     } catch { /* non-empty → leave it */ }
     const detail = removed.length
-      ? `deleted your usage history (${removed.join(', ')})`
-      : (dataWasUnderCheckout ? 'deleted your usage history (it lived under the checkout, removed with it)' : 'no usage-history files to delete');
+      ? `deleted your local data (${removed.join(', ')})`
+      : (dataWasUnderCheckout ? 'deleted your local data (it lived under the checkout, removed with it)' : 'no llmdash data files to delete');
     return { ok: true, detail, preserved: false };
   } catch (e) {
-    return { ok: false, detail: `could not delete some usage-history files (${e.code || e.message})`, preserved: false };
+    return { ok: false, detail: `could not delete some llmdash data files (${e.code || e.message})`, preserved: false };
   }
 }
 
@@ -377,9 +452,20 @@ export function runTeardown(p, { deleteData = false, env = process.env } = {}) {
   // Rescue the data BEFORE deleting the checkout if preserving AND the data lives
   // under the checkout (config's default) — otherwise "preserved by default" would
   // be silently broken by the checkout rm. A no-op when data is outside the checkout
-  // or when deleting. Recorded so the summary can name where the DB now lives.
+  // or when deleting. Recorded so the summary can name where the data now lives.
   const rescue = rescueDataIfNeeded(p, deleteData);
-  steps.push({ step: 'checkout', ...stepCheckout(p) });      // LAST destructive-of-self
+  if (!rescue.ok) {
+    // Fail closed: the rescue may have moved only some files. Deleting the
+    // checkout now would destroy the rest, so retain it for manual recovery.
+    steps.push({
+      step: 'checkout',
+      ok: false,
+      retained: true,
+      detail: `retained the checkout at ${p.checkout} because local-data preservation did not complete`,
+    });
+  } else {
+    steps.push({ step: 'checkout', ...stepCheckout(p) });    // LAST destructive-of-self
+  }
   steps.push({ step: 'data', ...stepData(p, deleteData, rescue) });   // after the checkout
   return steps;
 }
@@ -391,12 +477,19 @@ export function summarizeTeardown(steps) {
   const dataStep = steps.find((s) => s.step === 'data');
   const kept = dataStep && dataStep.preserved;
   if (!failed.length) {
-    return `llmdash was uninstalled. ${kept ? 'Your usage history (llmdash.db) was kept.' : 'Your usage history was deleted, as you chose.'} SwiftBar was not removed (uninstall it with: brew uninstall --cask swiftbar).`;
+    return `llmdash was uninstalled. ${kept ? 'Your local usage history and configuration were kept.' : 'Your local usage history and configuration were deleted, as you chose.'} SwiftBar was not removed (uninstall it with: brew uninstall --cask swiftbar).`;
   }
   const lines = failed.map((s) => `  • ${s.step}: ${s.detail}`);
-  return 'llmdash was mostly uninstalled, but some steps did NOT complete:\n'
+  const dataOutcome = dataStep && !dataStep.ok
+    ? (kept
+      ? 'Your local data remains protected; review the data step above for its location or locations.'
+      : 'Some local data may remain because the requested deletion did not complete.')
+    : (kept
+      ? 'Your local usage history and configuration were kept.'
+      : 'Your local usage history and configuration were deleted, as you chose.');
+  return 'The llmdash uninstall did NOT complete:\n'
     + lines.join('\n')
-    + '\nEverything else was removed. ' + (kept ? 'Your usage history (llmdash.db) was kept.' : 'Your usage history was deleted, as you chose.');
+    + `\nOther teardown steps completed. ${dataOutcome}`;
 }
 
 // ── The detach: copy self to temp, cd out of the checkout, re-spawn detached ───
@@ -506,7 +599,7 @@ export function runUninstall(opts = {}, env = process.env) {
   // Dialog 2 (only after confirming step 1): the data opt-in. Default = Keep.
   let deleteData = opts.deleteData === true;
   if (interactive && !opts.yes) {
-    deleteData = confirm(DATA_TITLE, DATA_BODY, 'Delete history too', 'Keep my history', 'Keep my history');
+    deleteData = confirm(DATA_TITLE, DATA_BODY, 'Delete my data', 'Keep my data', 'Keep my data');
   }
 
   // Inline mode (tests): run the ordered teardown here and return the step log.

@@ -9,6 +9,7 @@ import { parseHosts, remoteHosts, fetchPeerState } from './hosts.js';
 import { setHost, retainHosts, seedOrder } from './host-cache.js';
 import { readHostsConfig } from './host-config.js';
 import { refreshCostAnalysis } from './cost-analysis.js';
+import { refreshAccountConfig } from './account-config.js';
 
 function snapshot(live) {
   if (!live) return 0;
@@ -106,6 +107,10 @@ export async function pollOnce() {
   // Cost analysis owns one immutable 90-day ledger/cache refresh for all three
   // ranges. HTTP handlers only read this snapshot; they never traverse logs or
   // owner configuration on the request path.
+  // Account configuration is refreshed first so recurring billing and reset
+  // consumers see one whole validated version for this tick. Invalid manual
+  // edits retain the last-valid snapshot instead of becoming empty data.
+  try { refreshAccountConfig(); } catch (e) { console.error('account config:', e.message); }
   if (!refreshCostAnalysis(nowMs)) console.error('cost analysis: refresh failed; keeping the last good snapshot');
   // Auto-refresh runs first so a probe capture lands in this same tick's
   // snapshot; its own gates decide whether any work happens at all.

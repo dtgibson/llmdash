@@ -117,6 +117,71 @@ safe to re-run and bakes in the path. When the command can't be run, the
 dashboard says so (startup log + UI) instead of failing silently.
 Codex activity stats read from `~/.codex/sessions` and fill in as you use Codex.
 
+## Reset & billing settings
+
+Open the focused settings page on the same llmdash host you already use:
+
+- On this machine: <http://localhost:8787/settings>
+- From another tailnet device: `http://<your-tailscale-ip>:8787/settings` (or
+  the machine's MagicDNS name; use **http, not https**)
+
+The reset schedule is a fallback, not provider evidence. A current usable live
+provider reset always wins. When that value is absent, llmdash can calculate the
+next occurrence from an owner-saved weekday, local time, and IANA time zone,
+including daylight-saving changes, and labels it **Configured**. Saving a
+fallback never refreshes usage data or makes a stale percentage appear current.
+
+There is **no generic reset default**. A clean data directory has no configured
+fallback until its owner saves one. For this deployment only, and only after the
+deployment approval gate, the explicitly confirmed value may be seeded by
+opening the deployed `/settings` page and saving **Friday**, **23:00**,
+**America/Los_Angeles** through the normal validated form. The app, installer,
+and startup path do not silently seed that value for this or any other install.
+
+The same page manages owner-confirmed Claude and Codex access costs as recurring
+USD monthly plans. Each confirmed amount has an effective start and billing
+anchor; llmdash expands it automatically month by month for Cost analysis.
+Changing or cancelling a plan closes the prior record and appends immutable
+effective-dated history. Anchor days 29–31 clamp to month end without drifting.
+These are configured access costs, not provider charges or invoices.
+
+The three backing resources are deliberately fixed:
+
+- `$LLMDASH_DATA_DIR/account-config.json` (default
+  `./data/account-config.json`) is the active reset and recurring-plan history.
+  The settings form edits this file atomically with mode `0600`.
+- `$LLMDASH_DATA_DIR/subscriptions.json` is the optional legacy schema-v1 source
+  for explicit fixed periods. It remains read-only and is never migrated or
+  rewritten by the settings form.
+- `config/api-rates.json` in the checkout is the reviewed, tracked API rate card
+  and remains read-only in the app.
+
+The page provides fixed View and Download links, including over Tailscale. With
+`<origin>` equal to the llmdash origin you opened (for example,
+`http://100.x.y.z:8787`), the exact links are:
+
+| Resource | View | Download |
+|---|---|---|
+| Active account configuration | `<origin>/api/config/reset-billing?resource=account-config&download=0` | `<origin>/api/config/reset-billing?resource=account-config&download=1` |
+| Legacy fixed periods | `<origin>/api/config/reset-billing?resource=subscriptions&download=0` | `<origin>/api/config/reset-billing?resource=subscriptions&download=1` |
+| API rate card | `<origin>/api/config/reset-billing?resource=rate-card&download=0` | `<origin>/api/config/reset-billing?resource=rate-card&download=1` |
+
+Before the first save, the account-config resource correctly returns missing;
+the settings page still shows the empty editable state. Paths displayed in the
+page are informational only and are never accepted as request targets.
+
+This is a deliberately narrow mutation surface. Configuration reads and saves
+use only the exact `GET /api/config/reset-billing` and
+`PUT /api/config/reset-billing` route. Both reads and saves require an authority
+that belongs to the receiving local IP, localhost, this machine's host name, or
+MagicDNS on an actual Tailscale destination, so a DNS-rebound website cannot read
+the configuration or obtain a save token. A PUT must also come from the same HTTP
+origin as the page and pass CSRF and version/ETag checks; cross-origin writes,
+preflights, arbitrary paths, peer writes, and permissive CORS are not supported.
+There is no app login or role model, so network reachability is the access
+boundary—bind `LLMDASH_HOST` to your Tailscale IP if you want to exclude LAN
+reachability too.
+
 ## Multi-host — optional
 One llmdash can show **several of your tailnet machines** together — each host's
 Claude Code + Codex limit windows and its per-machine activity, side by side, the
@@ -175,9 +240,12 @@ window** across Claude Code and Codex — and, when you watch several machines,
 across **all of them** — updating on its own, with a dropdown that carries the
 full picture (each machine's tools × windows, reset countdowns, freshness,
 diagnostics). It's a tiny **zero-dependency Node plugin** (`scripts/menubar/llmdash.5s.js`)
-that reads the dashboard's existing `/api/hosts` (its local instance's combined
-view) over loopback — no second data path, no extra dependency for llmdash itself.
-When you watch just one machine, it behaves **exactly as a single-host badge**.
+that reads the dashboard's existing `/api/hosts` as the authoritative usage view.
+It also makes one independent, optional read of the fixed
+`/api/config/reset-billing` view so a local Claude weekly row can display a known
+configured reset when current provider timing is unavailable. That second read
+never supplies usage, changes freshness, or affects remote hosts. When you watch
+just one machine, it behaves **exactly as a single-host badge**.
 
 **SwiftBar is a prerequisite you install once — llmdash never installs it for you.**
 It's a free third-party menu-bar host (the badge also works on xbar):
@@ -229,8 +297,9 @@ config surface — each drives both the fetch and the *Open dashboard* link):
 - **`LLMDASH_PORT`** (default `8787`) — match a non-default dashboard port.
 - **`LLMDASH_BADGE_HOST`** (default `127.0.0.1`) — point the badge at a dashboard
   running on **another machine** (e.g. a Tailscale IP like `100.x.y.z`), since
-  llmdash is often served over your tailnet. Still the same `/api/state` — the
-  badge never becomes a second, independent reading.
+  llmdash is often served over your tailnet. The badge still uses that host's
+  `/api/hosts` for limits and its fixed reset-and-billing view only for optional
+  local-Claude reset presentation; it never becomes an independent usage reader.
 
 One more, for install only (not the runtime fetch): **`LLMDASH_SWIFTBAR_DIR`**
 overrides where `--setup-badge` / `--remove-badge` look for SwiftBar's plugin
@@ -264,6 +333,12 @@ that's secretly old, and it never fabricates one:
   unmistakably "no server," **never** a number. (A single *remote* machine being
   unreachable is named in the dropdown, never in the glyph.)
 
+For the local Claude weekly row, a current provider reset always wins. If that
+timing is missing, expired, or attached to stale usage, the dropdown may show the
+owner-saved fallback countdown with a **Configured** label. The percentage and
+freshness marker remain exactly as reported, and a failed configuration read
+removes only that fallback countdown; it never turns a healthy badge offline.
+
 The dropdown carries **one section per machine** (the binding machine first), each
 with that host's per-tool rows and its own freshness/offline state — one machine
 aging or offline never flags or suppresses another's. An unreachable machine is
@@ -286,10 +361,11 @@ can edit it **live from the badge** — no plist edit, no restart:
   it from the file.
 - **`☰ Watching: N hosts`** lists the current remote set.
 
-Every edit writes the **local file** — never an HTTP request, so the dashboard
-stays serve-only (405 for non-GET/HEAD). The change applies on the **next poller
-update** (within your poll interval); the badge says "on the next update," never
-claims it's live before the poller has re-read the file.
+Every host-list edit writes the **local file** — never an HTTP request. The only
+HTTP mutation surface is the separately bounded, same-origin Reset & billing
+configuration route documented above. The host-list change applies on the **next
+poller update** (within your poll interval); the badge says "on the next update,"
+never claims it's live before the poller has re-read the file.
 
 **File precedence (seed-once).** Once `hosts.conf` exists, **it is the runtime
 source of truth**. `LLMDASH_HOSTS`, if set and the file is absent, **seeds** the
@@ -359,9 +435,10 @@ intentional difference from the previous default; every other character is uncha
 `hosts.conf` — `!display-hosts=`, `!display-layout=`, `!display-density=`,
 `!display-group=`, `!display-tool-mark=` — so you can also set them by hand. Default
 values are omitted (an unconfigured file has no `!display-*` lines). Every Display
-choice is a **local file write** (atomic temp+rename), **never an HTTP request** — the
-dashboard stays serve-only (405 for non-GET/HEAD), exactly like the host-list edits.
-The glyph and the submenu's `✓` marks update on the **next render** — no restart.
+choice is a **local file write** (atomic temp+rename), **never an HTTP request** —
+exactly like the host-list edits. It does not use or broaden the separately
+allowlisted Reset & billing PUT route. The glyph and the submenu's `✓` marks
+update on the **next render** — no restart.
 
 **Tool logos (opt-in, off by default) — the fair-use posture.** Turning on
 **Tool marks → Logos** swaps the visible `◆` / `▲` tool glyphs for same-color
@@ -385,8 +462,8 @@ colored to match the title state.
 
 The badge dropdown also carries install-lifecycle controls for **this Mac** — in
 both single-host and multi-host mode. Every one of them is a local `launchctl` /
-file operation run by the badge process behind an OS confirmation; none of them is
-an HTTP request, so the dashboard stays serve-only (405 for non-GET/HEAD).
+file operation run by the badge process behind an OS confirmation; none of them
+is an HTTP request or uses the separately allowlisted Reset & billing PUT route.
 
 - **The local-service toggle** shows the *live* launchd state and offers the honest
   action for it:
@@ -412,12 +489,16 @@ an HTTP request, so the dashboard stays serve-only (405 for non-GET/HEAD).
     tears them down in a safe order (the checkout is deleted **last**, by a detached
     process that survives its own removal).
 
-**Your usage history is preserved by default.** `llmdash.db` is the only thing here
-that can't be rebuilt (there's no backfill), so a complete uninstall **keeps it**
-unless you explicitly choose *Delete history too* in a second dialog — warned as
-permanent, never the default button. (If your data dir lives under the checkout —
-the default `~/llmdash/data` — the database is moved to `~/.llmdash/preserved-data`
-before the checkout is deleted, and the final message tells you where it went.)
+**Your usage history and billing configuration are preserved by default.** A
+complete uninstall keeps `llmdash.db`, `account-config.json`, and
+`subscriptions.json` unless you explicitly choose *Delete my data* in a
+second dialog, which names all three files and warns that deletion is permanent.
+If your data directory lives under the checkout, as the default
+`~/llmdash/data` does, those files are moved to a fresh uniquely named directory
+beneath `~/.llmdash/preserved-data` before the checkout is deleted, so an earlier
+uninstall's preserved files are never overwritten. If that rescue cannot finish,
+the checkout is retained to protect any unmoved data and the failure summary names
+both the retained checkout and any partially populated rescue directory.
 
 **SwiftBar is never removed by llmdash.** Both the enumeration and the
 post-uninstall message point you to the manual step:
@@ -454,8 +535,10 @@ install|remove|status` and `install-macos.sh --uninstall`.
 - On startup the server logs a **data-source health readout**: whether a Claude
   statusline reading exists (and how old it is), whether the configured codex
   command is runnable, and whether Codex has recorded any sessions on this
-  machine — each missing source comes with the fix. Empty gauges in the UI carry
-  the same explanation.
+  machine — each missing source comes with the fix. It also reports whether
+  Reset & billing configuration is validated, empty, last-valid, or unavailable,
+  and names the fixed settings route and write posture without printing a reset,
+  amount, or request token. Empty gauges in the UI carry the same explanation.
 
 ## Run as a service (optional, Linux/systemd)
 Create `~/.config/systemd/user/llmdash.service` pointing `ExecStart` at your Node
@@ -518,7 +601,7 @@ All optional, via environment variables:
 - `LLMDASH_CODEX_DIR` (default `~/.codex`) — where Codex's session logs live
 - `LLMDASH_DATA_DIR` (default `./data` inside the checkout) — local SQLite,
   captured limits, host configuration, and the optional owner-confirmed
-  `subscriptions.json` file
+  `account-config.json` plus legacy `subscriptions.json` files
 - `LLMDASH_HOSTS` (default unset = single-host) — a comma-separated list of other
   tailnet machines to aggregate into one view. See [Multi-host](#multi-host--optional).
 - `LLMDASH_PEER_TIMEOUT_MS` (default `3000`, clamped 500–30000) — per-peer fetch
@@ -535,6 +618,12 @@ server's — see [Menu-bar badge](#menu-bar-badge-swiftbar--optional)):
   another tailnet machine; drives both the badge's fetch and its *Open dashboard* link
 
 ### Cost analysis setup
+
+Owner-confirmed recurring monthly access costs are managed at
+[`/settings`](#reset--billing-settings) and stored as immutable effective-dated
+history in `$LLMDASH_DATA_DIR/account-config.json`; no monthly JSON maintenance
+is required. Cost analysis expands those plans on local calendar boundaries and
+retains the original billing anchor across short months.
 
 API-equivalent values use the tracked, effective-dated
 [`config/api-rates.json`](config/api-rates.json). Its exact model IDs and token
@@ -558,7 +647,7 @@ GPT-5.5 and GPT-5.6 Sol entries apply OpenAI's full-request pricing above
 272,000 input tokens: 2x input pricing (including cached input) and 1.5x output
 pricing. Exactly 272,000 input tokens remains in the base tier.
 
-To show actual fixed-access spend, create
+For legacy or exceptional historical fixed periods only, you may still create
 `$LLMDASH_DATA_DIR/subscriptions.json` (by default
 `./data/subscriptions.json`) with periods you have personally confirmed:
 
@@ -585,11 +674,12 @@ To show actual fixed-access spend, create
 }
 ```
 
-Replace the example amounts and dates with your actual access periods. A
-confirmed zero is valid; a missing, unconfirmed, overlapping, or gapped period
-is not silently inferred from the plan label. The file stays local and
-gitignored. No billing portal, provider API key, prompt, response, or session
-identifier is read or returned by cost analysis.
+Replace the example amounts and dates with your actual historical access
+periods. A confirmed zero is valid; a missing, unconfirmed, overlapping, or
+gapped period is not silently inferred from the plan label. This legacy file
+stays local, gitignored, and read-only in the app; recurring plan changes belong
+in Reset & billing settings. No billing portal, provider API key, prompt,
+response, or session identifier is read or returned by cost analysis.
 
 Snapshots and the captured reading are stored under the data directory.
 

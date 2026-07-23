@@ -15,7 +15,10 @@ process.env.LLMDASH_CODEX_CMD = path.join(tmp, 'missing', 'codex');
 process.env.LLMDASH_CLAUDE_CMD = path.join(tmp, 'missing', 'claude');
 delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
-const { resolveCommand, dataSourceHealth, healthLines, freshnessModeLine, serviceStateLine } = await import('../src/health.js');
+const {
+  resolveCommand, dataSourceHealth, healthLines, freshnessModeLine,
+  serviceStateLine, resetBillingConfigLine,
+} = await import('../src/health.js');
 const { config } = await import('../config.js');
 
 test('resolveCommand finds a bare name on the given PATH', () => {
@@ -105,6 +108,53 @@ test('healthLines reports healthy sources as present/OK, with reading age and st
   assert.match(out, /sessions dir present/);
   // The refuted manual-only claim never prints on the healthy path (QA-27).
   assert.doesNotMatch(out, /refresh only when a real Claude Code session renders/);
+});
+
+test('resetBillingConfigLine discloses the empty state, fixed route, and write posture', () => {
+  const line = resetBillingConfigLine({
+    state: 'empty', reason: 'account_config_missing', config: null,
+    file: '/x/account-config.json',
+  }, { subscriptionsFile: '/x/subscriptions.json' });
+  assert.match(line, /no account configuration saved at \/x\/account-config\.json/);
+  assert.match(line, /no fallback reset or recurring monthly amount is assumed/);
+  assert.match(line, /Open \/settings on this same llmdash origin/);
+  assert.match(line, /exact same-origin PUT \/api\/config\/reset-billing/);
+  assert.match(line, /legacy fixed periods remain read-only at \/x\/subscriptions\.json/);
+});
+
+test('resetBillingConfigLine reports degraded state without leaking configuration values or secrets', () => {
+  const line = resetBillingConfigLine({
+    state: 'last-valid', reason: 'account_config_invalid',
+    file: '/x/account-config.json',
+    csrfToken: 'sentinel-csrf-token',
+    config: {
+      resetSchedule: { isoWeekday: 5, localTime: '23:00', timeZone: 'America/Secret_Zone' },
+      recurringPlans: [{ amountCents: 8675309 }],
+    },
+  }, { subscriptionsFile: '/x/subscriptions.json' });
+  assert.match(line, /serving the last validated account configuration/);
+  assert.match(line, /on-disk file .* is not currently usable/);
+  assert.match(line, /Configuration values are not printed/);
+  assert.doesNotMatch(line, /23:00|America\/Secret_Zone|8675309|sentinel-csrf-token/);
+
+  const unavailable = resetBillingConfigLine({
+    state: 'unavailable', reason: 'account_config_unreadable', config: null,
+    file: '/x/account-config.json',
+  }, { subscriptionsFile: '/x/subscriptions.json' });
+  assert.match(unavailable, /configuration unavailable/);
+  assert.match(unavailable, /unsafe or invalid content will not be overwritten/);
+});
+
+test('healthLines includes the reset and billing startup disclosure', () => {
+  const out = healthLines({
+    claudeRatelimits: { file: '/x/claude-ratelimits.json', present: false, ageMs: null },
+    claudeCmd: { cmd: 'claude', resolved: null },
+    codexCmd: { cmd: 'codex', resolved: null },
+    codexSessions: { dir: '/x/sessions', present: false },
+  }).join('\n');
+  assert.match(out, /Reset & billing:/);
+  assert.match(out, /Open \/settings on this same llmdash origin/);
+  assert.match(out, /Configuration values are not printed in this health log/);
 });
 
 test('freshnessModeLine states the shipped auto-refresh mechanism, cadence, knobs, and disclosures (FR-28)', () => {

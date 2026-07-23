@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // llmdash — SwiftBar/xbar menu-bar badge plugin.
 //
-// A PURE CONSUMER of the dashboard's existing /api/state payload: one loopback
-// GET per host tick, no second data path, no limit recomputation. It reads
+// A PURE CONSUMER of the dashboard's existing usage payload: /api/hosts remains
+// the sole limits source, with one independent /api/config/reset-billing read
+// allowed only to fill a local Claude weekly reset presentation gap. It never
+// recomputes usage or writes the selected reset into provider state. It reads
 // remainingPct (already clamped 0–100 server-side), resetsAt, capturedAt,
 // freshness, and limitsDiagnostic as given, and does only the presentation math
 // the web client already does (min remaining, the freshness band from the
@@ -58,6 +60,10 @@ export function toolMark(source) {
 export const HOST = process.env.LLMDASH_BADGE_HOST || '127.0.0.1';
 export const PORT = process.env.LLMDASH_PORT || '8787';
 export const FETCH_TIMEOUT_MS = 2000; // a hung fetch must never freeze the menu bar
+// Mirrors the reset/billing API's no-query response ceiling. Enforce it again at
+// the consumer boundary so a misconfigured or impersonated endpoint cannot make
+// the five-second plugin accumulate an unbounded response.
+export const RESET_BILLING_VIEW_CAP_BYTES = 128 * 1024;
 
 // ── PURE PRESENTATION HELPERS ───────────────────────────────────────────────
 // fmtDur / ageBand are copied VERBATIM from public/app.js (the plugin can't
@@ -86,6 +92,88 @@ export function ageBand(f) {
   if (age > f.staleAfterMs) return 'stale';
   if (age > f.freshForMs) return 'aging';
   return 'fresh';
+}
+
+// Private provenance for the display-only weekly-reset overlay. A Symbol keeps
+// this marker outside both JSON contracts: neither /api/hosts nor /api/state can
+// spoof it, and JSON serialization cannot leak it back into provider data.
+const RESET_PRESENTATION = Symbol('llmdash reset presentation');
+
+function ageBandAt(f, nowMs) {
+  if (!f || !f.capturedAt) return null;
+  const age = nowMs - Date.parse(f.capturedAt);
+  if (!Number.isFinite(age)) return null;
+  if (age > f.staleAfterMs) return 'stale';
+  if (age > f.freshForMs) return 'aging';
+  return 'fresh';
+}
+
+function normalizeResetSelectionView(view, nowMs) {
+  const selection = view && view.resetSelection;
+  if (!selection || (selection.source !== 'live' && selection.source !== 'configured')
+    || typeof selection.nextResetAt !== 'string') return null;
+  const resetMs = Date.parse(selection.nextResetAt);
+  if (!Number.isFinite(resetMs) || resetMs <= nowMs) return null;
+
+  // Match the dashboard's configured-selection guard. A configured occurrence
+  // is meaningful only with the canonical schedule zone that resolved it; the
+  // menu bar does not trust the response's free-form label.
+  if (selection.source === 'configured') {
+    const timeZone = view && view.resetSchedule && view.resetSchedule.timeZone;
+    if (typeof timeZone !== 'string' || timeZone.length > 128
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(timeZone)) return null;
+    try { new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date(resetMs)); }
+    catch { return null; }
+  }
+  return { source: selection.source, nextResetAt: new Date(resetMs).toISOString() };
+}
+
+function providerWeeklyResetIsCurrent(tool, resetMs, nowMs) {
+  if (!tool || !Number.isFinite(resetMs) || resetMs <= nowMs) return false;
+  const band = ageBandAt(tool.freshness, nowMs);
+  if (band === null || band === 'stale') return false;
+  return !(tool.limitsDiagnostic && tool.limitsDiagnostic.reason === 'stale-reading');
+}
+
+// Apply the independently resolved reset to a PRESENTATION clone only. Current
+// provider evidence wins. Missing, malformed, expired, or stale local Claude
+// weekly timing may fall through to the reset selection; Codex, peers, window
+// percentages, freshness, diagnostics, and account identity remain untouched.
+// An absent weekly window stays absent—this helper never invents limit data.
+export function applyConfiguredWeeklyReset(combined, resetView, nowMs = Date.now()) {
+  const now = Number(nowMs);
+  if (!Number.isFinite(now)) return combined;
+  const selection = normalizeResetSelectionView(resetView, now);
+  if (!selection || !combined || !Array.isArray(combined.hosts)) return combined;
+
+  let changed = false;
+  const hosts = combined.hosts.map((host) => {
+    if (!host || host.self !== true || !host.state || !Array.isArray(host.state.tools)) return host;
+    let stateChanged = false;
+    const tools = host.state.tools.map((tool) => {
+      const weekly = tool && tool.source === 'claude-code'
+        && tool.limits && tool.limits.seven_day;
+      if (!weekly || typeof weekly !== 'object' || Array.isArray(weekly)) return tool;
+      const providerMs = weekly.resetsAt === null || weekly.resetsAt === undefined
+        || weekly.resetsAt === '' ? NaN : Date.parse(weekly.resetsAt);
+      if (providerWeeklyResetIsCurrent(tool, providerMs, now)) return tool;
+
+      // Keep resetsAt byte-for-byte provider-owned even on the presentation
+      // clone. Any account-grouping/key logic that inspects tool limits therefore
+      // sees the raw identity; only computeBadge projects this private override
+      // into its disposable row view.
+      const presentedWeekly = { ...weekly };
+      Object.defineProperty(presentedWeekly, RESET_PRESENTATION, {
+        value: Object.freeze({ ...selection }), enumerable: false,
+      });
+      stateChanged = true;
+      return { ...tool, limits: { ...tool.limits, seven_day: presentedWeekly } };
+    });
+    if (!stateChanged) return host;
+    changed = true;
+    return { ...host, state: { ...host.state, tools } };
+  });
+  return changed ? { ...combined, hosts } : combined;
 }
 
 // The menu-bar analogue of app.js's esc(): a SwiftBar/xbar line uses `|` to open
@@ -173,12 +261,20 @@ export function computeBadge(state) {
       if (win == null) {
         return { label, remaining: null, resetsAt: null, maxed: false };
       }
-      return {
+      const resetPresentation = win[RESET_PRESENTATION];
+      const row = {
         label,
         remaining: Math.floor(win.remainingPct),
-        resetsAt: win.resetsAt || null,
+        resetsAt: resetPresentation ? resetPresentation.nextResetAt : (win.resetsAt || null),
         maxed: win.remainingPct <= 0,
       };
+      if (resetPresentation && (resetPresentation.source === 'live'
+        || resetPresentation.source === 'configured')) {
+        Object.defineProperty(row, RESET_PRESENTATION, {
+          value: resetPresentation, enumerable: false,
+        });
+      }
+      return row;
     });
     return { label: t.label, source: t.source, cue, band, rows, modelRows: modelLimitRows(t), diag: diagLine(t.limitsDiagnostic) };
   });
@@ -499,9 +595,13 @@ function wrappedMenuLines(text, opts = {}, { max = DROPDOWN_WRAP_CHARS } = {}) {
 function windowRowText(row) {
   const resetMs = row.resetsAt ? Date.parse(row.resetsAt) : NaN;
   const resetIn = Number.isFinite(resetMs) ? fmtDur(resetMs - Date.now()) : fmtDur(null);
+  const resetPresentation = row[RESET_PRESENTATION];
+  const resetSource = resetPresentation && resetPresentation.source === 'configured' ? 'Configured'
+    : resetPresentation && resetPresentation.source === 'live' ? 'Live' : null;
+  const provenance = resetSource ? ` · ${resetSource}` : '';
   if (row.remaining == null) return `${row.label}:  not available`;
-  if (row.maxed) return `${row.label}:  limit reached · resets ${resetIn}`;
-  return `${row.label}:  ${row.remaining}% · resets ${resetIn}`;
+  if (row.maxed) return `${row.label}:  limit reached · resets ${resetIn}${provenance}`;
+  return `${row.label}:  ${row.remaining}% · resets ${resetIn}${provenance}`;
 }
 
 function windowRowColor(row) {
@@ -1809,6 +1909,53 @@ export function fetchHosts(host, port) {
   });
 }
 
+// Optional reset-selection view. This is deliberately a separate request from
+// /api/hosts so the frozen usage and peer contracts remain byte-for-byte intact.
+// Its failure is handled independently in main(): it removes only the fallback
+// countdown and can never turn an otherwise reachable dashboard badge offline.
+export function fetchResetBillingView(host, port) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({
+      host, port, path: '/api/config/reset-billing', timeout: FETCH_TIMEOUT_MS,
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`status ${res.statusCode}`));
+      }
+      const lengthHeader = Array.isArray(res.headers['content-length'])
+        ? res.headers['content-length'][0] : res.headers['content-length'];
+      const declaredBytes = typeof lengthHeader === 'string' ? Number(lengthHeader) : NaN;
+      if (Number.isFinite(declaredBytes) && declaredBytes > RESET_BILLING_VIEW_CAP_BYTES) {
+        reject(new Error('response too large'));
+        res.destroy();
+        return;
+      }
+      let body = '';
+      let bodyBytes = 0;
+      let oversized = false;
+      res.setEncoding('utf8');
+      res.on('data', (c) => {
+        if (oversized) return;
+        bodyBytes += Buffer.byteLength(c, 'utf8');
+        if (bodyBytes > RESET_BILLING_VIEW_CAP_BYTES) {
+          oversized = true;
+          reject(new Error('response too large'));
+          res.destroy();
+          return;
+        }
+        body += c;
+      });
+      res.on('end', () => {
+        if (oversized) return;
+        try { resolve(JSON.parse(body)); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
 // The remote (non-self) host set for the Remove submenu + the Watching count,
 // derived from the SAME /api/hosts combined view the badge already fetched — no
 // second data path, no config-file read on the badge's render path. Each entry:
@@ -1842,6 +1989,10 @@ export function localModeFromCombined(combined) {
 // the SHIPPED single-host emit() path byte-for-byte (FR-13). A failed /api/hosts
 // fetch (local llmdash down) → the shipped offline glyph.
 export async function main() {
+  // Start the optional presentation read alongside the authoritative hosts read.
+  // Catch it at creation time so even an early /api/hosts failure cannot leave an
+  // unhandled rejection behind while the offline glyph is emitted.
+  const resetViewPromise = fetchResetBillingView(HOST, PORT).catch(() => null);
   let combined;
   try {
     combined = await fetchHosts(HOST, PORT);
@@ -1852,6 +2003,8 @@ export async function main() {
     return;
   }
   try {
+    const resetView = await resetViewPromise;
+    const presentationCombined = applyConfiguredWeeklyReset(combined, resetView);
     // Live launchd state for THIS Mac's service, read once per render in this
     // (badge) process — never on the server's request path or poller (NFR-10). A
     // read failure falls back to 'not-installed' (the safe Install-offering label).
@@ -1861,7 +2014,7 @@ export async function main() {
     // the request path; a thrown read → today's defaults (never a crash).
     const display = displayFromConfig();
     const localMode = localModeFromCombined(combined);
-    const multi = computeMultiBadge(combined, { localMode });
+    const multi = computeMultiBadge(presentationCombined, { localMode });
     const remotes = remotesFromCombined(combined);
     // The byte-for-byte routing split (FR-02): the all-default display routes to the
     // SHIPPED emit()/emitMulti() path (unchanged save the ratified ◆/▲ cue). A
@@ -1871,7 +2024,8 @@ export async function main() {
       if (multi.mode === 'single') {
         // Single-host / unconfigured → byte-for-byte the shipped badge. Unwrap the
         // one host's state and run the EXISTING computeBadge/emit path unchanged.
-        const only = (combined.hosts || []).find((h) => h && h.self) || (combined.hosts || [])[0];
+        const only = (presentationCombined.hosts || []).find((h) => h && h.self)
+          || (presentationCombined.hosts || [])[0];
         const state = only && only.state ? only.state : null;
         process.stdout.write(emit(computeBadge(state || { tools: [] }), { host: HOST, port: PORT, serviceState, display }) + '\n');
       } else {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { config } from '../config.js';
-import { isBoundedFileError, readBoundedRegularFile } from './bounded-file.js';
+import { readSecureRegularFile } from './secure-config-file.js';
 
 const MAX_BYTES = 256 * 1024;
 const MAX_DEPTH = 8;
@@ -12,6 +13,10 @@ const ENTRY_KEYS = new Set(['tool', 'amountUsd', 'startDate', 'endDate', 'confir
 const AMOUNT_RE = /^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PICOS_PER_USD = 1_000_000_000_000n;
+const UNSAFE_FILE_CODES = new Set([
+  'SECURE_PATH_INVALID', 'SECURE_PARENT_INVALID', 'SECURE_PARENT_CHANGED',
+  'SECURE_TARGET_INVALID', 'SECURE_TARGET_TOO_LARGE', 'SECURE_TARGET_CHANGED',
+]);
 
 function plainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -36,10 +41,6 @@ function validDate(value) {
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
-}
-
-function fileStat(file, fsImpl) {
-  return typeof fsImpl.lstatSync === 'function' ? fsImpl.lstatSync(file) : fsImpl.statSync(file);
 }
 
 function dateOrdinal(value) {
@@ -147,28 +148,23 @@ export function parseSubscriptions(value) {
   };
 }
 
-export function readSubscriptions({ file = config.subscriptionsFile, fsImpl = fs } = {}) {
-  let stat;
-  try { stat = fileStat(file, fsImpl); }
+export function readSubscriptions({
+  file = config.subscriptionsFile,
+  root = path.dirname(file),
+  fsImpl = fs,
+} = {}) {
+  let read;
+  try { read = readSecureRegularFile(file, { root, maxBytes: MAX_BYTES, fsImpl }); }
   catch (error) {
-    return error?.code === 'ENOENT'
-      ? { status: 'missing', reason: 'subscription_missing', entries: [], diagnostics: [] }
+    if (error?.code === 'SECURE_TARGET_MISSING' || error?.code === 'SECURE_PARENT_MISSING') {
+      return { status: 'missing', reason: 'subscription_missing', entries: [], diagnostics: [] };
+    }
+    return UNSAFE_FILE_CODES.has(error?.code)
+      ? { status: 'invalid', reason: 'subscription_invalid_file', entries: [], diagnostics: [] }
       : { status: 'unreadable', reason: 'subscription_unreadable', entries: [], diagnostics: [] };
   }
-  if (stat.isSymbolicLink?.() || !stat.isFile?.() || !Number.isFinite(stat.size)
-    || stat.size < 0 || stat.size > MAX_BYTES) {
-    return { status: 'invalid', reason: 'subscription_invalid_file', entries: [], diagnostics: [] };
-  }
-  let content;
-  try { ({ content } = readBoundedRegularFile(file, { fsImpl, maxBytes: MAX_BYTES, expectedStat: stat })); }
-  catch (error) {
-    if (isBoundedFileError(error, 'BOUNDED_FILE_INVALID', 'BOUNDED_FILE_TOO_LARGE', 'BOUNDED_FILE_CHANGED')) {
-      return { status: 'invalid', reason: 'subscription_invalid_file', entries: [], diagnostics: [] };
-    }
-    return { status: 'unreadable', reason: 'subscription_unreadable', entries: [], diagnostics: [] };
-  }
   let parsed;
-  try { parsed = JSON.parse(content); }
+  try { parsed = JSON.parse(read.buffer.toString('utf8')); }
   catch {
     return { status: 'invalid', reason: 'subscription_invalid_file', entries: [], diagnostics: [] };
   }

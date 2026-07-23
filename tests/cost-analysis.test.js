@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   addCalendarDays, buildCostAnalysis, clearCostAnalysisCache, getCostAnalysis,
-  localMidnightMs, rangeDefinition, refreshCostAnalysis, roundPicosToMicros,
+  localMidnightMs, rangeDefinition, readCombinedSubscriptions,
+  refreshCostAnalysis, roundPicosToMicros,
 } from '../src/cost-analysis.js';
+import { parseAccountConfig } from '../src/account-config.js';
+import { buildBillingOverlay } from '../src/billing-overlay.js';
 import { parseRateCard } from '../src/rate-card.js';
 import { parseSubscriptions } from '../src/subscriptions.js';
 
@@ -168,6 +174,134 @@ test('confirmed zero differs from missing subscription coverage and allocations 
   assert.equal(payload.scopes.combined.summary.subscription.status, 'partial');
   assert.equal(payload.scopes.combined.daily.reduce((sum, row) => sum + (row.subscription.amountMicros || 0), 0),
     payload.scopes.combined.summary.subscription.amountMicros);
+});
+
+test('legacy clipping reconciles one recurring monthly cycle without double-counting', () => {
+  const account = parseAccountConfig({
+    schemaVersion: 1,
+    version: 1,
+    updatedAt: '2026-07-01T00:00:00.000Z',
+    resetSchedule: null,
+    recurringPlans: [{
+      tool: 'claude',
+      amountCents: 3100,
+      effectiveStartDate: '2026-07-01',
+      effectiveEndDate: null,
+      billingAnchorDay: 1,
+      createdInVersion: 1,
+      closedInVersion: null,
+    }],
+  });
+  assert.equal(account.ok, true);
+
+  const overlay = buildBillingOverlay({
+    legacy: subscriptions([sub('claude', {
+      amountUsd: '22.00', startDate: '2026-07-10', endDate: '2026-07-20',
+    })]),
+    accountConfig: account.config,
+    startDate: '2026-05-04',
+    endDate: '2026-08-01',
+  });
+  assert.deepEqual(overlay.entries.slice(0, 3).map((entry) => [
+    entry.source, entry.startDate, entry.endDate,
+  ]), [
+    ['configured-recurring', '2026-07-01', '2026-07-09'],
+    ['legacy-fixed', '2026-07-10', '2026-07-20'],
+    ['configured-recurring', '2026-07-21', '2026-07-31'],
+  ]);
+
+  const payload = buildCostAnalysis({
+    nowMs: Date.parse('2026-08-01T00:00:00.000Z'),
+    timeZone: 'UTC',
+    range: '90d',
+    ledger: ledger([]),
+    subscriptions: overlay,
+    rateCard: rateCard([claudeRate(), codexRate()]),
+  });
+  const claude = payload.scopes.claude;
+  const daily = new Map(claude.daily.map((row) => [row.date, row.subscription.amountMicros]));
+
+  // The recurring cycle contributes $20 across its 20 uncovered days. The
+  // explicit legacy period contributes $22 across its 11 covered days.
+  assert.equal(claude.summary.subscription.amountMicros, 42_000_000);
+  assert.equal(daily.get('2026-07-09'), 1_000_000);
+  assert.equal(daily.get('2026-07-10'), 2_000_000);
+  assert.equal(daily.get('2026-07-20'), 2_000_000);
+  assert.equal(daily.get('2026-07-21'), 1_000_000);
+  assert.equal(daily.get('2026-07-31'), 1_000_000);
+  assert.equal(claude.daily.reduce((sum, row) => sum + (row.subscription.amountMicros || 0), 0),
+    claude.summary.subscription.amountMicros);
+  assert.equal(claude.cumulative.at(-1).subscription.amountMicros,
+    claude.summary.subscription.amountMicros);
+});
+
+test('invalid legacy provenance remains visible when recurring coverage is complete', () => {
+  const overlay = buildBillingOverlay({
+    legacy: {
+      status: 'invalid', reason: 'subscription_invalid_file', entries: [], diagnostics: [],
+    },
+    accountConfig: {
+      recurringPlans: [{
+        tool: 'claude', amountCents: 3100,
+        effectiveStartDate: '2026-07-01', effectiveEndDate: null,
+        billingAnchorDay: 1, createdInVersion: 1, closedInVersion: null,
+      }],
+    },
+    accountConfigState: 'current',
+    accountConfigReason: null,
+    startDate: '2026-05-01',
+    endDate: '2026-08-01',
+  });
+  const payload = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d', ledger: ledger([]),
+    subscriptions: overlay, rateCard: rateCard([claudeRate(), codexRate()]),
+  });
+  const subscription = payload.scopes.claude.summary.subscription;
+  assert.equal(payload.scopes.claude.subscriptionCoverage.status, 'complete');
+  assert.equal(subscription.status, 'complete');
+  assert.ok(subscription.amountMicros > 0);
+  assert.deepEqual(subscription.reasons, ['subscription_invalid_file']);
+  assert.ok(payload.scopes.combined.summary.subscription.reasons
+    .includes('subscription_invalid_file'));
+});
+
+test('readCombinedSubscriptions carries retained account snapshot provenance into the overlay', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-billing-provenance-'));
+  const accountFile = path.join(root, 'account-config.json');
+  const subscriptionsFile = path.join(root, 'subscriptions.json');
+  const accountConfig = {
+    schemaVersion: 1,
+    version: 1,
+    updatedAt: '2026-07-01T00:00:00.000Z',
+    resetSchedule: null,
+    recurringPlans: [{
+      tool: 'claude', amountCents: 3100,
+      effectiveStartDate: '2026-07-01', effectiveEndDate: null,
+      billingAnchorDay: 1, createdInVersion: 1, closedInVersion: null,
+    }],
+  };
+  try {
+    fs.writeFileSync(accountFile, JSON.stringify(accountConfig), { mode: 0o600 });
+    const options = {
+      nowMs: NOW,
+      timeZone: 'UTC',
+      subscriptionOptions: { file: subscriptionsFile },
+      accountOptions: { file: accountFile, root },
+    };
+    const current = readCombinedSubscriptions(options);
+    assert.equal(current.sources.recurring, 'current');
+    assert.ok(current.entries.some((entry) => entry.source === 'configured-recurring'));
+
+    fs.writeFileSync(accountFile, '{');
+    const retained = readCombinedSubscriptions(options);
+    assert.equal(retained.sources.recurring, 'last-valid');
+    assert.ok(retained.entries.some((entry) => entry.source === 'configured-recurring'));
+    assert.deepEqual(retained.sourceReasons, [
+      'account_config_invalid', 'subscription_missing',
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('signed cache effect remains negative and sub-micro raw signs remain visible', () => {

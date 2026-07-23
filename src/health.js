@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { parseHosts, remoteHosts } from './hosts.js';
 import { _peek } from './host-cache.js';
 import { configFileHealth } from './host-config.js';
+import { getAccountConfigSnapshot } from './account-config.js';
 
 // Resolve a command the way spawn() will: a path (contains a separator) is
 // checked directly; a bare name is searched on PATH. Returns the resolved
@@ -206,6 +207,31 @@ export function serviceStateLine(probe = null) {
     : `  Service: no launchd agent plist on disk (${plist}) — the menu-bar badge's "Install the local service" can (re)create it; ${scope}`;
 }
 
+// Reset/billing startup disclosure. The validated account-config cache is
+// already primed before healthLines() runs in server.js; a direct test/import
+// still gets the same bounded 32 KiB reader through getAccountConfigSnapshot().
+// Deliberately report only state and fixed locations/routes — never schedules,
+// plan amounts, CSRF material, request bodies, or other configuration values.
+export function resetBillingConfigLine(
+  snapshot = getAccountConfigSnapshot(),
+  cfg = config,
+) {
+  const file = snapshot?.file || cfg.accountConfigFile;
+  let state;
+  if (snapshot?.state === 'current') {
+    state = `validated account configuration active at ${file}`;
+  } else if (snapshot?.state === 'last-valid') {
+    state = `serving the last validated account configuration because the on-disk file at ${file} is not currently usable`;
+  } else if (snapshot?.state === 'unavailable') {
+    state = `configuration unavailable at ${file} — restore a valid regular account-config.json; unsafe or invalid content will not be overwritten`;
+  } else {
+    state = `no account configuration saved at ${file} — no fallback reset or recurring monthly amount is assumed`;
+  }
+  return `Reset & billing: ${state}. Open /settings on this same llmdash origin to manage the fallback reset and owner-confirmed recurring monthly costs. `
+    + `Writes are accepted only at exact same-origin PUT /api/config/reset-billing with CSRF and version checks; legacy fixed periods remain read-only at ${cfg.subscriptionsFile}. `
+    + 'Configuration values are not printed in this health log.';
+}
+
 // Startup-log lines describing data-source health. Honest and actionable:
 // each "missing" line says what is missing, why it matters, and how to fix it.
 export function healthLines(h = dataSourceHealth()) {
@@ -224,6 +250,9 @@ export function healthLines(h = dataSourceHealth()) {
   lines.push(h.codexSessions.present
     ? `  Codex activity: sessions dir present (${h.codexSessions.dir})`
     : `  Codex activity: no Codex sessions recorded on this machine yet (${h.codexSessions.dir}) — activity stats fill in after the first Codex session`);
+  // Owner reset/billing configuration: validated/empty/degraded state, fixed
+  // management route and mutation posture, with no schedule or amount values.
+  lines.push(`  ${resetBillingConfigLine()}`);
   // Host-config-file state (multi-host-badge): which source is in effect and the
   // fix for an unreadable/misconfigured file. A cheap fs check, off the request path.
   lines.push(`  ${hostsConfigLine()}`);

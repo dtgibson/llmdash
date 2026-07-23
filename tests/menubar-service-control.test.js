@@ -32,7 +32,8 @@ let detachLabel = null; // the scratch label the detach test bootstraps (cleanup
 // Build a scratch "install": a checkout, a scratch plist (a plain file — an
 // UNLOADED scratch label, so bootout is a harmless no-op), a settings.json wired
 // to THIS checkout's statusline with a .bak, a ~/.claude.json trust entry + a
-// foreign project kept, a marker wrapper, and a data dir with a fake llmdash.db.
+// foreign project kept, a marker wrapper, and a data dir with fake usage plus
+// reset/billing configuration files.
 // `opts` overrides: dataUnderCheckout (default true), wrapperMarker (default true),
 // statuslineTarget ('self' | a foreign path), settingsHasBak (default true).
 function buildInstall(name, opts = {}) {
@@ -77,6 +78,8 @@ function buildInstall(name, opts = {}) {
   fs.writeFileSync(wrapper, `#!/bin/sh\n${marker}\nexec node x\n`);
   fs.writeFileSync(path.join(dataDir, 'llmdash.db'), 'DBDATA');
   fs.writeFileSync(path.join(dataDir, 'hosts.conf'), 'host1');
+  fs.writeFileSync(path.join(dataDir, 'account-config.json'), 'ACCOUNT-CONFIG-DATA');
+  fs.writeFileSync(path.join(dataDir, 'subscriptions.json'), 'LEGACY-SUBSCRIPTIONS-DATA');
 
   const p = {
     checkout, label, plist, settings, claudeJson, trustDir,
@@ -101,29 +104,98 @@ test('the ordered teardown removes artifacts service→statusline→trust→wrap
   assert.equal(JSON.parse(fs.readFileSync(settings, 'utf8')).statusLine.command, 'my-old-line');
 });
 
-test('data is PRESERVED by default; rescued out of the checkout, content intact (QA-12)', () => {
+test('usage and billing data are PRESERVED by default; rescued out of the checkout intact (QA-12)', () => {
   const { p } = buildInstall('preserve'); // data under the checkout (default)
   const res = runUninstall({ yes: true, interactive: false, run: true, paths: p });
   const dataStep = res.steps.find((s) => s.step === 'data');
   assert.equal(dataStep.preserved, true);
-  // The DB was moved to safety before the checkout was deleted, content intact.
-  const preserved = path.join(p.preservedDataDir, 'llmdash.db');
-  assert.ok(fs.existsSync(preserved), 'llmdash.db preserved');
-  assert.equal(fs.readFileSync(preserved, 'utf8'), 'DBDATA');
+  assert.ok(dataStep.rescuedTo, 'the result names the unique rescue directory');
+  assert.equal(path.dirname(dataStep.rescuedTo), p.preservedDataDir);
+  assert.match(path.basename(dataStep.rescuedTo), /^uninstall-/);
+  // Every durable usage/billing file was moved to safety before the checkout
+  // was deleted, with its bytes intact.
+  const expected = {
+    'llmdash.db': 'DBDATA',
+    'account-config.json': 'ACCOUNT-CONFIG-DATA',
+    'subscriptions.json': 'LEGACY-SUBSCRIPTIONS-DATA',
+  };
+  for (const [name, content] of Object.entries(expected)) {
+    const preserved = path.join(dataStep.rescuedTo, name);
+    assert.ok(fs.existsSync(preserved), `${name} preserved`);
+    assert.equal(fs.readFileSync(preserved, 'utf8'), content);
+  }
   assert.match(dataStep.detail, /PRESERVED/);
+  assert.match(res.message, /usage history and configuration were kept/);
 });
 
-test('--delete-data deletes the DB, AFTER the checkout (QA-12)', () => {
+test('separate uninstall rescues never overwrite files preserved by an earlier uninstall (QA-12)', () => {
+  const first = buildInstall('preserve-collision-first');
+  fs.writeFileSync(path.join(first.dataDir, 'llmdash.db'), 'FIRST-DB-DATA');
+  const firstRes = runUninstall({ yes: true, interactive: false, run: true, paths: first.p });
+  const firstData = firstRes.steps.find((s) => s.step === 'data');
+  assert.ok(firstData.ok, firstData.detail);
+  assert.equal(fs.readFileSync(path.join(firstData.rescuedTo, 'llmdash.db'), 'utf8'), 'FIRST-DB-DATA');
+
+  const second = buildInstall('preserve-collision-second');
+  second.p.preservedDataDir = first.p.preservedDataDir;
+  fs.writeFileSync(path.join(second.dataDir, 'llmdash.db'), 'SECOND-DB-DATA');
+  const secondRes = runUninstall({ yes: true, interactive: false, run: true, paths: second.p });
+  const secondData = secondRes.steps.find((s) => s.step === 'data');
+  assert.ok(secondData.ok, secondData.detail);
+  assert.notEqual(secondData.rescuedTo, firstData.rescuedTo, 'each uninstall gets a unique rescue directory');
+  assert.equal(fs.readFileSync(path.join(firstData.rescuedTo, 'llmdash.db'), 'utf8'), 'FIRST-DB-DATA',
+    'the earlier preserved file is byte-identical after another uninstall');
+  assert.equal(fs.readFileSync(path.join(secondData.rescuedTo, 'llmdash.db'), 'utf8'), 'SECOND-DB-DATA');
+});
+
+test('preservation failure retains the checkout and reports the incomplete uninstall honestly (QA-12/QA-20)', () => {
+  const { p, checkout, dataDir } = buildInstall('preserve-failure');
+  // A regular file where the preservation base directory must be makes mkdir fail
+  // deterministically without relying on platform-specific permissions.
+  fs.writeFileSync(p.preservedDataDir, 'BLOCKED-PRESERVATION-BASE');
+  const expected = {
+    'llmdash.db': 'DBDATA',
+    'account-config.json': 'ACCOUNT-CONFIG-DATA',
+    'subscriptions.json': 'LEGACY-SUBSCRIPTIONS-DATA',
+  };
+
+  const res = runUninstall({ yes: true, interactive: false, run: true, paths: p });
+  const checkoutStep = res.steps.find((s) => s.step === 'checkout');
+  const dataStep = res.steps.find((s) => s.step === 'data');
+  assert.equal(res.ok, false);
+  assert.equal(checkoutStep.ok, false);
+  assert.equal(checkoutStep.retained, true);
+  assert.match(checkoutStep.detail, /retained the checkout/);
+  assert.match(checkoutStep.detail, new RegExp(checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(fs.existsSync(checkout), true, 'the checkout is retained instead of deleting unmoved data');
+  for (const [name, content] of Object.entries(expected)) {
+    assert.equal(fs.readFileSync(path.join(dataDir, name), 'utf8'), content, `${name} remains intact in the checkout`);
+  }
+  assert.equal(dataStep.ok, false);
+  assert.equal(dataStep.preserved, true);
+  assert.match(dataStep.detail, /remains protected in the retained checkout/);
+  assert.match(res.message, /uninstall did NOT complete/);
+  assert.match(res.message, /retained the checkout/);
+  assert.match(res.message, new RegExp(checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(res.message, /llmdash was uninstalled\b/);
+  assert.doesNotMatch(res.message, /Everything else was removed/);
+});
+
+test('--delete-data deletes usage and billing files outside the checkout, AFTER checkout (QA-12)', () => {
   // Data OUTSIDE the checkout so we can prove step-order deletion (not collateral).
   const { p, dataDir } = buildInstall('delete', { dataUnderCheckout: false });
-  assert.ok(fs.existsSync(path.join(dataDir, 'llmdash.db')));
+  const expectedFiles = ['llmdash.db', 'account-config.json', 'subscriptions.json'];
+  for (const name of expectedFiles) assert.ok(fs.existsSync(path.join(dataDir, name)), `${name} starts present`);
   const res = runUninstall({ yes: true, interactive: false, run: true, paths: p, deleteData: true });
   const iCheckout = res.steps.findIndex((s) => s.step === 'checkout');
   const iData = res.steps.findIndex((s) => s.step === 'data');
   assert.ok(iCheckout < iData, 'data step runs after the checkout step');
   const dataStep = res.steps.find((s) => s.step === 'data');
   assert.equal(dataStep.preserved, false);
-  assert.equal(fs.existsSync(path.join(dataDir, 'llmdash.db')), false, 'the DB was deleted on opt-in');
+  for (const name of expectedFiles) {
+    assert.equal(fs.existsSync(path.join(dataDir, name)), false, `${name} was deleted on opt-in`);
+  }
+  assert.match(res.message, /usage history and configuration were deleted/);
 });
 
 test('statusline revert restores the scratch .bak only when it points at THIS checkout (QA-14)', () => {
@@ -348,7 +420,10 @@ test('the DETACHED teardown survives its own origin against a SCRATCH install, e
   assert.notEqual(spawnSync('/bin/launchctl', ['print', `gui/${uid}/${label}`]).status, 0,
     'the scratch label is no longer loaded');
   // Data preserved (rescued out from under the checkout).
-  assert.ok(fs.existsSync(path.join(p.preservedDataDir, 'llmdash.db')), 'DB rescued/preserved');
+  const rescueDirs = fs.readdirSync(p.preservedDataDir)
+    .filter((name) => name.startsWith('uninstall-'));
+  assert.equal(rescueDirs.length, 1, 'one unique rescue directory was created');
+  assert.ok(fs.existsSync(path.join(p.preservedDataDir, rescueDirs[0], 'llmdash.db')), 'DB rescued/preserved');
 });
 
 test.after(() => {

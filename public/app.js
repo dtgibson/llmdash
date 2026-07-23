@@ -1,7 +1,11 @@
 // llmdash dashboard — renders each tool (Claude Code, Codex) and the cross-tool
-// "headroom" cue, from /api/state. Auto-refreshes; ticks countdowns each second.
+// "headroom" cue from /api/hosts, whose local reading preserves /api/state.
+// Reset configuration is fetched independently; countdowns tick each second.
 const REFRESH_MS = 60_000;
 let state = null;
+let dashboardResetSelection = null;
+let resetSelectionRequestSequence = 0;
+let resetSelectionRequestInFlight = null;
 
 const statusClass = (rem) => (rem >= 50 ? 'good' : rem >= 20 ? 'warn' : 'crit');
 
@@ -46,6 +50,124 @@ function ageBand(f) {
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// The reset/billing view is fetched separately from the frozen usage/peer
+// contracts. Keep only its bounded reset selection, and never copy it into a
+// provider window: accountKey(), SQLite, peers, and freshness continue to see
+// the raw limits.seven_day.resetsAt value unchanged.
+function normalizeDashboardResetSelection(value, schedule = null) {
+  if (!value || (value.source !== 'live' && value.source !== 'configured')
+    || typeof value.nextResetAt !== 'string') return null;
+  const resetMs = Date.parse(value.nextResetAt);
+  if (!Number.isFinite(resetMs)) return null;
+  let timeZone = null;
+  if (value.source === 'configured') {
+    timeZone = schedule && typeof schedule.timeZone === 'string'
+      && schedule.timeZone.length <= 128 && !/[\u0000-\u001f\u007f-\u009f]/u.test(schedule.timeZone)
+      ? schedule.timeZone : null;
+    try {
+      if (!timeZone) return null;
+      new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date(resetMs));
+    } catch { return null; }
+  }
+  return Object.freeze({
+    source: value.source,
+    label: value.source === 'live' ? 'Live' : 'Configured',
+    nextResetAt: new Date(resetMs).toISOString(),
+    timeZone,
+  });
+}
+
+function providerResetIsCurrent(tool, resetMs) {
+  if (!tool || !Number.isFinite(resetMs) || resetMs <= Date.now()) return false;
+  const band = ageBand(tool.freshness);
+  if (band === null || band === 'stale') return false;
+  return !(tool.limitsDiagnostic && tool.limitsDiagnostic.reason === 'stale-reading');
+}
+
+// Resolve a countdown for presentation only. Current provider evidence wins;
+// a stale Claude weekly timestamp remains raw but cannot suppress the separately
+// resolved local selection. Configuration is never eligible for Codex or peers.
+function dashboardWindowReset(tool, windowKey, selection = null) {
+  const win = tool && tool.limits && tool.limits[windowKey];
+  const providerValue = win && win.resetsAt;
+  const claudeWeekly = windowKey === 'seven_day' && tool && tool.source === 'claude-code';
+  if (providerValue !== null && providerValue !== undefined && providerValue !== '') {
+    const providerMs = Date.parse(providerValue);
+    const current = providerResetIsCurrent(tool, providerMs);
+    // A stale/expired Claude weekly timestamp remains in the raw state for
+    // history and account identity, but it is not current provider evidence.
+    // Fall through so the independently resolved selection can drive display.
+    if (Number.isFinite(providerMs) && (current || !claudeWeekly)) {
+      return {
+        nextResetAt: new Date(providerMs).toISOString(),
+        resetMs: providerMs,
+        source: current ? 'live' : 'provider-reading',
+        label: current ? 'Live' : 'Provider reading',
+        provider: true,
+      };
+    }
+  }
+  if (!claudeWeekly
+    || !selection || (selection.source !== 'live' && selection.source !== 'configured')) return null;
+  const selectedMs = Date.parse(selection.nextResetAt);
+  if (!Number.isFinite(selectedMs) || selectedMs <= Date.now()) return null;
+  return {
+    nextResetAt: new Date(selectedMs).toISOString(),
+    resetMs: selectedMs,
+    source: selection.source,
+    label: selection.source === 'live' ? 'Live' : 'Configured',
+    provider: false,
+    timeZone: selection.timeZone || null,
+  };
+}
+
+function configuredResetMoment(reset) {
+  if (!reset || reset.source !== 'configured' || !reset.timeZone) return null;
+  try {
+    const date = new Intl.DateTimeFormat('en-US', {
+      timeZone: reset.timeZone, weekday: 'short', month: 'short', day: 'numeric',
+    }).format(new Date(reset.resetMs));
+    const time = new Intl.DateTimeFormat('en-US', {
+      timeZone: reset.timeZone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+    }).format(new Date(reset.resetMs));
+    return `${date} at ${time} / ${reset.timeZone}`;
+  } catch { return null; }
+}
+
+function resetContextCopy(reset, showProvenance = false) {
+  const parts = [];
+  if (showProvenance) parts.push(reset.label);
+  const configuredMoment = configuredResetMoment(reset);
+  if (configuredMoment) parts.push(configuredMoment);
+  return parts.join(' · ');
+}
+
+function resetCountdownCopy(reset, showProvenance = false) {
+  if (!reset) return null;
+  const context = resetContextCopy(reset, showProvenance);
+  return `${context ? `${esc(context)} · ` : ''}resets in ${fmtDur(reset.resetMs - Date.now())}`;
+}
+
+// The server projection is authoritative when present. If its weekly reset was
+// missing, derive the same bounded 168-hour display projection from the chosen
+// reset without writing that reset back into the provider payload.
+function pacingProjection(win, projection, reset, windowHours) {
+  if (!win || !reset) return null;
+  const rawEta = projection && projection.etaMs;
+  const suppliedEta = Number(rawEta);
+  if (rawEta !== null && rawEta !== undefined && Number.isFinite(suppliedEta)) {
+    return { etaMs: suppliedEta, hitsBeforeReset: suppliedEta < reset.resetMs };
+  }
+  if (reset.provider) return projection || null;
+  const usedPct = Number(win.usedPct);
+  if (!Number.isFinite(usedPct) || usedPct < 0 || usedPct > 100) return null;
+  const elapsedHours = (Date.now() - (reset.resetMs - windowHours * 3_600_000)) / 3_600_000;
+  if (elapsedHours <= 0 || usedPct <= 0) return { etaMs: null, hitsBeforeReset: false };
+  const hoursToFull = (100 - usedPct) / (usedPct / elapsedHours);
+  const etaMs = Date.now() + hoursToFull * 3_600_000;
+  return Number.isFinite(etaMs) ? { etaMs, hitsBeforeReset: etaMs < reset.resetMs } : null;
+}
+
 // Tool identity is a fixed presentation mapping. The glyphs remain useful in
 // monochrome, while the literal classes provide the approved tinted rail.
 function toolToneClass(tool) {
@@ -64,23 +186,23 @@ function toolDetailsTitleId(tool) {
     : tool && tool.source === 'codex' ? 'codex-details-title' : 'tool-details-title';
 }
 
-function gaugeHtml(win, label, tool) {
+function gaugeHtml(win, label, tool, reset = null) {
+  const resetCopy = resetCountdownCopy(reset, label === 'Weekly');
   if (!win) {
     const codexShort = tool && tool.source === 'codex' && label === '5-hour';
     const note = codexShort ? 'No short-window reading' : 'No current window reading';
     return `<div class="panel limit-card unavailable">`
-      + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">not reported</span></div>`
+      + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">${resetCopy || 'not reported'}</span></div>`
       + `<div class="limit-unavailable">Unavailable</div><div class="sub limit-meta">${note}</div>`
       + `<div class="unavailable-rule" aria-hidden="true"></div></div>`;
   }
   const rem = Math.floor(win.remainingPct), used = Math.ceil(win.usedPct), cls = statusClass(rem);
   const maxed = win.remainingPct <= 0;
-  const resetIn = win.resetsAt ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : '—';
   const sub = maxed ? `<span class="is-crit">limit reached</span>` : `remaining · ${used}% used`;
   // A maxed window shows a full red bar (limit consumed), not an empty/blank bar.
   const barWidth = maxed ? 100 : win.remainingPct;
   return `<div class="panel limit-card">`
-    + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">resets in ${resetIn}</span></div>`
+    + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">${resetCopy || 'resets in —'}</span></div>`
     + `<div class="remaining limit-value is-${cls}">${rem}<span class="unit">%</span></div><div class="sub limit-meta">${sub}</div>`
     + `<div class="bar" aria-hidden="true"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
 }
@@ -88,44 +210,49 @@ function gaugeHtml(win, label, tool) {
 // One window's pacing row: [name column] [pacing sentence] [status pill].
 // Each window is evaluated independently — a maxed window reads "limit reached"
 // on its own row and never suppresses the other window's row (FR-04 / FR-08).
-function pacingLine(label, win, proj, unavailableCopy = '') {
-  const resetIn = (win && win.resetsAt) ? fmtDur(Date.parse(win.resetsAt) - Date.now()) : null;
+function pacingLine(label, win, proj, unavailableCopy = '', reset = null, windowHours = 5) {
+  const resetCopy = resetCountdownCopy(reset, label === 'Weekly');
+  const displayProjection = pacingProjection(win, proj, reset, windowHours);
   let text, pillCls = '', pillLabel = '';
   if (win && win.remainingPct <= 0) {
     text = `<span class="is-crit">${label} limit reached</span>`
-      + (resetIn ? `<span class="burn-cap">resets in ${resetIn}</span>` : '');
+      + (resetCopy ? `<span class="burn-cap">${resetCopy}</span>` : '');
     pillCls = 'pill-crit'; pillLabel = 'limit reached';
-  } else if (win && resetIn != null) {
+  } else if (win && resetCopy != null) {
     // We have a reading and a reset time, so we can speak to pacing.
-    if (proj && proj.etaMs != null && proj.hitsBeforeReset) {
-      text = `On pace to hit the ${label} limit in <strong>~${fmtDur(proj.etaMs - Date.now())}</strong>`
-        + `<span class="burn-cap">before it resets in ${resetIn} — at risk</span>`;
+    if (displayProjection && displayProjection.etaMs != null && displayProjection.hitsBeforeReset) {
+      const resetContext = resetContextCopy(reset, label === 'Weekly');
+      text = `On pace to hit the ${label} limit in <strong>~${fmtDur(displayProjection.etaMs - Date.now())}</strong>`
+        + `<span class="burn-cap">${resetContext ? `${esc(resetContext)} · ` : ''}before it resets in ${fmtDur(reset.resetMs - Date.now())} — at risk</span>`;
       pillCls = 'pill-warn'; pillLabel = 'at risk';
     } else {
       // Projected to stay under, or no measurable burn yet (e.g. 0% used / fresh window).
       text = `On pace to stay under the ${label} limit`
-        + `<span class="burn-cap">resets in ${resetIn} — comfortable</span>`;
+        + `<span class="burn-cap">${resetCopy} — comfortable</span>`;
       pillCls = 'pill-good'; pillLabel = 'on pace';
     }
   } else {
     // No reading, or a reading with no reset time — can't project honestly.
     text = `limit data not available yet`
-      + (unavailableCopy ? `<span class="burn-cap">${unavailableCopy}</span>` : '');
+      + (resetCopy ? `<span class="burn-cap">${resetCopy} · usage reading unavailable</span>`
+        : unavailableCopy ? `<span class="burn-cap">${unavailableCopy}</span>` : '');
   }
   const pill = pillLabel ? `<span class="burn-pill ${pillCls}">${pillLabel}</span>` : `<span></span>`;
   return `<div class="burn-line"><span class="burn-win">${label}</span>`
     + `<span class="burn-text">${text}</span>${pill}</div>`;
 }
 
-function burnHtml(tool) {
+function burnHtml(tool, weeklyResetSelection = null) {
   const a = tool.activity, proj = tool.projection || {};
   const hasActivity = a && a.hasData !== false;
   const rateHtml = hasActivity ? `<span class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr · this machine</span></span>` : '';
   // Both pacing predictors shown at once: 5-hour and weekly.
   const shortUnavailable = tool.source === 'codex' && !tool.limits.five_hour
     ? 'Codex did not report a short window' : '';
-  const lines = pacingLine('5-hour', tool.limits.five_hour, proj.five_hour, shortUnavailable)
-    + pacingLine('Weekly', tool.limits.seven_day, proj.seven_day);
+  const fiveHourReset = dashboardWindowReset(tool, 'five_hour');
+  const weeklyReset = dashboardWindowReset(tool, 'seven_day', weeklyResetSelection);
+  const lines = pacingLine('5-hour', tool.limits.five_hour, proj.five_hour, shortUnavailable, fiveHourReset, 5)
+    + pacingLine('Weekly', tool.limits.seven_day, proj.seven_day, '', weeklyReset, 168);
   return `<div class="burn" aria-label="${esc(tool.label)} pacing"><div class="burn-head"><strong>Pacing</strong>${rateHtml}</div>`
     + `<div class="burn-proj">${lines}</div></div>`;
 }
@@ -255,7 +382,7 @@ function limitsNoteHtml(tool) {
   return `<div class="empty-note">${text}</div>`;
 }
 
-function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool)) {
+function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool), weeklyResetSelection = null) {
   const a = tool.activity;
   // Reading-age status pill: warn "aging", crit "stale" — text first (NFR-08),
   // and the aging band never says "stale". Fresh renders no pill at all, so
@@ -277,19 +404,21 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
     : 'Pacing · activity · deeper insights · trends';
   const idAttr = titleId ? ` id="${titleId}"` : '';
   return `<div class="tool-group-head"><h2${idAttr}>${toolNameHtml(tool)}</h2><span class="group-summary">${summary} · ${sub}</span></div>`
-    + burnHtml(tool)
+    + burnHtml(tool, weeklyResetSelection)
     + `<section class="subsection activity-section"><div class="subsection-head"><h3>Activity</h3>`
     + `<span class="subsection-scope"><span class="scope-tag">${esc(activityScope)}</span>local ${esc(tool.label)} session logs</span></div>`
     + activityBlock + `</section>`
     + modelLimitsHtml(tool);
 }
 
-function limitLaneHtml(tool, scopeCopy = '') {
+function limitLaneHtml(tool, scopeCopy = '', weeklyResetSelection = null) {
   const tone = toolToneClass(tool);
   const scope = scopeCopy || `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}`;
+  const fiveHourReset = dashboardWindowReset(tool, 'five_hour');
+  const weeklyReset = dashboardWindowReset(tool, 'seven_day', weeklyResetSelection);
   return `<section class="limit-tool tool ${tone}" aria-label="${esc(tool.label)} account limits">`
     + `<div class="limit-tool-head">${toolNameHtml(tool)}<span class="tool-sub plan">${scope}</span></div>`
-    + `<div class="gauges window-grid">${gaugeHtml(tool.limits.five_hour, '5-hour', tool)}${gaugeHtml(tool.limits.seven_day, 'Weekly', tool)}</div>`
+    + `<div class="gauges window-grid">${gaugeHtml(tool.limits.five_hour, '5-hour', tool, fiveHourReset)}${gaugeHtml(tool.limits.seven_day, 'Weekly', tool, weeklyReset)}</div>`
     + `</section>`;
 }
 
@@ -384,20 +513,20 @@ function joinLabels(labels) {
 
 // A tool lane showing ONLY the two account windows. Pacing and every local
 // statistic stay below the complete limit comparison.
-function limitsOnlyHtml(tool, scopeCopy = '') {
-  return limitLaneHtml(tool, scopeCopy);
+function limitsOnlyHtml(tool, scopeCopy = '', weeklyResetSelection = null) {
+  return limitLaneHtml(tool, scopeCopy, weeklyResetSelection);
 }
 
 // One host-local tool story with no gauges. Its account readings are always in
 // the multi-host limits overview above every host section.
-function activityOnlyHtml(tool, hostLabel) {
-  return `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, hostLabel, null)}</section>`;
+function activityOnlyHtml(tool, hostLabel, weeklyResetSelection = null) {
+  return `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, hostLabel, null, weeklyResetSelection)}</section>`;
 }
 
 // Every unique reachable account identity renders here before any per-machine
 // activity. Same-account reset identities collapse to one lane; genuinely
 // different accounts stay distinct and name their host membership.
-function accountOverviewHtml(hosts, groups) {
+function accountOverviewHtml(hosts, groups, localResetSelection = null) {
   const lanes = [];
   const entries = [];
   const represented = new Set();
@@ -412,7 +541,9 @@ function accountOverviewHtml(hosts, groups) {
         ? `identical on ${joinLabels(members.map((member) => member.host.label))}`
         : `from ${esc(rep.host.label)}`;
       const scopeCopy = `${esc(rep.tool.plan)} · ${membership}`;
-      lanes.push(limitsOnlyHtml(rep.tool, scopeCopy));
+      const containsSelf = members.some((member) => member.host.self);
+      const selection = src === 'claude-code' && containsSelf ? localResetSelection : null;
+      lanes.push(limitsOnlyHtml(rep.tool, scopeCopy, selection));
       entries.push({ tool: rep.tool, scopeCopy });
     }
   }
@@ -423,7 +554,8 @@ function accountOverviewHtml(hosts, groups) {
     for (const tool of host.state.tools) {
       if (represented.has(`${host.host}|${tool.source}`)) continue;
       const scopeCopy = `${esc(tool.plan)} · from ${esc(host.label)}`;
-      lanes.push(limitsOnlyHtml(tool, scopeCopy));
+      const selection = tool.source === 'claude-code' && host.self ? localResetSelection : null;
+      lanes.push(limitsOnlyHtml(tool, scopeCopy, selection));
       entries.push({ tool, scopeCopy });
     }
   }
@@ -522,7 +654,8 @@ function reachableHostBody(host, ctx) {
       annotation = `<span>same account as <span class="ref">${joinLabels(others)}</span>; the shared meters are shown once, up top</span>`;
     }
     parts.push(`<div class="same-acct"><span class="lead">Account limits above</span>— ${annotation}</div>`);
-    parts.push(activityOnlyHtml(tool, host.self ? 'This machine' : host.label));
+    const selection = host.self && tool.source === 'claude-code' ? ctx.localResetSelection : null;
+    parts.push(activityOnlyHtml(tool, host.self ? 'This machine' : host.label, selection));
   }
   return parts.join('');
 }
@@ -530,7 +663,8 @@ function reachableHostBody(host, ctx) {
 // Kept as a small compatibility helper for focused render tests and callers;
 // multi-host production rendering now keeps every gauge in accountOverviewHtml.
 function fullHostToolHtml(tool, host) {
-  return activityOnlyHtml(tool, host.self ? 'This machine' : host.label);
+  const selection = host.self && tool.source === 'claude-code' ? dashboardResetSelection : null;
+  return activityOnlyHtml(tool, host.self ? 'This machine' : host.label, selection);
 }
 
 const LEGEND_HTML = `<div class="legend-strip">`
@@ -562,7 +696,7 @@ function renderHosts(combined) {
       claudeDetails.innerHTML = claude
         ? (localOnly
           ? `<div class="tool-group-head"><h2>${toolNameHtml(claude)}</h2><span class="group-summary">Trends · this machine</span></div>`
-          : toolCoreHtml(claude, 'this machine', null)) : '';
+          : toolCoreHtml(claude, 'this machine', null, dashboardResetSelection)) : '';
     }
     if (codexDetails) {
       codexDetails.innerHTML = codex
@@ -584,14 +718,16 @@ function renderHosts(combined) {
     renderHeadroom(st.headroom);
     if (singleLimits) singleLimits.hidden = false;
     const limitEntries = (st.tools || []).map((tool) => ({ tool }));
-    const lanes = limitEntries.map(({ tool }) => limitLaneHtml(tool)).join('');
+    const lanes = limitEntries.map(({ tool }) => limitLaneHtml(tool, '',
+      tool.source === 'claude-code' ? dashboardResetSelection : null)).join('');
     const notes = limitNotesHtml(limitEntries);
     if (limitNotes) limitNotes.innerHTML = notes;
     const hasStaticGroups = renderStaticGroups(st.tools || []);
     // Minimal-DOM unit harnesses don't instantiate index.html; retain a
     // complete fallback render there without changing the product DOM.
     toolsEl.innerHTML = hasStaticGroups ? lanes : lanes + (limitNotes ? '' : `<div class="limit-notes-inline">${notes}</div>`) + (st.tools || []).map((tool) =>
-      `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool)}</section>`).join('');
+      `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, 'this machine', toolDetailsTitleId(tool),
+        tool.source === 'claude-code' ? dashboardResetSelection : null)}</section>`).join('');
     const freshest = (st.tools || []).map((t) => t.dataAt).filter(Boolean).sort().pop();
     document.getElementById('age').textContent = freshest ? fmtAge(freshest) : 'no readings yet';
     document.getElementById('freshness').classList.toggle('stale', !freshest);
@@ -613,13 +749,13 @@ function renderHosts(combined) {
   }
   const timeoutS = (combined.peerTimeoutMs ? Math.round(combined.peerTimeoutMs / 1000) : 3);
   const ctx = {
-    groups, sharedKeys, timeoutS,
+    groups, sharedKeys, timeoutS, localResetSelection: dashboardResetSelection,
     freshestOf: (h) => {
       const t = (h.state && h.state.tools) ? h.state.tools.map((x) => x.dataAt).filter(Boolean).sort().pop() : null;
       return t ? fmtAge(t) : (h.fetchedAt ? fmtAge(h.fetchedAt) : null);
     },
   };
-  const overview = accountOverviewHtml(hosts, groups);
+  const overview = accountOverviewHtml(hosts, groups, dashboardResetSelection);
   const orderedHosts = hosts.slice().sort((a, b) => {
     if (Boolean(a.reachable) !== Boolean(b.reachable)) return a.reachable ? -1 : 1;
     if (Boolean(a.self) !== Boolean(b.self)) return a.self ? -1 : 1;
@@ -665,16 +801,62 @@ function setFooterMode(multi) {
 
 function render() {
   if (!state) return;
+  requestExpiredConfiguredResetRefresh();
   renderHosts(state);
 }
 
+// The one-second render loop can notice the same expired selection many times,
+// and the 60-second poll may land on the same boundary. The single-flight guard
+// below makes every caller share one request. If a request that began just before
+// the boundary returns the now-expired occurrence, the next tick may try again
+// rather than permanently latching a blank reset.
+function requestExpiredConfiguredResetRefresh(nowMs = Date.now()) {
+  const selection = dashboardResetSelection;
+  if (!selection || selection.source !== 'configured') return;
+  const resetMs = Date.parse(selection.nextResetAt);
+  if (!Number.isFinite(resetMs) || resetMs > nowMs) return;
+  void refreshDashboardResetSelection();
+}
+
+function refreshDashboardResetSelection() {
+  if (resetSelectionRequestInFlight) return resetSelectionRequestInFlight;
+  const request = ++resetSelectionRequestSequence;
+  const refreshPromise = (async () => {
+    try {
+      const response = await fetch('/api/config/reset-billing', { cache: 'no-store' });
+      if (!response.ok) throw new Error('bad status');
+      const view = await response.json();
+      if (request !== resetSelectionRequestSequence) return;
+      dashboardResetSelection = normalizeDashboardResetSelection(
+        view && view.resetSelection, view && view.resetSchedule);
+    } catch {
+      if (request !== resetSelectionRequestSequence) return;
+      // A failed configuration read must not leave an old fallback presenting as
+      // current. Provider readings remain independently available from /api/hosts.
+      dashboardResetSelection = null;
+    }
+    if (state) render();
+  })();
+  resetSelectionRequestInFlight = refreshPromise;
+  void refreshPromise.then(
+    () => { if (resetSelectionRequestInFlight === refreshPromise) resetSelectionRequestInFlight = null; },
+    () => { if (resetSelectionRequestInFlight === refreshPromise) resetSelectionRequestInFlight = null; },
+  );
+  return refreshPromise;
+}
+
 async function refresh() {
+  // Start this independent read alongside the immutable host/state contract.
+  // It may enhance only local Claude reset presentation; it cannot make a host
+  // read succeed or fail and never enters the peer payload.
+  const resetRefresh = refreshDashboardResetSelection();
   try {
     const res = await fetch('/api/hosts', { cache: 'no-store' });
     if (!res.ok) throw new Error('bad status');
     state = await res.json();
     render();
   } catch { document.getElementById('age').textContent = 'offline — retrying'; }
+  await resetRefresh;
 }
 
 setInterval(() => { if (state) render(); }, 1000);
@@ -1240,13 +1422,14 @@ const COST_METRICS = [
   ['cacheEffect', 'Cache effect · no cache − observed'],
 ];
 const COST_REASON_COPY = Object.freeze({
-  subscription_missing: 'No owner-confirmed subscription coverage is configured.',
-  subscription_unreadable: 'The local subscription configuration could not be read.',
-  subscription_invalid_file: 'The local subscription configuration is invalid.',
-  subscription_invalid_entry: 'An invalid subscription period was excluded.',
-  subscription_unconfirmed: 'An unconfirmed subscription period was excluded.',
-  subscription_overlap: 'Overlapping subscription periods were excluded.',
-  subscription_gap: 'The selected range has a subscription coverage gap.',
+  account_config_unavailable: 'Recurring plan configuration is unavailable; review Reset & billing settings.',
+  subscription_missing: 'No legacy fixed-period source is configured; review recurring plans in Reset & billing settings.',
+  subscription_unreadable: 'The legacy fixed-period source could not be read; recurring plans remain separate.',
+  subscription_invalid_file: 'The legacy fixed-period source is invalid; recurring plans remain separate.',
+  subscription_invalid_entry: 'An invalid legacy fixed period was excluded.',
+  subscription_unconfirmed: 'An unconfirmed legacy fixed period was excluded.',
+  subscription_overlap: 'Overlapping legacy fixed periods were excluded.',
+  subscription_gap: 'The selected range has an access-cost coverage gap; review recurring plan effective dates in Reset & billing settings.',
   rate_card_unreadable: 'The reviewed API rate card could not be read.',
   rate_card_invalid: 'The reviewed API rate card is invalid.',
   rate_invalid_entry: 'An invalid API rate was excluded.',
@@ -1312,7 +1495,7 @@ function costMetricNote(key, metric) {
       ? metric.reasons.find((item) => Object.hasOwn(COST_REASON_COPY, item)) : null;
     return reason ? COST_REASON_COPY[reason] : 'No supported amount is available.';
   }
-  if (key === 'subscription') return 'owner-confirmed fixed access';
+  if (key === 'subscription') return 'owner-confirmed recurring and legacy access';
   if (key === 'observedCache') return 'same local records · observed cache';
   if (key === 'noCache') return 'same local records · normal input price';
   return 'signed effect · not a provider bill';
@@ -1455,11 +1638,11 @@ function costProvenanceHtml(data) {
   }).join(' · ') : 'No effective rate interval applied';
   const coveredPct = Number.isFinite(sub.ratio) ? `${Math.round(sub.ratio * 100)}% of tool-time covered` : 'coverage unavailable';
   return `<section class="cost-block cost-provenance" aria-labelledby="cost-provenance-title"><div class="cost-block-head"><h3 id="cost-provenance-title">Evidence and provenance</h3><span>bounded local analysis</span></div>`
-    + `<div class="cost-proof-grid"><div><span>Subscription coverage</span><strong>${esc(coveredPct)}</strong><p>${Number(sub.gapCount || 0)} bounded gap${Number(sub.gapCount || 0) === 1 ? '' : 's'} · owner-confirmed periods only</p></div>`
+    + `<div class="cost-proof-grid"><div><span>Subscription coverage</span><strong>${esc(coveredPct)}</strong><p>${Number(sub.gapCount || 0)} bounded gap${Number(sub.gapCount || 0) === 1 ? '' : 's'} · owner-confirmed recurring and legacy periods</p></div>`
     + `<div><span>Usage and pricing coverage</span><strong>${esc(coverageCopy(data.scopes.claude, 'Claude'))}</strong><p>${esc(coverageCopy(data.scopes.codex, 'Codex'))}</p></div>`
     + `<div><span>Effective pricing</span><strong>${sourceCopy}</strong><p>${esc(effectiveCopy)}</p><p>Rate card reviewed ${esc(costDateLabel(pricing && pricing.cardAsOf, data.interval.timeZone))}</p></div></div>`
     + costDiagnosticsHtml(data)
-    + `<div class="cost-setup"><strong>Subscription values are never inferred.</strong> Add explicit confirmed Claude and Codex periods to <code>\${LLMDASH_DATA_DIR}/subscriptions.json</code>. No billing portal or API key is read.</div></section>`;
+    + `<div class="cost-setup"><strong>Access costs are never inferred.</strong> Configure confirmed recurring monthly plans in <a href="/settings.html">Reset &amp; billing settings</a>; legacy fixed periods remain read-only. No billing portal or API key is read.</div></section>`;
 }
 
 function renderCostAnalysis(data, announce = true) {

@@ -15,6 +15,16 @@ const row = (overrides = {}) => ({
   ...overrides,
 });
 
+function proxyFs(overrides = {}) {
+  return new Proxy(fs, {
+    get(target, property) {
+      if (Object.hasOwn(overrides, property)) return overrides[property];
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 test('subscription money parsing is exact and closed', () => {
   assert.equal(parseUsdPicos('0.01'), 10_000_000_000n);
   assert.equal(parseUsdPicos('1000000.00'), 1_000_000_000_000_000_000n);
@@ -65,25 +75,24 @@ test('file-level shape, dates, entry counts, and depth are bounded', () => {
 });
 
 test('reader distinguishes missing, unreadable, oversized, and invalid JSON', () => {
-  const missing = readSubscriptions({ file: '/x', fsImpl: { statSync() { const error = new Error(); error.code = 'ENOENT'; throw error; } } });
-  assert.equal(missing.reason, 'subscription_missing');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-subscription-reader-'));
+  const target = path.join(root, 'subscriptions.json');
+  try {
+    assert.equal(readSubscriptions({ file: target, root }).reason, 'subscription_missing');
 
-  const unreadable = readSubscriptions({ file: '/x', fsImpl: {
-    statSync() { return { size: 3, isFile: () => true }; },
-    readFileSync() { throw new Error('secret path'); },
-  } });
-  assert.equal(unreadable.reason, 'subscription_unreadable');
+    fs.writeFileSync(target, '{}', { mode: 0o600 });
+    const unreadableFs = proxyFs({
+      openSync() { const error = new Error('denied'); error.code = 'EACCES'; throw error; },
+    });
+    assert.equal(readSubscriptions({ file: target, root, fsImpl: unreadableFs }).reason,
+      'subscription_unreadable');
 
-  const oversized = readSubscriptions({ file: '/x', fsImpl: {
-    statSync() { return { size: 300_000, isFile: () => true }; },
-  } });
-  assert.equal(oversized.reason, 'subscription_invalid_file');
+    fs.truncateSync(target, 300_000);
+    assert.equal(readSubscriptions({ file: target, root }).reason, 'subscription_invalid_file');
 
-  const invalid = readSubscriptions({ file: '/x', fsImpl: {
-    statSync() { return { size: 1, isFile: () => true }; },
-    readFileSync() { return '{'; },
-  } });
-  assert.equal(invalid.reason, 'subscription_invalid_file');
+    fs.writeFileSync(target, '{', { mode: 0o600 });
+    assert.equal(readSubscriptions({ file: target, root }).reason, 'subscription_invalid_file');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('reader rejects a symlink instead of following owner configuration outside the data file', () => {
@@ -94,4 +103,52 @@ test('reader rejects a symlink instead of following owner configuration outside 
   fs.symlinkSync(target, link);
   assert.equal(readSubscriptions({ file: link }).reason, 'subscription_invalid_file');
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('reader rejects redirected/unsafe parents and descriptor identity changes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-subscription-safe-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-subscription-outside-'));
+  try {
+    const target = path.join(root, 'subscriptions.json');
+    fs.writeFileSync(target, JSON.stringify(file([row()])), { mode: 0o600 });
+
+    const changedIdentity = proxyFs({
+      fstatSync(descriptor) {
+        const stat = fs.fstatSync(descriptor);
+        return new Proxy(stat, {
+          get(value, property) { return property === 'ino' ? value.ino + 1 : value[property]; },
+        });
+      },
+    });
+    assert.equal(readSubscriptions({ file: target, root, fsImpl: changedIdentity }).reason,
+      'subscription_invalid_file');
+
+    const outsideFile = path.join(outside, 'subscriptions.json');
+    fs.writeFileSync(outsideFile, JSON.stringify(file([row()])), { mode: 0o600 });
+    const linkedParent = path.join(root, 'redirect');
+    fs.symlinkSync(outside, linkedParent);
+    assert.equal(readSubscriptions({
+      file: path.join(linkedParent, 'subscriptions.json'), root: linkedParent,
+    }).reason, 'subscription_invalid_file');
+
+    const rootSpellings = new Set([path.resolve(root), fs.realpathSync(root)]);
+    const wrongParentOwner = proxyFs({
+      lstatSync(candidate) {
+        const stat = fs.lstatSync(candidate);
+        if (!rootSpellings.has(path.resolve(candidate))) return stat;
+        return new Proxy(stat, {
+          get(value, property) { return property === 'uid' ? value.uid + 1 : value[property]; },
+        });
+      },
+    });
+    assert.equal(readSubscriptions({ file: target, root, fsImpl: wrongParentOwner }).reason,
+      'subscription_invalid_file');
+
+    fs.chmodSync(root, 0o722);
+    assert.equal(readSubscriptions({ file: target, root }).reason, 'subscription_invalid_file');
+  } finally {
+    try { fs.chmodSync(root, 0o700); } catch {}
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 });

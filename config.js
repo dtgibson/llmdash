@@ -89,6 +89,10 @@ export const config = {
   // Optional, owner-confirmed fixed-access subscription periods. This file is
   // local machine state (never checked in and never inferred from plan labels).
   get subscriptionsFile() { return path.join(this.dataDir, 'subscriptions.json'); },
+  // Owner-managed reset cadence and recurring-plan history. The filename is a
+  // fixed application constant: neither an environment variable nor a request
+  // may choose a path beneath the data directory.
+  get accountConfigFile() { return path.join(this.dataDir, 'account-config.json'); },
   // Reviewed, tracked, effective-dated public API rates used by cost analysis.
   get apiRatesFile() { return path.join(root, 'config', 'api-rates.json'); },
 

@@ -1,6 +1,8 @@
 import { buildUsageLedger } from './usage-ledger.js';
 import { readSubscriptions } from './subscriptions.js';
 import { findRate, rateIssueReason, ratesForInput, readRateCard } from './rate-card.js';
+import { buildBillingOverlay } from './billing-overlay.js';
+import { refreshAccountConfig } from './account-config.js';
 
 const RANGE_DAYS = Object.freeze({ '7d': 7, '30d': 30, '90d': 90 });
 const PICOS_PER_MICRO = 1_000_000n;
@@ -121,10 +123,17 @@ function cacheEffect(status, observedPicos, noCachePicos, observedMetric, noCach
 }
 
 function cumulativeAllocation(entry, atMs, timeZone) {
-  const start = localMidnightMs(entry.startDate, timeZone);
-  const end = localMidnightMs(addCalendarDays(entry.endDate, 1), timeZone);
-  const elapsed = BigInt(Math.max(0, Math.min(end - start, atMs - start)));
-  return entry.amountPicos * elapsed / BigInt(end - start);
+  // A recurring monthly cycle can be clipped into several coverage fragments
+  // when an explicit legacy period overrides some days. Allocate each fragment
+  // against the ORIGINAL cycle denominator so clipping cannot charge the full
+  // monthly amount more than once.
+  const allocationStart = localMidnightMs(entry.allocationStartDate || entry.startDate, timeZone);
+  const allocationEnd = localMidnightMs(addCalendarDays(entry.allocationEndDate || entry.endDate, 1), timeZone);
+  const coverageStart = localMidnightMs(entry.startDate, timeZone);
+  const coverageEnd = localMidnightMs(addCalendarDays(entry.endDate, 1), timeZone);
+  const boundedAt = Math.max(coverageStart, Math.min(coverageEnd, atMs));
+  const elapsed = BigInt(Math.max(0, boundedAt - allocationStart));
+  return entry.amountPicos * elapsed / BigInt(allocationEnd - allocationStart);
 }
 
 function intervalUnion(intervals) {
@@ -151,7 +160,9 @@ function coverageGaps(intervals, start, end, timeZone, tool) {
 }
 
 function subscriptionForTool(tool, range, subscriptions) {
-  const sourceReasons = subscriptions?.status === 'valid' ? [] : [subscriptions?.reason || 'subscription_missing'];
+  const sourceReasons = subscriptions?.status === 'valid'
+    ? (Array.isArray(subscriptions.sourceReasons) ? subscriptions.sourceReasons : [])
+    : [subscriptions?.reason || 'subscription_missing'];
   const entries = subscriptions?.status === 'valid'
     ? subscriptions.entries.filter((entry) => entry.tool === tool) : [];
   const diagnostics = subscriptions?.status === 'valid'
@@ -168,7 +179,11 @@ function subscriptionForTool(tool, range, subscriptions) {
     - cumulativeAllocation(entry, range.start, range.timeZone), 0n);
   const status = coveredMs === requiredMs && requiredMs > 0 ? 'complete'
     : entries.length && coveredMs > 0 ? 'partial' : 'unavailable';
-  const reasons = status === 'complete' ? [] : sortedReasons(sourceReasons, diagnostics, gaps.length ? ['subscription_gap'] : []);
+  // Calendar completeness and source health are independent. A retained
+  // last-valid account config or rejected legacy source must remain visible
+  // even when the surviving entries happen to cover every required instant.
+  const reasons = sortedReasons(sourceReasons, diagnostics,
+    gaps.length ? ['subscription_gap'] : []);
   const dailyPicos = [];
   const dailyStatus = [];
   for (const bucket of range.buckets) {
@@ -540,6 +555,21 @@ function coldPayload(range, nowMs = Date.now(), timeZone) {
 
 let cache = new Map();
 
+export function readCombinedSubscriptions({ nowMs = Date.now(), timeZone, subscriptionOptions, accountOptions } = {}) {
+  const zone = resolveAnalysisTimeZone(timeZone);
+  const horizon = rangeDefinition('90d', nowMs, zone);
+  const legacy = readSubscriptions(subscriptionOptions);
+  const accountSnapshot = refreshAccountConfig(accountOptions);
+  return buildBillingOverlay({
+    legacy,
+    accountConfig: accountSnapshot.config,
+    accountConfigState: accountSnapshot.state,
+    accountConfigReason: accountSnapshot.reason,
+    startDate: localDateAt(horizon.start, zone),
+    endDate: localDateAt(horizon.end, zone),
+  });
+}
+
 export function refreshCostAnalysis(nowMs = Date.now(), options = {}) {
   try {
     const timeZone = resolveAnalysisTimeZone(options.timeZone);
@@ -547,7 +577,10 @@ export function refreshCostAnalysis(nowMs = Date.now(), options = {}) {
       ...options.ledgerOptions,
       sinceMs: rangeDefinition('90d', nowMs, timeZone).start,
     });
-    const subscriptions = options.subscriptions || readSubscriptions(options.subscriptionOptions);
+    const subscriptions = options.subscriptions || readCombinedSubscriptions({
+      nowMs, timeZone, subscriptionOptions: options.subscriptionOptions,
+      accountOptions: options.accountOptions,
+    });
     const rateCard = options.rateCard || readRateCard(options.rateCardOptions);
     const next = new Map();
     for (const range of Object.keys(RANGE_DAYS)) next.set(range, deepFreeze(buildCostAnalysis({

@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, runPlugin, loadFixture } from './helpers/menubar-run.js';
+import {
+  fetchResetBillingView, RESET_BILLING_VIEW_CAP_BYTES,
+} from '../scripts/menubar/llmdash.5s.js';
 
 // Configurable host/port (FR-14 + the Stage-4 configurable-HOST addition):
 // LLMDASH_BADGE_HOST and LLMDASH_PORT are the ONLY config surface, and each
@@ -25,16 +28,23 @@ function singleHostPayload(now = Date.now()) {
 }
 
 test('LLMDASH_PORT drives BOTH the fetch target and the Open-dashboard href', async () => {
-  let hitPath = null;
+  const hitPaths = [];
   const srv = await startServer((req, res) => {
-    hitPath = req.url;
+    hitPaths.push(req.url);
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(singleHostPayload()));
+    if (req.url === '/api/hosts') res.end(JSON.stringify(singleHostPayload()));
+    else if (req.url === '/api/config/reset-billing') {
+      res.end(JSON.stringify({ resetSchedule: null, resetSelection: {
+        source: 'unavailable', nextResetAt: null,
+      } }));
+    } else res.end(JSON.stringify({ error: 'not_found' }));
   });
   const r = await runPlugin({ LLMDASH_BADGE_HOST: '127.0.0.1', LLMDASH_PORT: String(srv.port) });
   await srv.close();
   assert.equal(r.status, 0);
-  assert.equal(hitPath, '/api/hosts');                       // the badge now reads /api/hosts (FR-06)
+  assert.deepEqual(hitPaths.sort(), [
+    '/api/config/reset-billing', '/api/hosts',
+  ], 'the usage view and optional reset view use their fixed paths');
   assert.match(r.stdout.split('\n')[0], /^▪ ◆ \d+% \|/);     // single-host = byte-for-byte the shipped glyph
   assert.match(r.stdout, new RegExp(`Open dashboard \\| size=12 color=#4a4a4a href=http://127\\.0\\.0\\.1:${srv.port}/`)); // href matches
 });
@@ -43,13 +53,18 @@ test('LLMDASH_BADGE_HOST override changes both the fetch target and the href', a
   // 127.0.0.2 is a loopback alias on macOS; bind the scratch server there and
   // point the badge host at it — proving the host override drives the real fetch.
   const HOST = '127.0.0.2';
-  let served = false;
+  const hitPaths = [];
   let srv;
   try {
     srv = await startServer((req, res) => {
-      served = true;
+      hitPaths.push(req.url);
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(singleHostPayload()));
+      if (req.url === '/api/hosts') res.end(JSON.stringify(singleHostPayload()));
+      else if (req.url === '/api/config/reset-billing') {
+        res.end(JSON.stringify({ resetSchedule: null, resetSelection: {
+          source: 'unavailable', nextResetAt: null,
+        } }));
+      } else res.end(JSON.stringify({ error: 'not_found' }));
     }, HOST);
   } catch {
     // Platform can't bind the alias: still prove HOST drives the href via the
@@ -61,8 +76,47 @@ test('LLMDASH_BADGE_HOST override changes both the fetch target and the href', a
   const r = await runPlugin({ LLMDASH_BADGE_HOST: HOST, LLMDASH_PORT: String(srv.port) });
   await srv.close();
   assert.equal(r.status, 0);
-  assert.ok(served, 'the scratch server on the overridden host was actually hit');
+  assert.deepEqual(hitPaths.sort(), ['/api/config/reset-billing', '/api/hosts'],
+    'both reads reached the overridden host');
   assert.match(r.stdout, new RegExp(`Open dashboard \\| size=12 color=#4a4a4a href=http://127\\.0\\.0\\.2:${srv.port}/`));
+});
+
+test('reset-view failure does not make a healthy /api/hosts badge offline', async () => {
+  const hitPaths = [];
+  const srv = await startServer((req, res) => {
+    hitPaths.push(req.url);
+    if (req.url === '/api/hosts') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(singleHostPayload()));
+      return;
+    }
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'temporarily_unavailable' }));
+  });
+  const r = await runPlugin({ LLMDASH_BADGE_HOST: '127.0.0.1', LLMDASH_PORT: String(srv.port) });
+  await srv.close();
+  assert.equal(r.status, 0);
+  assert.deepEqual(hitPaths.sort(), ['/api/config/reset-billing', '/api/hosts']);
+  assert.match(r.stdout.split('\n')[0], /^▪ ◆ \d+% \|/);
+  assert.doesNotMatch(r.stdout.split('\n')[0], /llmdash ⚠/);
+});
+
+test('fetchResetBillingView aborts a chunked response beyond the 128 KiB view cap', async () => {
+  let hitPath = null;
+  const srv = await startServer((req, res) => {
+    hitPath = req.url;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    // write() forces chunked transfer so this exercises the streaming counter,
+    // not merely an advertised Content-Length guard.
+    res.write('{"padding":"');
+    res.end(`${'x'.repeat(RESET_BILLING_VIEW_CAP_BYTES)}"}`);
+  });
+  await assert.rejects(
+    fetchResetBillingView('127.0.0.1', srv.port),
+    /response too large/,
+  );
+  await srv.close();
+  assert.equal(hitPath, '/api/config/reset-billing');
 });
 
 test('the default host is 127.0.0.1 when LLMDASH_BADGE_HOST is unset/empty', async () => {

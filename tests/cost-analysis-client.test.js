@@ -118,7 +118,7 @@ test('cost shell is secondary, local-only, independently ranged, and honest befo
   assert.ok(indexHtml.indexOf('id="single-limits"') < indexHtml.indexOf('id="cost-analysis"'));
   assert.ok(indexHtml.indexOf('id="tool-groups"') < indexHtml.indexOf('id="cost-analysis"'));
   assert.match(indexHtml, /Configured spend and API-equivalent value/);
-  assert.match(indexHtml, /fixed subscription access and two counterfactual API estimates stay separate/);
+  assert.match(indexHtml, /configured recurring and legacy access and two counterfactual API estimates stay separate/);
   assert.match(indexHtml, /id="cost-range" role="group" aria-label="Cost analysis range"/);
   assert.match(indexHtml, /data-range="30d" aria-pressed="true"/);
   assert.match(indexHtml, /Reading the latest bounded local cost snapshot/);
@@ -138,7 +138,24 @@ test('complete payload renders separated totals, reconciliation, three accessibl
   assert.doesNotMatch(html, /Official <pricing>/);
   assert.match(html, /Official &lt;pricing&gt;/);
   assert.match(html, /Claude claude-test · [^<]+–current/);
+  assert.match(html, /owner-confirmed recurring and legacy access/);
+  assert.match(html, /href="\/settings\.html">Reset &amp; billing settings<\/a>/);
+  assert.match(html, /recurring monthly plans/);
+  assert.match(html, /legacy fixed periods remain read-only/);
+  assert.match(html, /No billing portal or API key is read/);
   assert.equal(els['cost-surface'].attrs['aria-busy'], 'false');
+});
+
+test('recurring and legacy configuration diagnostics point to the settings workflow', async () => {
+  const data = payload();
+  data.scopes.combined.summary.subscription = metric(null, 'unavailable', [
+    'account_config_unavailable', 'subscription_missing', 'subscription_gap',
+  ]);
+  const { els } = await browser(async () => ({ ok: true, json: async () => data }));
+  const html = els['cost-surface'].innerHTML;
+  assert.match(html, /Recurring plan configuration is unavailable; review Reset &amp; billing settings/);
+  assert.match(html, /No legacy fixed-period source is configured; review recurring plans in Reset &amp; billing settings/);
+  assert.match(html, /access-cost coverage gap; review recurring plan effective dates in Reset &amp; billing settings/);
 });
 
 test('zero, sub-cent, unavailable, partial, and fixed diagnostics stay distinct', async () => {

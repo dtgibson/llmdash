@@ -17,6 +17,16 @@ const card = (rates, extra = {}) => ({
   sources: [source], rates, ...extra,
 });
 
+function proxyFs(overrides = {}) {
+  return new Proxy(fs, {
+    get(target, property) {
+      if (Object.hasOwn(overrides, property)) return overrides[property];
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 test('rate parsing produces exact picodollars per token', () => {
   assert.equal(parseRatePicosPerToken('3.00'), 3_000_000n);
   assert.equal(parseRatePicosPerToken('0.175'), 175_000n);
@@ -103,12 +113,15 @@ test('Codex input-token tiers are exact, bounded, ordered, and exclusive at the 
 test('top-level/source shape and reader size/syntax are closed and bounded', () => {
   assert.equal(parseRateCard(card([], { extra: true })).reason, 'rate_card_invalid');
   assert.equal(parseRateCard(card([], { sources: [{ ...source, id: 'x', extra: true }] })).reason, 'rate_card_invalid');
-  const oversized = readRateCard({ file: '/x', fsImpl: { statSync: () => ({ size: 2_000_000, isFile: () => true }) } });
-  assert.equal(oversized.reason, 'rate_card_invalid');
-  const invalid = readRateCard({ file: '/x', fsImpl: {
-    statSync: () => ({ size: 1, isFile: () => true }), readFileSync: () => '{',
-  } });
-  assert.equal(invalid.reason, 'rate_card_invalid');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-rate-reader-'));
+  const target = path.join(root, 'api-rates.json');
+  try {
+    fs.writeFileSync(target, '', { mode: 0o600 });
+    fs.truncateSync(target, 2_000_000);
+    assert.equal(readRateCard({ file: target, root }).reason, 'rate_card_invalid');
+    fs.writeFileSync(target, '{', { mode: 0o600 });
+    assert.equal(readRateCard({ file: target, root }).reason, 'rate_card_invalid');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
   assert.equal(parseRateCard(card([], { sources: [{ ...source, label: 'Official \u202e pricing' }] })).reason, 'rate_card_invalid');
   assert.equal(parseRateCard(card([], { sources: [{ ...source, label: 'Official \ud800 pricing' }] })).reason, 'rate_card_invalid');
   assert.equal(parseRateCard(card([], { sources: [{ ...source, label: 'Official\u200bpricing' }] })).reason, 'rate_card_invalid');
@@ -123,6 +136,32 @@ test('tracked rate reader rejects symlinks', () => {
   fs.symlinkSync(target, link);
   assert.equal(readRateCard({ file: link }).reason, 'rate_card_invalid');
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('rate reader rejects a parent identity swap during the descriptor read', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-rate-parent-swap-'));
+  try {
+    const target = path.join(root, 'api-rates.json');
+    fs.writeFileSync(target, JSON.stringify(card([])), { mode: 0o600 });
+    const canonicalRoot = fs.realpathSync(root);
+    let targetOpened = false;
+    const swappedParent = proxyFs({
+      openSync(candidate, ...args) {
+        const descriptor = fs.openSync(candidate, ...args);
+        targetOpened = true;
+        return descriptor;
+      },
+      lstatSync(candidate) {
+        const stat = fs.lstatSync(candidate);
+        if (!targetOpened || path.resolve(candidate) !== canonicalRoot) return stat;
+        return new Proxy(stat, {
+          get(value, property) { return property === 'ino' ? value.ino + 1 : value[property]; },
+        });
+      },
+    });
+    assert.equal(readRateCard({ file: target, root, fsImpl: swappedParent }).reason,
+      'rate_card_invalid');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('tracked rate card validates and includes reviewed provider provenance', () => {

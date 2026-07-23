@@ -32,7 +32,10 @@ function makeFooter() {
   return { querySelectorAll: (sel) => (sel === 'span' ? spans : []), _spans: spans };
 }
 
-async function renderWith(combined) {
+async function renderWith(combined, resetBillingView = null, {
+  DateImpl = Date,
+  resetBillingFetch = null,
+} = {}) {
   const els = {
     headroom: makeEl('headroom'), tools: makeEl('tools'), hosts: makeEl('hosts'),
     age: makeEl('age'), freshness: makeEl('freshness'), trends: makeEl('trends'),
@@ -52,8 +55,20 @@ async function renderWith(combined) {
   };
   let resolveDone;
   const done = new Promise((r) => { resolveDone = r; });
+  const fetchUrls = [];
+  let resetBillingCall = 0;
   const fetchStub = async (url) => {
-    if (String(url).startsWith('/api/hosts')) {
+    const value = String(url);
+    fetchUrls.push(value);
+    if (value === '/api/config/reset-billing') {
+      resetBillingCall += 1;
+      if (resetBillingFetch) return resetBillingFetch(resetBillingCall);
+      return { ok: true, json: async () => resetBillingView || {
+        resetSchedule: null,
+        resetSelection: { source: 'unavailable', nextResetAt: null },
+      } };
+    }
+    if (value.startsWith('/api/hosts')) {
       // Let render() run, then signal completion on the next microtask tick.
       queueMicrotask(() => setTimeout(resolveDone, 0));
       return { ok: true, json: async () => combined };
@@ -66,13 +81,28 @@ async function renderWith(combined) {
     document: doc, fetch: fetchStub,
     setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
     setTimeout: (fn, ms) => { if (ms === 0) queueMicrotask(fn); return 0; },
-    queueMicrotask, console, Date, Math, JSON, encodeURIComponent, Number, String, Array, Object,
+    queueMicrotask, console, Date: DateImpl, Math, JSON, encodeURIComponent, Number, String, Array, Object,
   };
   vm.createContext(sandbox);
   vm.runInContext(appJs, sandbox);
   await done;
-  return { els, footer, intervals };
+  return { els, footer, intervals, fetchUrls, sandbox };
 }
+
+function controlledClock(initialNowMs) {
+  let nowMs = initialNowMs;
+  class ControlledDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [nowMs])); }
+    static now() { return nowMs; }
+  }
+  return {
+    DateImpl: ControlledDate,
+    set(value) { nowMs = value; },
+  };
+}
+
+const jsonResponse = (value) => ({ ok: true, json: async () => value });
+const flushAsync = () => new Promise((resolve) => setImmediate(resolve));
 
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const claudeTool = (fhReset, sdReset) => ({
@@ -97,6 +127,203 @@ const codexTool = (sdReset) => ({
   activity: { hasData: false }, freshness: null, limitsDiagnostic: null, dataAt: iso(-20_000),
 });
 const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
+
+function configuredResetView(nextResetAt) {
+  return {
+    resetSchedule: { isoWeekday: 5, localTime: '23:00', timeZone: 'America/Los_Angeles' },
+    resetSelection: {
+      source: 'configured', label: 'Configured', nextResetAt,
+      liveStatus: 'missing', configuredStatus: 'usable', corroboratedByModelCap: false,
+    },
+  };
+}
+
+async function renderConfiguredResetBoundary() {
+  const startMs = Date.now();
+  const boundaryMs = startMs + 60_000;
+  const recoveryMs = startMs + 7 * 86400_000;
+  const clock = controlledClock(startMs);
+  const tool = claudeTool(3 * 3600_000, 2 * 86400_000);
+  tool.limits.seven_day.resetsAt = null;
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
+  }], generatedAt: iso(0) };
+  let resolveBoundaryFetch;
+  const boundaryFetch = new Promise((resolve) => { resolveBoundaryFetch = resolve; });
+  const rendered = await renderWith(combined, null, {
+    DateImpl: clock.DateImpl,
+    resetBillingFetch: (call) => {
+      if (call === 1) return jsonResponse(configuredResetView(new Date(boundaryMs).toISOString()));
+      if (call === 2) return boundaryFetch;
+      return jsonResponse({ resetSchedule: null, resetSelection: {
+        source: 'unavailable', nextResetAt: null,
+      } });
+    },
+  });
+  await flushAsync(); // let the initial reset selection clear its in-flight guard
+  const tick = rendered.intervals.find(({ fn, ms }) => ms === 1000 && String(fn).includes('render()'));
+  const periodic = rendered.intervals.find(({ fn, ms }) => ms === 60_000 && fn.name === 'refresh');
+  assert.ok(tick, 'the countdown render tick is registered');
+  assert.ok(periodic, 'the normal 60-second refresh is registered');
+  return {
+    ...rendered, clock, tick, periodic, boundaryMs, recoveryMs,
+    resetFetchCount: () => rendered.fetchUrls
+      .filter((url) => url === '/api/config/reset-billing').length,
+    resolveBoundary(view = configuredResetView(new Date(recoveryMs).toISOString())) {
+      resolveBoundaryFetch(jsonResponse(view));
+    },
+  };
+}
+
+test('configured reset refetches immediately at the exact reset boundary', async () => {
+  const h = await renderConfiguredResetBoundary();
+  assert.equal(h.resetFetchCount(), 1);
+  assert.match(h.els.tools.innerHTML, /Weekly[\s\S]*Configured/);
+
+  h.clock.set(h.boundaryMs - 1);
+  h.tick.fn();
+  assert.equal(h.resetFetchCount(), 1, 'the still-future occurrence does not refetch early');
+
+  h.clock.set(h.boundaryMs);
+  h.tick.fn();
+
+  assert.equal(h.resetFetchCount(), 2,
+    'nextResetAt === Date.now() starts the reset read without waiting for the 60-second poll');
+  h.resolveBoundary();
+  await flushAsync();
+});
+
+test('configured reset boundary keeps at most one reset request in flight', async () => {
+  const h = await renderConfiguredResetBoundary();
+  h.clock.set(h.boundaryMs);
+  h.tick.fn();
+  h.tick.fn();
+  h.tick.fn();
+  const periodicRefresh = h.periodic.fn();
+  await flushAsync();
+
+  assert.equal(h.resetFetchCount(), 2,
+    'repeated render ticks and the periodic refresh share the boundary request');
+  h.resolveBoundary();
+  await periodicRefresh;
+  await flushAsync();
+  assert.equal(h.resetFetchCount(), 2);
+});
+
+test('configured reset boundary recovers as soon as the guarded refetch resolves', async () => {
+  const h = await renderConfiguredResetBoundary();
+  h.clock.set(h.boundaryMs);
+  h.tick.fn();
+  assert.match(h.els.tools.innerHTML,
+    /Weekly<\/span><span class="win-reset reset">resets in —<\/span>/,
+  'the expired reset is not presented as current while recovery is pending');
+
+  h.resolveBoundary();
+  await flushAsync();
+  await flushAsync();
+
+  assert.equal(h.resetFetchCount(), 2, 'recovery did not wait for or invoke the 60-second poll');
+  assert.match(h.els.tools.innerHTML,
+    /Weekly<\/span><span class="win-reset reset">Configured · [\s\S]* · resets in (?!—)/,
+  'the newly resolved configured occurrence is rendered immediately');
+});
+
+test('configured local Claude weekly reset fills only the display/pacing gap and preserves stale honesty', async () => {
+  const tool = claudeTool(3 * 3600_000, 2 * 86400_000);
+  tool.limits.seven_day.resetsAt = null;
+  tool.limits.seven_day.usedPct = 95;
+  tool.limits.seven_day.remainingPct = 5;
+  tool.projection.seven_day = null;
+  tool.freshness.capturedAt = iso(-15 * 60_000);
+  tool.limitsDiagnostic = { reason: 'stale-reading', capturedAt: tool.freshness.capturedAt };
+  const before = JSON.stringify(tool.limits);
+  const configuredAt = iso(2 * 86400_000);
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
+  }], generatedAt: iso(0) };
+
+  const { els, fetchUrls, sandbox } = await renderWith(combined, configuredResetView(configuredAt));
+  assert.ok(fetchUrls.includes('/api/hosts'));
+  assert.ok(fetchUrls.includes('/api/config/reset-billing'), 'configuration is fetched independently');
+  assert.match(els.tools.innerHTML,
+    /Weekly[\s\S]*Configured · [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2} (?:AM|PM) P[DS]T \/ America\/Los_Angeles · resets in/);
+  assert.match(els['claude-details'].innerHTML,
+    /On pace to hit the Weekly limit[\s\S]*Configured · [\s\S]*America\/Los_Angeles · before it resets in[\s\S]*at risk/);
+  assert.match(els['limit-notes'].innerHTML, /Stale reading/, 'configured timing does not make usage fresh');
+  assert.equal(JSON.stringify(tool.limits), before, 'provider window bytes stay untouched');
+  sandbox.probeTool = tool;
+  const key = vm.runInContext('accountKey(probeTool)', sandbox);
+  assert.equal(key, `${Math.round(Date.parse(tool.limits.five_hour.resetsAt) / 60_000)}|null`,
+    'configured timing never enters account identity');
+});
+
+test('a stale future Claude timestamp stays raw for account identity while configured timing drives display', async () => {
+  const staleProviderAt = iso(30 * 60_000);
+  const configuredAt = iso(2 * 86400_000);
+  const tool = claudeTool(3 * 3600_000, 30 * 60_000);
+  tool.limits.seven_day.resetsAt = staleProviderAt;
+  tool.freshness.capturedAt = iso(-15 * 60_000);
+  tool.limitsDiagnostic = { reason: 'stale-reading', capturedAt: tool.freshness.capturedAt };
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
+  }], generatedAt: iso(0) };
+
+  const { els, sandbox } = await renderWith(combined, configuredResetView(configuredAt));
+  assert.match(els.tools.innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/);
+  assert.doesNotMatch(els.tools.innerHTML, /Weekly[\s\S]*Provider reading/,
+    'stale provider evidence must not outrank the resolved configured selection');
+  assert.doesNotMatch(els.tools.innerHTML, /resets in (?:2[0-9]|30)m/,
+    'the stale near-term provider countdown is not presented as the selected reset');
+  assert.match(els['limit-notes'].innerHTML, /Stale reading/);
+  assert.equal(tool.limits.seven_day.resetsAt, staleProviderAt, 'raw provider state remains unchanged');
+  sandbox.probeTool = tool;
+  assert.equal(vm.runInContext('accountKey(probeTool)', sandbox),
+    `${Math.round(Date.parse(tool.limits.five_hour.resetsAt) / 60_000)}|${Math.round(Date.parse(staleProviderAt) / 60_000)}`,
+    'account identity still uses the raw stale reset epoch');
+});
+
+test('a provider weekly reset wins a conflicting configured fallback and is labeled Live', async () => {
+  const providerAt = iso(36 * 3600_000);
+  const configuredAt = iso(4 * 86400_000);
+  const tool = claudeTool(3 * 3600_000, 36 * 3600_000);
+  tool.limits.seven_day.resetsAt = providerAt;
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
+  }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined, configuredResetView(configuredAt));
+  assert.match(els.tools.innerHTML, /Weekly[\s\S]*Live · resets in/);
+  assert.doesNotMatch(els.tools.innerHTML, /Configured|America\/Los_Angeles/);
+  assert.equal(tool.limits.seven_day.resetsAt, providerAt);
+});
+
+test('local fallback stays off unrelated peer lanes but follows a collapsed lane containing self', async () => {
+  const local = claudeTool(3 * 3600_000, 2 * 86400_000);
+  const peer = claudeTool(5 * 3600_000, 2 * 86400_000);
+  local.limits.seven_day.resetsAt = null;
+  peer.limits.seven_day.resetsAt = null;
+  const separate = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([local]) },
+    { host: 'peer', label: 'Remote', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-1_000), state: stateOf([peer]) },
+  ], generatedAt: iso(0) };
+  const configured = configuredResetView(iso(2 * 86400_000));
+  const first = await renderWith(separate, configured);
+  const remoteCard = first.els.hosts.innerHTML.slice(first.els.hosts.innerHTML.indexOf('<span class="host-name">Remote</span>'));
+  assert.doesNotMatch(remoteCard, /Configured|America\/Los_Angeles/,
+    'a local fallback never enters a different remote account lane or pacing story');
+
+  peer.limits.five_hour.resetsAt = local.limits.five_hour.resetsAt;
+  peer.dataAt = iso(1_000); // make the peer the representative of the collapsed lane
+  const collapsed = await renderWith(separate, configured);
+  const overview = collapsed.els.hosts.innerHTML.slice(0, collapsed.els.hosts.innerHTML.indexOf('class="host '));
+  assert.equal((overview.match(/class="limit-tool tool/g) || []).length, 1);
+  assert.match(overview, /identical on This machine &amp; Remote/);
+  assert.match(overview, /Configured[\s\S]*America\/Los_Angeles/,
+    'membership in the self account authorizes the display-only fallback on its collapsed lane');
+});
 
 test('single-host mode renders both tools limits-first with NO host chrome (QA-18)', async () => {
   const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000), codexTool(5 * 86400_000)]) }], generatedAt: iso(0) };
