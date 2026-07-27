@@ -30,7 +30,7 @@
 // fs.rmSync (never a /bin/rm shell). Runs under process.execPath / $ABS_NODE (a
 // bare "node" is dead under the minimal spawn PATH — the standing lesson).
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,7 +49,8 @@ const uninstallBody = (dir) =>
   + '  • the Claude Code statusline wiring (restoring your settings.json.bak if present)\n'
   + '  • the auto-refresh trust folder (~/.llmdash/claude-refresh-cwd) and its ~/.claude.json entry\n'
   + '\n'
-  + 'Your local data is PRESERVED by default: usage history (llmdash.db), reset and\n'
+  + 'Your local data is PRESERVED by default: usage history (llmdash.db and its\n'
+  + 'SQLite sidecars, including llmdash.db-journal), reset and\n'
   + 'billing configuration (account-config.json), and legacy fixed periods\n'
   + '(subscriptions.json). These can\'t be rebuilt, so they\'re kept unless you say\n'
   + 'otherwise on the next step.\n'
@@ -57,7 +58,7 @@ const uninstallBody = (dir) =>
 
 const DATA_TITLE = 'Also delete your local data?';
 const DATA_BODY =
-  'This deletes your snapshot history (llmdash.db), reset and recurring billing\n'
+  'This deletes your snapshot history (llmdash.db and its SQLite sidecars), reset and recurring billing\n'
   + 'configuration (account-config.json), and legacy fixed periods\n'
   + '(subscriptions.json). Removing llmdash doesn\'t need to delete them, and this\n'
   + 'can\'t be undone. Keep them unless you\'re sure.';
@@ -137,22 +138,107 @@ function showMessage(msg) {
 // caller: service → statusline → trust → wrapper → checkout LAST → data (opt-in).
 // `p` is the resolved-paths object; all reads happen against it (no checkout import).
 
-// 1. service: bootout gui/<uid>/<label> + delete the plist (marker-gated: only
-//    THIS label's plist file). Idempotent — an absent label/plist is a no-op.
-function stepService(p) {
+// The uninstall cannot delete anything until launchd positively says the service
+// is absent. Keep the same exact evidence used by the installer's reload path:
+// status 113 from `launchctl print` means absent; status 0 means still registered;
+// every other status is uncertainty and therefore fails closed. Every subprocess
+// is wall-clock bounded so a wedged launchctl cannot strand a detached teardown.
+const SERVICE_LAUNCHCTL_TIMEOUT_MS = 5_000;
+const SERVICE_ABSENCE_CHECKS = 50;
+const SERVICE_ABSENCE_POLL_SECONDS = '0.1';
+
+function runBounded(binary, args, timeoutMs) {
+  const result = spawnSync(binary, args, {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+  });
+  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+  if (result.error) {
+    return {
+      status: null,
+      timedOut: result.error.code === 'ETIMEDOUT',
+      output,
+      error: result.error.code || result.error.message,
+    };
+  }
+  return { status: result.status, timedOut: false, output, error: null };
+}
+
+function runLaunchctl(args) {
+  return runBounded('/bin/launchctl', args, SERVICE_LAUNCHCTL_TIMEOUT_MS);
+}
+
+function waitForAbsencePoll() {
+  return runBounded('/bin/sleep', [SERVICE_ABSENCE_POLL_SECONDS], 1_000);
+}
+
+function evidence(result) {
+  if (!result) return 'no launchctl result';
+  if (result.timedOut) return `timed out${result.output ? `: ${result.output}` : ''}`;
+  const status = result.status == null ? 'unknown' : result.status;
+  return `exited ${status}${result.output ? `: ${result.output}` : ''}`;
+}
+
+// 1. service: bounded bootout + positive absence proof, then delete only THIS
+//    label's plist. An absent label/plist is idempotent. `launchctlRun` and
+//    `waitPoll` are injectable only for hermetic scratch tests; production always
+//    uses the fixed absolute binaries above.
+function stepService(p, { launchctlRun = runLaunchctl, waitPoll = waitForAbsencePoll } = {}) {
   const uid = String(os.userInfo().uid);
-  let bootedOut = false;
-  try {
-    execFileSync('/bin/launchctl', ['bootout', `gui/${uid}/${p.label}`], { stdio: 'ignore' });
-    bootedOut = true;
-  } catch { /* already gone → fine (idempotent) */ }
+  const target = `gui/${uid}/${p.label}`;
+  const bootout = launchctlRun(['bootout', target]);
+  if (bootout.timedOut || bootout.status == null) {
+    return {
+      ok: false,
+      absenceConfirmed: false,
+      detail: `could not safely unload ${p.label}: launchctl bootout ${evidence(bootout)}. No uninstall artifacts were removed`,
+    };
+  }
+
+  let absence = null;
+  for (let check = 0; check < SERVICE_ABSENCE_CHECKS; check += 1) {
+    absence = launchctlRun(['print', target]);
+    if (absence.status === 113 && !absence.timedOut) break;
+    if (absence.timedOut || absence.status !== 0) {
+      const bootoutEvidence = bootout.status === 0 ? '' : ` launchctl bootout ${evidence(bootout)};`;
+      return {
+        ok: false,
+        absenceConfirmed: false,
+        detail: `could not confirm ${p.label} was stopped:${bootoutEvidence} launchctl print ${evidence(absence)}. No uninstall artifacts were removed`,
+      };
+    }
+    if (check + 1 < SERVICE_ABSENCE_CHECKS) {
+      const waited = waitPoll();
+      if (waited.timedOut || waited.status !== 0) {
+        return {
+          ok: false,
+          absenceConfirmed: false,
+          detail: `could not confirm ${p.label} was stopped: the bounded unload wait ${evidence(waited)}. No uninstall artifacts were removed`,
+        };
+      }
+    }
+  }
+  if (!absence || absence.status !== 113) {
+    const bootoutEvidence = bootout.status === 0 ? '' : ` launchctl bootout ${evidence(bootout)};`;
+    return {
+      ok: false,
+      absenceConfirmed: false,
+      detail: `${p.label} was still registered after the bounded unload wait.${bootoutEvidence} No uninstall artifacts were removed`,
+    };
+  }
+
   let plistDeleted = false;
   try {
     if (fs.existsSync(p.plist)) { fs.rmSync(p.plist, { force: true }); plistDeleted = true; }
   } catch (e) {
-    return { ok: false, detail: `the plist at ${p.plist} could not be deleted (${e.code || e.message})` };
+    return { ok: false, absenceConfirmed: true, detail: `the stopped service's plist at ${p.plist} could not be deleted (${e.code || e.message})` };
   }
-  return { ok: true, detail: `service unregistered${bootedOut ? '' : ' (was already unloaded)'}${plistDeleted ? ', plist deleted' : ', no plist on disk'}` };
+  return {
+    ok: true,
+    absenceConfirmed: true,
+    detail: `service absence confirmed${bootout.status === 0 ? '' : ' (was already unloaded)'}${plistDeleted ? ', plist deleted' : ', no plist on disk'}`,
+  };
 }
 
 // Does `cmd` reference `target` (this checkout's scripts/statusline.js) as a WHOLE
@@ -295,6 +381,7 @@ const DATA_FILES = [
   'llmdash.db',
   'llmdash.db-wal',
   'llmdash.db-shm',
+  'llmdash.db-journal',
   'claude-ratelimits.json',
   'hosts.conf',
   'account-config.json',
@@ -443,9 +530,16 @@ function stepData(p, deleteData, rescue = { ok: true, rescuedTo: null }) {
 
 // Run the full ordered teardown against resolved paths. Returns the ordered step
 // log. NEVER throws. This is what the detached child executes — self-contained.
-export function runTeardown(p, { deleteData = false, env = process.env } = {}) {
+export function runTeardown(p, {
+  deleteData = false,
+  env = process.env,
+  launchctlRun = runLaunchctl,
+  waitPoll = waitForAbsencePoll,
+} = {}) {
   const steps = [];
-  steps.push({ step: 'service', ...stepService(p) });
+  const service = { step: 'service', ...stepService(p, { launchctlRun, waitPoll }) };
+  steps.push(service);
+  if (!service.absenceConfirmed) return steps;
   steps.push({ step: 'statusline', ...stepStatusline(p) });
   steps.push({ step: 'trust', ...stepTrust(p) });
   steps.push({ step: 'wrapper', ...stepWrapper(p, env) });
@@ -472,12 +566,54 @@ export function runTeardown(p, { deleteData = false, env = process.env } = {}) {
 
 // Compose the honest post-uninstall message from the step log (FR-20): name every
 // step that did NOT complete; never claim a removal that didn't happen.
-export function summarizeTeardown(steps) {
+function recoveryLocations(steps, p) {
+  if (!p) return [];
+  const locations = [];
+  const add = (label, location) => {
+    if (location && !locations.some((entry) => entry.location === location)) locations.push({ label, location });
+  };
+  const service = steps.find((s) => s.step === 'service');
+  const checkout = steps.find((s) => s.step === 'checkout');
+  const data = steps.find((s) => s.step === 'data');
+  if (service && !service.absenceConfirmed) {
+    add('Checkout retained', p.checkout);
+    add('Local data retained', p.dataDir);
+    return locations;
+  }
+  if (checkout && (!checkout.ok || checkout.retained)) add('Checkout retained', p.checkout);
+  if (data && data.preserved) {
+    if (data.rescuedTo) add(data.ok ? 'Preserved data' : 'Partial preserved-data rescue', data.rescuedTo);
+    if (!data.rescuedTo || !data.ok) add('Local data', p.dataDir);
+  }
+  if (data && !data.ok && !data.preserved) add('Local data that may remain', p.dataDir);
+  const failedSteps = new Set(steps.filter((s) => !s.ok).map((s) => s.step));
+  if (failedSteps.has('service')) add('LaunchAgent plist', p.plist);
+  if (failedSteps.has('statusline')) add('Claude settings', p.settings);
+  if (failedSteps.has('trust')) {
+    add('Claude trust registry', p.claudeJson);
+    add('Claude refresh trust folder', p.trustDir);
+  }
+  if (failedSteps.has('wrapper')) add('Menu-bar wrapper', p.wrapper);
+  return locations;
+}
+
+export function summarizeTeardown(steps, p) {
   const failed = steps.filter((s) => !s.ok);
   const dataStep = steps.find((s) => s.step === 'data');
   const kept = dataStep && dataStep.preserved;
+  const locations = recoveryLocations(steps, p);
+  const locationCopy = locations.length
+    ? `\nRecovery locations:\n${locations.map(({ label, location }) => `  • ${label}: ${location}`).join('\n')}`
+    : '';
+  const service = steps.find((s) => s.step === 'service');
+  if (service && !service.absenceConfirmed) {
+    return 'The llmdash uninstall did NOT start:\n'
+      + `  • service: ${service.detail}\n`
+      + 'The install was retained because llmdash could not prove the service was stopped.'
+      + locationCopy;
+  }
   if (!failed.length) {
-    return `llmdash was uninstalled. ${kept ? 'Your local usage history and configuration were kept.' : 'Your local usage history and configuration were deleted, as you chose.'} SwiftBar was not removed (uninstall it with: brew uninstall --cask swiftbar).`;
+    return `llmdash was uninstalled. ${kept ? 'Your local usage history and configuration were kept.' : 'Your local usage history and configuration were deleted, as you chose.'} SwiftBar was not removed (uninstall it with: brew uninstall --cask swiftbar).${locationCopy}`;
   }
   const lines = failed.map((s) => `  • ${s.step}: ${s.detail}`);
   const dataOutcome = dataStep && !dataStep.ok
@@ -489,7 +625,8 @@ export function summarizeTeardown(steps) {
       : 'Your local usage history and configuration were deleted, as you chose.');
   return 'The llmdash uninstall did NOT complete:\n'
     + lines.join('\n')
-    + `\nOther teardown steps completed. ${dataOutcome}`;
+    + `\nOther teardown steps completed. ${dataOutcome}`
+    + locationCopy;
 }
 
 // ── The detach: copy self to temp, cd out of the checkout, re-spawn detached ───
@@ -498,11 +635,11 @@ export function summarizeTeardown(steps) {
 // executes runTeardown from the temp copy, surviving the checkout's deletion
 // (SPIKE-01). Every path it needs is on ARGV (JSON), so it reads NOTHING from the
 // checkout lazily (Hazard E). `p` = resolved paths; `deleteData` = the opt-in.
-function detachTeardown(p, deleteData, selfPath, env) {
+function detachTeardown(p, deleteData, selfPath, env, notify) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-teardown-'));
   const tmpSelf = path.join(tmpDir, 'teardown.mjs');
   fs.copyFileSync(selfPath, tmpSelf);
-  const payload = JSON.stringify({ p, deleteData });
+  const payload = JSON.stringify({ p, deleteData, notify });
   const child = spawn(process.execPath, [tmpSelf, '--run', '--payload', payload], {
     cwd: tmpDir,        // cd OUT of the checkout so its deletion can't strand cwd
     detached: true,     // new session — outlives the parent + the spawning service
@@ -604,12 +741,17 @@ export function runUninstall(opts = {}, env = process.env) {
 
   // Inline mode (tests): run the ordered teardown here and return the step log.
   if (opts.run) {
-    const steps = runTeardown(p, { deleteData, env });
-    return { ok: steps.every((s) => s.ok), reason: 'torn-down', steps, message: summarizeTeardown(steps) };
+    const steps = runTeardown(p, {
+      deleteData,
+      env,
+      launchctlRun: opts.launchctlRun,
+      waitPoll: opts.waitPoll,
+    });
+    return { ok: steps.every((s) => s.ok), reason: 'torn-down', steps, message: summarizeTeardown(steps, p) };
   }
   // Production: detach a temp copy of THIS self-contained file and return at once.
   const selfPath = opts.selfPath || fileURLToPath(import.meta.url);
-  return detachTeardown(p, deleteData, selfPath, env);
+  return detachTeardown(p, deleteData, selfPath, env, interactive);
 }
 
 // ── CLI entry ─────────────────────────────────────────────────────────────────
@@ -622,7 +764,14 @@ export function runCli(argv = process.argv.slice(2), env = process.env, opts = {
     const i = argv.indexOf('--payload');
     let payload = {};
     try { payload = JSON.parse(argv[i + 1]); } catch {}
-    const steps = runTeardown(payload.p, { deleteData: !!payload.deleteData, env });
+    const steps = runTeardown(payload.p, {
+      deleteData: !!payload.deleteData,
+      env,
+      launchctlRun: opts.launchctlRun,
+      waitPoll: opts.waitPoll,
+    });
+    const message = summarizeTeardown(steps, payload.p);
+    if (payload.notify) (opts.showMessage || showMessage)(message);
     // Self-clean the temp dir this copy runs from — the very LAST act, after all
     // teardown (the running copy stays resident on APFS once unlinked, so this is
     // safe; it leaves no llmdash-teardown-* litter in os.tmpdir()).
@@ -630,7 +779,7 @@ export function runCli(argv = process.argv.slice(2), env = process.env, opts = {
       const selfDir = path.dirname(fs.realpathSync(process.argv[1]));
       if (path.basename(selfDir).startsWith('llmdash-teardown-')) fs.rmSync(selfDir, { recursive: true, force: true });
     } catch { /* best-effort — never fail the teardown over temp litter */ }
-    return { ok: steps.every((s) => s.ok), reason: 'torn-down', steps };
+    return { ok: steps.every((s) => s.ok), reason: 'torn-down', steps, message };
   }
 
   const [action, ...rest] = argv;

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, execFileSync } from 'node:child_process';
 import {
-  runUninstall, runTeardown, summarizeTeardown, asStr, targetIsWholeToken,
+  runUninstall, runTeardown, runCli, summarizeTeardown, asStr, targetIsWholeToken,
 } from '../scripts/menubar/service-control-action.mjs';
 
 // ── service-control-action.mjs — the round-trip, no real dialog/service/paths ──
@@ -77,6 +77,7 @@ function buildInstall(name, opts = {}) {
   const marker = opts.wrapperMarker === false ? '# a user file, no marker' : '# llmdash-menu-bar-badge';
   fs.writeFileSync(wrapper, `#!/bin/sh\n${marker}\nexec node x\n`);
   fs.writeFileSync(path.join(dataDir, 'llmdash.db'), 'DBDATA');
+  fs.writeFileSync(path.join(dataDir, 'llmdash.db-journal'), 'JOURNAL-DATA');
   fs.writeFileSync(path.join(dataDir, 'hosts.conf'), 'host1');
   fs.writeFileSync(path.join(dataDir, 'account-config.json'), 'ACCOUNT-CONFIG-DATA');
   fs.writeFileSync(path.join(dataDir, 'subscriptions.json'), 'LEGACY-SUBSCRIPTIONS-DATA');
@@ -104,6 +105,69 @@ test('the ordered teardown removes artifacts service→statusline→trust→wrap
   assert.equal(JSON.parse(fs.readFileSync(settings, 'utf8')).statusLine.command, 'my-old-line');
 });
 
+test('complete uninstall removes nothing when service absence cannot be proven', () => {
+  const { p, settings, wrapper, plist, checkout, trustDir, dataDir } = buildInstall('service-uncertain');
+  const beforeSettings = fs.readFileSync(settings, 'utf8');
+  const launchctlRun = ([verb]) => verb === 'bootout'
+    ? { status: 78, timedOut: false, output: 'bootout failed', error: null }
+    : { status: 0, timedOut: false, output: 'still registered', error: null };
+  const waitPoll = () => ({ status: 0, timedOut: false, output: '', error: null });
+
+  const res = runUninstall({
+    yes: true,
+    interactive: false,
+    run: true,
+    paths: p,
+    launchctlRun,
+    waitPoll,
+  });
+
+  assert.equal(res.ok, false);
+  assert.deepEqual(res.steps.map((step) => step.step), ['service']);
+  assert.equal(res.steps[0].absenceConfirmed, false);
+  assert.match(res.steps[0].detail, /still registered after the bounded unload wait/);
+  assert.match(res.steps[0].detail, /bootout exited 78: bootout failed/);
+  assert.equal(fs.existsSync(plist), true, 'plist retained');
+  assert.equal(fs.existsSync(checkout), true, 'checkout retained');
+  assert.equal(fs.existsSync(wrapper), true, 'wrapper retained');
+  assert.equal(fs.existsSync(trustDir), true, 'trust folder retained');
+  assert.equal(fs.readFileSync(settings, 'utf8'), beforeSettings, 'statusline settings untouched');
+  assert.equal(fs.readFileSync(path.join(dataDir, 'llmdash.db-journal'), 'utf8'), 'JOURNAL-DATA');
+  assert.match(res.message, /uninstall did NOT start/);
+  assert.match(res.message, new RegExp(checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(res.message, new RegExp(dataDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('complete uninstall waits for exact launchctl status 113 before removing artifacts', () => {
+  const { p, checkout } = buildInstall('service-delayed-absence');
+  let prints = 0;
+  let waits = 0;
+  const launchctlRun = ([verb]) => {
+    if (verb === 'bootout') return { status: 0, timedOut: false, output: '', error: null };
+    prints += 1;
+    return { status: prints < 3 ? 0 : 113, timedOut: false, output: '', error: null };
+  };
+  const waitPoll = () => {
+    waits += 1;
+    return { status: 0, timedOut: false, output: '', error: null };
+  };
+
+  const res = runUninstall({
+    yes: true,
+    interactive: false,
+    run: true,
+    paths: p,
+    launchctlRun,
+    waitPoll,
+  });
+
+  assert.equal(res.ok, true, res.message);
+  assert.equal(prints, 3);
+  assert.equal(waits, 2);
+  assert.equal(res.steps[0].absenceConfirmed, true);
+  assert.equal(fs.existsSync(checkout), false, 'teardown begins only after proof');
+});
+
 test('usage and billing data are PRESERVED by default; rescued out of the checkout intact (QA-12)', () => {
   const { p } = buildInstall('preserve'); // data under the checkout (default)
   const res = runUninstall({ yes: true, interactive: false, run: true, paths: p });
@@ -116,6 +180,7 @@ test('usage and billing data are PRESERVED by default; rescued out of the checko
   // was deleted, with its bytes intact.
   const expected = {
     'llmdash.db': 'DBDATA',
+    'llmdash.db-journal': 'JOURNAL-DATA',
     'account-config.json': 'ACCOUNT-CONFIG-DATA',
     'subscriptions.json': 'LEGACY-SUBSCRIPTIONS-DATA',
   };
@@ -126,6 +191,7 @@ test('usage and billing data are PRESERVED by default; rescued out of the checko
   }
   assert.match(dataStep.detail, /PRESERVED/);
   assert.match(res.message, /usage history and configuration were kept/);
+  assert.match(res.message, new RegExp(dataStep.rescuedTo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
 test('separate uninstall rescues never overwrite files preserved by an earlier uninstall (QA-12)', () => {
@@ -155,6 +221,7 @@ test('preservation failure retains the checkout and reports the incomplete unins
   fs.writeFileSync(p.preservedDataDir, 'BLOCKED-PRESERVATION-BASE');
   const expected = {
     'llmdash.db': 'DBDATA',
+    'llmdash.db-journal': 'JOURNAL-DATA',
     'account-config.json': 'ACCOUNT-CONFIG-DATA',
     'subscriptions.json': 'LEGACY-SUBSCRIPTIONS-DATA',
   };
@@ -184,7 +251,7 @@ test('preservation failure retains the checkout and reports the incomplete unins
 test('--delete-data deletes usage and billing files outside the checkout, AFTER checkout (QA-12)', () => {
   // Data OUTSIDE the checkout so we can prove step-order deletion (not collateral).
   const { p, dataDir } = buildInstall('delete', { dataUnderCheckout: false });
-  const expectedFiles = ['llmdash.db', 'account-config.json', 'subscriptions.json'];
+  const expectedFiles = ['llmdash.db', 'llmdash.db-journal', 'account-config.json', 'subscriptions.json'];
   for (const name of expectedFiles) assert.ok(fs.existsSync(path.join(dataDir, name)), `${name} starts present`);
   const res = runUninstall({ yes: true, interactive: false, run: true, paths: p, deleteData: true });
   const iCheckout = res.steps.findIndex((s) => s.step === 'checkout');
@@ -196,6 +263,22 @@ test('--delete-data deletes usage and billing files outside the checkout, AFTER 
     assert.equal(fs.existsSync(path.join(dataDir, name)), false, `${name} was deleted on opt-in`);
   }
   assert.match(res.message, /usage history and configuration were deleted/);
+});
+
+test('a partial explicit-data deletion names the directory where files may remain', () => {
+  const { p, dataDir } = buildInstall('delete-partial', { dataUnderCheckout: false });
+  const journal = path.join(dataDir, 'llmdash.db-journal');
+  fs.rmSync(journal);
+  fs.mkdirSync(journal); // rmSync without recursive fails when the owned-file slot is a directory
+
+  const res = runUninstall({ yes: true, interactive: false, run: true, paths: p, deleteData: true });
+  const dataStep = res.steps.find((step) => step.step === 'data');
+  assert.equal(res.ok, false);
+  assert.equal(dataStep.ok, false);
+  assert.equal(dataStep.preserved, false);
+  assert.match(res.message, /Some local data may remain/);
+  assert.match(res.message, /Local data that may remain:/);
+  assert.match(res.message, new RegExp(dataDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
 test('statusline revert restores the scratch .bak only when it points at THIS checkout (QA-14)', () => {
@@ -312,10 +395,30 @@ test('anti-injection: no dynamic value is concatenated into an osascript -e stri
   assert.doesNotMatch(src, /osascript.*sh -c/);
   assert.doesNotMatch(src, /child_process.*\bexec\b\(/); // no exec() (shell), only execFileSync/spawn
   // launchctl + fs (no /bin/rm shell); process.execPath for the detach.
-  assert.match(src, /execFileSync\('\/bin\/launchctl'/);
+  assert.match(src, /runBounded\('\/bin\/launchctl'/);
+  assert.match(src, /spawnSync\(binary, args/);
   assert.match(src, /fs\.rmSync/);
   assert.doesNotMatch(src, /execFileSync\('\/bin\/rm'/);
   assert.match(src, /process\.execPath/);
+});
+
+test('the detached-child path reports its final result and every data recovery location', () => {
+  const { p } = buildInstall('detached-report');
+  const messages = [];
+  const payload = JSON.stringify({ p, deleteData: false, notify: true });
+  const result = runCli(['--run', '--payload', payload], process.env, {
+    showMessage: (message) => messages.push(message),
+  });
+
+  assert.equal(result.ok, true, result.message);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0], result.message);
+  const dataStep = result.steps.find((step) => step.step === 'data');
+  assert.ok(dataStep.rescuedTo);
+  assert.match(result.message, /llmdash was uninstalled/);
+  assert.match(result.message, /Recovery locations:/);
+  assert.match(result.message, new RegExp(dataStep.rescuedTo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(fs.readFileSync(path.join(dataStep.rescuedTo, 'llmdash.db-journal'), 'utf8'), 'JOURNAL-DATA');
 });
 
 test('anti-injection: a hostile checkout path stays inert data end to end (QA-18)', () => {
@@ -385,6 +488,7 @@ test('the DETACHED teardown survives its own origin against a SCRATCH install, e
   const wrapper = path.join(sbDir, 'llmdash.5s.js');
   fs.writeFileSync(wrapper, '#!/bin/sh\n# llmdash-menu-bar-badge\n');
   fs.writeFileSync(path.join(dataDir, 'llmdash.db'), 'DBDATA');
+  fs.writeFileSync(path.join(dataDir, 'llmdash.db-journal'), 'JOURNAL-DATA');
 
   const p = {
     checkout, label, plist, settings, claudeJson, trustDir,
@@ -424,6 +528,7 @@ test('the DETACHED teardown survives its own origin against a SCRATCH install, e
     .filter((name) => name.startsWith('uninstall-'));
   assert.equal(rescueDirs.length, 1, 'one unique rescue directory was created');
   assert.ok(fs.existsSync(path.join(p.preservedDataDir, rescueDirs[0], 'llmdash.db')), 'DB rescued/preserved');
+  assert.ok(fs.existsSync(path.join(p.preservedDataDir, rescueDirs[0], 'llmdash.db-journal')), 'rollback journal rescued/preserved');
 });
 
 test.after(() => {

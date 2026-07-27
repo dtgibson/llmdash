@@ -486,19 +486,25 @@ is an HTTP request or uses the separately allowlisted Reset & billing PUT route.
     artifact** it will remove (the launchd service + plist, the badge wrapper, the
     app checkout, the Claude statusline wiring — restoring `settings.json.bak` if
     present, and the auto-refresh trust folder and its `~/.claude.json` entry), then
-    tears them down in a safe order (the checkout is deleted **last**, by a detached
-    process that survives its own removal).
+    asks launchd to unload the service and positively verifies that it is gone
+    before removing anything. If that proof is unavailable, the uninstall stops
+    with the install intact. Once proven safe, teardown continues in order (the
+    checkout is deleted **last**, by a detached process that survives its own
+    removal).
 
 **Your usage history and billing configuration are preserved by default.** A
-complete uninstall keeps `llmdash.db`, `account-config.json`, and
-`subscriptions.json` unless you explicitly choose *Delete my data* in a
-second dialog, which names all three files and warns that deletion is permanent.
+complete uninstall keeps `llmdash.db`, its SQLite sidecars (`-wal`, `-shm`, and
+`-journal`), `account-config.json`, and `subscriptions.json` unless you explicitly
+choose *Delete my data* in a second dialog, which names the data and warns that
+deletion is permanent.
 If your data directory lives under the checkout, as the default
 `~/llmdash/data` does, those files are moved to a fresh uniquely named directory
 beneath `~/.llmdash/preserved-data` before the checkout is deleted, so an earlier
 uninstall's preserved files are never overwritten. If that rescue cannot finish,
 the checkout is retained to protect any unmoved data and the failure summary names
-both the retained checkout and any partially populated rescue directory.
+both the retained checkout and any partially populated rescue directory. The
+detached child presents its final success or failure after teardown finishes and
+lists every preserved-data, partial-rescue, or retained-checkout recovery location.
 
 **SwiftBar is never removed by llmdash.** Both the enumeration and the
 post-uninstall message point you to the manual step:
