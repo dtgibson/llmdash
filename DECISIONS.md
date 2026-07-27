@@ -1,5 +1,26 @@
 # Decisions — llmdash
 
+## Complete-uninstall hardening — exact absence proof, SQLite sidecar parity, and recovery reporting — 2026-07-27 (improve)
+
+**Decision:** Complete uninstall may remove its first artifact only after a
+wall-clock-bounded `launchctl print` returns exact status `113` for the user-domain
+service. A still-registered job, timeout, signal, spawn failure, or any other status
+retains the whole install and reports the original evidence. Preservation and
+explicit deletion treat `llmdash.db-journal` like the other owned SQLite files, and
+the detached helper presents its final result with every preserved-data,
+partial-rescue, retained-checkout, or partial-delete recovery location.
+**Rationale:** A successful `bootout` request is not proof that launchd has finished
+unregistering the job, while uncertain teardown followed by deletion could strand
+the service or destroy the only copy of irreplaceable history. The rollback journal
+is part of that history's recoverable state, and a detached child that outlives its
+caller must deliver the outcome instead of silently computing it.
+**Implications:** Future destructive teardown prerequisites must accept one exact,
+bounded success state before the destructive boundary and fail closed on every
+ambiguous result. Partial destructive-data outcomes must name every directory where
+recoverable files may remain. Shipped as `df24daf`; the full 735-test suite passed
+with 733 green and 2 expected skips, and production was verified running with the
+state, hosts, and 30-day Codex insights APIs healthy.
+
 ## Reset and billing configuration — evidence-first resets and protected recurring owner data — 2026-07-23 (feature)
 
 **Decision:** A current usable Claude account reset remains authoritative; an

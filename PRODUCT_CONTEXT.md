@@ -70,8 +70,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   full local monitor or a badge-only monitoring station) and uninstall llmdash
   entirely — either the menu-bar badge only, or completely (service, checkout,
   statusline wiring, and trust artifacts, each enumerated before it acts) — with no
-  terminal, your usage history and reset/billing configuration preserved by
-  default, and SwiftBar never removed.
+  terminal, exact service-absence proof before complete teardown, usage history and
+  every SQLite sidecar preserved by default, all recovery locations reported, and
+  SwiftBar never removed.
 - **Multi-host view** — one llmdash can place every unique reachable account's
   Claude/Codex limits in the leading comparison, collapse matching accounts once,
   and then group each tailnet machine's local activity by tool while keeping
@@ -142,10 +143,13 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   when absence cannot be confirmed. Only one launchctl status-5 transient is
   retried. The complete uninstall runs as a detached, self-contained helper
   (temp-copied) so it survives unloading its own service and deleting its own
-  checkout; it rescues the named usage-history and reset/billing configuration
-  files to `~/.llmdash/preserved-data` before removing a checkout that contains
-  them. These lifecycle mutations stay in the badge/helper process and expose no
-  HTTP endpoint.
+  checkout; before removing anything it requires exact bounded proof that the
+  service is absent, otherwise retaining the entire install and the failure
+  evidence. It rescues the named usage-history files, including every SQLite
+  sidecar, and reset/billing configuration to `~/.llmdash/preserved-data` before
+  removing a checkout that contains them, then reports its final result and every
+  recovery location. These lifecycle mutations stay in the badge/helper process
+  and expose no HTTP endpoint.
 - Multi-host is a host dimension on top of the tool dimension. Set `LLMDASH_HOSTS`
   (`host[:port][=label]`, comma-separated; the local host is always included) and
   the interval poller fans out a bounded, credential-free `GET /api/state` to each
@@ -172,9 +176,6 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   history from the logs.
 
 ## Deferred / Not yet built
-- Complete-uninstall hardening: prove the service has stopped before destructive
-  work, preserve `llmdash.db-journal` with the other database files, and report
-  detached teardown results plus every recovery location to the operator.
 - See `ROADMAP.md` → Up Next (limit alerts) and On the Horizon for the remaining
   planned work.
 - Kagi (Ultimate is unlimited; no meter to show).

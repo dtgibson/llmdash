@@ -8,16 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-27 features shipped.
+28 features shipped.
 
-- **Last shipped:** Reset and billing configuration — Claude now has an
-  owner-saved weekly fallback when live reset evidence is unavailable, recurring
-  monthly Claude/Codex access costs update automatically, and every fixed billing
-  input is reachable from the protected settings page over Tailscale.
-- **Previously:** LaunchAgent reload resilience — every reload subprocess has a
-  hard deadline, ambiguous deadline completion fails closed, a natural status
-  `124` stays distinct from timeout, and uncertain absence retains the original
-  bootout evidence.
+- **Last shipped:** Complete-uninstall hardening — teardown now proves the service
+  is absent before removing anything, preserves every SQLite sidecar, and reports
+  its result with all recovery locations.
+- **Previously:** Reset and billing configuration — Claude has an owner-saved
+  weekly fallback, recurring monthly Claude/Codex access costs update
+  automatically, and fixed billing inputs are editable over Tailscale.
 
 ---
 
@@ -40,9 +38,6 @@ peer can be offline — rather than blindly trust an old reading.
 
 ## On the Horizon
 
-- **Complete-uninstall hardening** — verify service shutdown before destructive
-  work, preserve `llmdash.db-journal`, and report detached teardown results and
-  recovery locations; the full follow-up is saved for a future Weft run.
 - **tmux / terminal statusline emitter** — the same `/api/state` → most-
   constrained-glyph logic feeding the terminal statusline the user lives in.
   Would reuse the badge's selection + honesty model and (per CLAUDE.md) ship a

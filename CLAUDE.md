@@ -63,12 +63,16 @@
   **`osascript` confirmation with the safe choice as the default button** (the
   destructive/data-deleting option is never the default and is warned as
   irreversible), the uninstall dialog **enumerating every artifact before acting**;
+  is **gated by exact, wall-clock-bounded prerequisite evidence before the first
+  deletion** (one explicitly accepted stopped state; every timeout, signal, spawn
+  error, or unknown status retains the whole install and its original evidence);
   is **marker-gated per removal** (delete the wrapper only with the
   `llmdash-menu-bar-badge` marker, the trust entry only via an own-key
   `hasOwnProperty`, the plist only for the resolved label's file, the checkout only
   the resolved dir — never a user's own file); is **honest on partial failure**
-  (each step reports its own concrete outcome; never claim a removal that didn't
-  happen); and lives entirely in the **badge/helper process** — there is no
+  (each step reports its own concrete outcome, names every directory where
+  recoverable data may remain, and never claims a removal that didn't happen); and
+  lives entirely in the **badge/helper process** — there is no
   service-control or uninstall endpoint, so a remote peer cannot trigger it.
 - **A LaunchAgent reload is an observed, wall-clock-bounded state transition,
   never a bare `bootout` → `bootstrap` pair.** Keep the main installer and
