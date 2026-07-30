@@ -26,7 +26,7 @@ const { config } = await import('../config.js');
 const NOW = Date.UTC(2026, 6, 1, 12, 0, 0);
 const iso = (ms) => new Date(ms).toISOString();
 
-function writeReading({ ageMs, omitCapturedAt = false, capturedAt } = {}) {
+function writeReading({ ageMs, omitCapturedAt = false, capturedAt, modelLimits } = {}) {
   fs.mkdirSync(config.dataDir, { recursive: true });
   const body = {
     rate_limits: {
@@ -34,6 +34,7 @@ function writeReading({ ageMs, omitCapturedAt = false, capturedAt } = {}) {
       seven_day: { used_percentage: 12, resets_at: iso(NOW + 86400_000) },
     },
   };
+  if (modelLimits) body.model_limits = modelLimits;
   if (!omitCapturedAt) body.capturedAt = capturedAt ?? iso(NOW - ageMs);
   fs.writeFileSync(config.rateLimitsFile, JSON.stringify(body));
 }
@@ -143,6 +144,25 @@ test('capturedAt is re-serialized to canonical ISO at ingest — hostile strings
 test('a valid but non-ISO capturedAt is normalized to canonical ISO', () => {
   writeReading({ capturedAt: 'Wed, 01 Jul 2026 11:58:00 GMT' });
   assert.equal(readClaudeLimits().capturedAt, iso(NOW - 2 * 60_000));
+});
+
+test('local provider model caps are bounded and formatting controls are stripped before state assembly', () => {
+  const modelLimits = Array.from({ length: 140 }, (_, index) => ({
+    source: `claude-model:cap-${index}${'s'.repeat(140)}`,
+    model: `cap-${index}${'m'.repeat(140)}`,
+    label: `Cap\u0000\u202e${index}${'x'.repeat(140)}`,
+    window: 'seven_day',
+    used_percentage: 49,
+    resets_at: iso(NOW + 86400_000),
+  }));
+  writeReading({ ageMs: 60_000, modelLimits });
+  const limits = readClaudeLimits().modelLimits;
+  assert.equal(limits.length, 128);
+  assert.ok(limits.every((limit) => [...limit.label].length <= 96));
+  assert.ok(limits.every((limit) => limit.model.length <= 96));
+  assert.ok(limits.every((limit) => limit.source.length <= 110));
+  assert.doesNotMatch(limits[0].label, /[\u0000\u202e]/u);
+  assert.doesNotMatch(JSON.stringify(claudeState().modelLimits), /[\u0000\u202e]/u);
 });
 
 // --- Knob parsing (clamp convention for externally-sourced values) ----------

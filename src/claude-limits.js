@@ -19,7 +19,13 @@ function modelSlug(v) {
   const slug = String(v == null ? '' : v).trim().toLowerCase()
     .replace(/^claude-model:/, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return slug || null;
+  return slug ? slug.slice(0, 96) : null;
+}
+
+function boundedDisplayText(value, fallback, max = 96) {
+  if (typeof value !== 'string') return fallback;
+  const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim();
+  return [...clean].slice(0, max).join('') || fallback;
 }
 
 function normalizeModelWindow(v) {
@@ -34,9 +40,9 @@ function normalizeModelLimit(raw, capturedAt) {
   const usedNum = Number(raw.used_percentage ?? raw.usedPercentage ?? raw.usedPct ?? raw.utilization);
   if (!Number.isFinite(usedNum)) return null;
   const source = (typeof raw.source === 'string' && /^claude-model:[a-z0-9][a-z0-9-]*$/.test(raw.source))
-    ? raw.source
+    ? raw.source.slice(0, 110)
     : `claude-model:${model}`;
-  const label = String(raw.label ?? raw.model ?? model).trim() || model;
+  const label = boundedDisplayText(raw.label ?? raw.model, model);
   const usedPct = Math.min(100, Math.max(0, usedNum));
   return {
     source,
@@ -90,6 +96,7 @@ export function readClaudeLimits() {
     };
   }
   const modelLimits = (Array.isArray(parsed.model_limits) ? parsed.model_limits : Array.isArray(parsed.modelLimits) ? parsed.modelLimits : [])
+    .slice(0, 128)
     .map((m) => normalizeModelLimit(m, capturedAt))
     .filter(Boolean);
   if (Object.keys(windows).length === 0 && modelLimits.length === 0) return null;

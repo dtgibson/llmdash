@@ -147,13 +147,14 @@ test('Codex insight shell is dashboard-only, scoped, independently ranged, and i
     'timer refreshes stay quiet for screen readers');
 });
 
-test('supported aggregate renders account facts, summary, bounded mix, context, timing, and both accessible charts', async () => {
+test('supported aggregate renders account facts without duplicating top reset credits, plus summary, mix, context, timing, and charts', async () => {
   const { els } = await makeBrowser(async () => ({ ok: true, json: async () => insightPayload() }));
   const html = els['insights-surface'].innerHTML;
   assert.match(html, /Account-wide/);
   assert.match(html, /ChatGPT Pro/);
   assert.match(html, /Credits available/);
-  assert.match(html, /2 reset credits/);
+  assert.doesNotMatch(html, /reset credits|resetCreditsAvailable|>2 resets?</i,
+    'the legacy count remains API-compatible but renders only in the top account area');
   assert.match(html, /Reasoning share/);
   assert.match(html, />18%/);
   assert.match(html, /12 recorded turns/);

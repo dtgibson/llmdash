@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePeerState, normalizeIso } from '../src/hosts.js';
+import {
+  normalizePeerState,
+  normalizeIso,
+  normalizeResetCredits,
+  normalizeAccountLimits,
+} from '../src/hosts.js';
 import { setHost, getCombined, _reset } from '../src/host-cache.js';
 
 const iso = (msFromNow) => new Date(Date.now() + msFromNow).toISOString();
@@ -125,6 +130,108 @@ test('model-specific limits from peers are clamped, timestamp-normalized, and ra
   assert.equal(m.resetsAt, '2026-07-02T12:00:00.000Z');
   assert.equal(m.capturedAt, null);
   assert.ok(!('extra' in m), 'unknown peer model-limit fields are dropped');
+});
+
+test('legacy peers and hostile reset-credit values degrade to the fixed unsupported shape', () => {
+  const unsupported = {
+    available: false,
+    status: 'unsupported',
+    availableCount: null,
+    expirations: [],
+    missingExpirationCount: 0,
+    capturedAt: null,
+  };
+  assert.deepEqual(normalizeAccountLimits(undefined), {
+    scope: 'account-wide', resetCredits: unsupported,
+  });
+  assert.deepEqual(normalizeAccountLimits({ scope: 'machine', resetCredits: {} }), {
+    scope: 'account-wide', resetCredits: unsupported,
+  });
+  for (const value of [
+    null,
+    [],
+    { available: true, status: 'future-enum', availableCount: 3, capturedAt: iso(0) },
+    { available: true, status: 'available', availableCount: '<img>', capturedAt: iso(0) },
+    { available: true, status: 'available', availableCount: 3, capturedAt: 'bad-date' },
+    { available: false, status: 'available', availableCount: 3, capturedAt: iso(0) },
+  ]) assert.deepEqual(normalizeResetCredits(value), unsupported);
+
+  const legacy = normalizePeerState({ tools: [{ source: 'codex', limits: {} }] });
+  assert.deepEqual(legacy.tools[0].accountLimits, {
+    scope: 'account-wide', resetCredits: unsupported,
+  });
+});
+
+test('peer reset credits are detached, canonical, bounded, and time-aware', () => {
+  const now = Date.UTC(2026, 6, 30, 12, 0, 0);
+  const first = new Date(now + 60_000).toISOString();
+  const sharedOffset = new Date(now + 2 * 60_000).toISOString().replace('Z', '+00:00');
+  const raw = {
+    available: true,
+    status: 'partial',
+    availableCount: 4,
+    expirations: [
+      new Date(now - 1).toISOString(),
+      sharedOffset,
+      first,
+      sharedOffset,
+      'not-a-date',
+      { nested: true },
+    ],
+    missingExpirationCount: -999,
+    capturedAt: '2026-07-30T05:00:00-07:00',
+    id: 'drop-me',
+    title: '<img src=x>',
+  };
+  const normalized = normalizeResetCredits(raw, now);
+  assert.deepEqual(normalized, {
+    available: true,
+    status: 'available',
+    availableCount: 3,
+    expirations: [
+      first,
+      new Date(Date.parse(sharedOffset)).toISOString(),
+      new Date(Date.parse(sharedOffset)).toISOString(),
+    ],
+    missingExpirationCount: 0,
+    capturedAt: '2026-07-30T12:00:00.000Z',
+  });
+  raw.expirations[1] = 'mutated';
+  normalized.expirations[0] = 'also-mutated';
+  const again = normalizeResetCredits({
+    ...raw,
+    expirations: [new Date(now - 1).toISOString(), sharedOffset, first, sharedOffset],
+  }, now);
+  assert.equal(again.expirations[0], first);
+  assert.ok(!('id' in again) && !('title' in again));
+
+  const atFirstBoundary = normalizeResetCredits({
+    available: true,
+    status: 'available',
+    availableCount: 2,
+    expirations: [first, sharedOffset],
+    capturedAt: iso(0),
+  }, Date.parse(first));
+  assert.equal(atFirstBoundary.availableCount, 1);
+  assert.deepEqual(atFirstBoundary.expirations, [new Date(Date.parse(sharedOffset)).toISOString()]);
+});
+
+test('peer model-limit collections and display strings are bounded before rendering', () => {
+  const modelLimits = Array.from({ length: 140 }, (_, index) => ({
+    source: `claude-model:cap-${index}`,
+    model: `cap-${index}`,
+    provider: `Claude\u202e${'x'.repeat(120)}`,
+    label: `Cap\u0000${index}${'y'.repeat(120)}`,
+    window: 'weekly',
+    usedPct: 10,
+    capturedAt: iso(0),
+  }));
+  const state = normalizePeerState({ tools: [{ source: 'claude-code', limits: {}, modelLimits }] });
+  assert.equal(state.tools[0].modelLimits.length, 128);
+  assert.ok([...state.tools[0].modelLimits[0].provider].length <= 96);
+  assert.ok([...state.tools[0].modelLimits[0].label].length <= 96);
+  assert.doesNotMatch(state.tools[0].modelLimits[0].provider, /\u202e/u);
+  assert.doesNotMatch(state.tools[0].modelLimits[0].label, /\u0000/u);
 });
 
 // ── getCombined / the /api/hosts payload — per-host independence (FR-13) ──────

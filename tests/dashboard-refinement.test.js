@@ -26,17 +26,22 @@ test('dashboard hierarchy keeps gauges elevated and supporting layers quiet', ()
   assert.match(appJs, /'◆'.*'▲'/, 'Claude and Codex keep the approved identity marks');
 });
 
-test('semantic order is limits, shared range, Claude story, then Codex story', () => {
+test('semantic order is primary limits, other global limits, evidence, then local tool stories', () => {
   const limits = indexHtml.indexOf('id="single-limits"');
+  const identity = indexHtml.indexOf('id="account-identity"');
+  const tools = indexHtml.indexOf('id="tools"');
+  const supplementary = indexHtml.indexOf('id="supplementary-limits"');
   const range = indexHtml.indexOf('id="details-heading"');
   const claude = indexHtml.indexOf('id="claude-tool-group"');
   const codex = indexHtml.indexOf('id="codex-tool-group"');
   const notes = indexHtml.indexOf('id="limit-notes"');
   const insights = indexHtml.indexOf('id="codex-insights"');
   const codexTrends = indexHtml.indexOf('id="codex-trends-title"');
-  assert.ok(limits >= 0 && limits < notes && notes < range && range < claude && claude < codex && codex < insights && insights < codexTrends);
-  assert.match(appJs, /<div class="limit-tools">\$\{lanes\.join\(''\)\}<\/div>`\s*\+ `<div class="limit-notes">/,
-    'multi-host diagnostics also follow the complete limits grid');
+  assert.ok(limits >= 0 && limits < identity && identity < tools && tools < supplementary
+    && supplementary < notes && notes < range && range < claude && claude < codex
+    && codex < insights && insights < codexTrends);
+  assert.match(appJs, /<div class="limit-tools">\$\{lanes\}<\/div>`\s*\+ supplementaryLimitsHtml\([\s\S]*?\)\s*\+ `<div class="limit-notes">/,
+    'multi-host supplementary limits and diagnostics follow the complete primary grid');
   assert.match(indexHtml, /aria-labelledby="claude-details-title"[\s\S]*id="claude-details-title"/);
   assert.match(indexHtml, /aria-labelledby="codex-details-title"[\s\S]*id="codex-details-title"/);
   assert.doesNotMatch(styles, /\border\s*:/, 'CSS never visually reorders supporting content ahead of limits');
@@ -66,6 +71,12 @@ test('range controls, narrow reflow, themes, and reduced motion stay explicit', 
   assert.match(styles, /\.pill\s*\{[^}]*min-width: 32px[^}]*min-height: 32px/s,
     'range controls keep a 32px interaction floor');
   assert.match(styles, /@media \(max-width: 430px\)[\s\S]*?\.model-limit-head/);
+  assert.match(styles, /\.supplement-grid\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s,
+    'other global limits use the approved flat two-column desktop band');
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.supplement-grid\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/,
+    'the global-limit band stacks without horizontal scrolling on phones');
+  assert.doesNotMatch(indexHtml, /data-control="(?:evidence|accounts|viewport|theme)"/,
+    'prototype-only review controls do not ship');
   assert.match(styles, /@media \(prefers-color-scheme: dark\)/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(styles, /transition-duration: 0\.01ms !important/);

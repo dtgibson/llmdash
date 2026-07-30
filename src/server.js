@@ -6,7 +6,12 @@ import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { getRefreshState } from './claude-refresh.js';
-import { cachedCodexLimits, codexLimitsDiagnostic, codexPlanLabel } from './codex-limits.js';
+import {
+  cachedCodexLimits,
+  codexLimitsDiagnostic,
+  codexPlanLabel,
+  codexResetCredits,
+} from './codex-limits.js';
 import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity, getCodexInsights, refreshCodexAnalytics } from './codex-stats.js';
@@ -55,7 +60,7 @@ function serveStatic(res, file, head = false) {
 // reads its statusline file cheaply per request; Codex is subprocess-free here).
 // Claude may fall back to its latest stored snapshot; Codex never does because
 // independent history rows cannot establish the current set of account windows.
-export function toolWrap(source, label, plan, live, activity, nowMs) {
+export function toolWrap(source, label, plan, live, activity, nowMs, resetCredits = null) {
   const stored = getLatestPerWindow(source);
   // A complete Codex poll is authoritative for the set of live windows. The DB
   // stores each window independently for trends, so falling back one missing
@@ -106,7 +111,30 @@ export function toolWrap(source, label, plan, live, activity, nowMs) {
       capturedAt: m.capturedAt || (live && live.capturedAt) || null,
     });
   }
-  return { source, label, plan, haveLimits: !!(windows.five_hour || windows.seven_day), limits: windows, modelLimits, projection, activity, dataAt };
+  const unsupportedResetCredits = {
+    available: false,
+    status: 'unsupported',
+    availableCount: null,
+    expirations: [],
+    missingExpirationCount: 0,
+    capturedAt: null,
+  };
+  const accountLimits = {
+    scope: 'account-wide',
+    resetCredits: resetCredits || unsupportedResetCredits,
+  };
+  return {
+    source,
+    label,
+    plan,
+    haveLimits: !!(windows.five_hour || windows.seven_day),
+    limits: windows,
+    modelLimits,
+    accountLimits,
+    projection,
+    activity,
+    dataAt,
+  };
 }
 
 // The cross-tool "where do I switch" cue: fires when a tool's tightest window
@@ -139,7 +167,7 @@ export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
   const claude = toolWrap('claude-code', 'Claude Code', 'Max',
     readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
   const codex = toolWrap('codex', 'Codex', codexPlanLabel(),
-    cachedCodexLimits(), computeCodexActivity(nowMs), nowMs);
+    cachedCodexLimits(), computeCodexActivity(nowMs), nowMs, codexResetCredits(nowMs));
   // Reading-age freshness (claude only; codex is not retrofitted). The client
   // derives the fresh/aging/stale band live from these server-supplied
   // thresholds — the thresholds live here, the ticking happens there. Cheap

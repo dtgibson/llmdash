@@ -46,7 +46,7 @@ fs.writeFileSync(config.rateLimitsFile, JSON.stringify({
 // The frozen contract: the exact top-level keys, per-tool keys, window keys, and
 // meanings /api/state has shipped. Locking the KEY SET (not the volatile values)
 // is the byte-identical-shape guard; a new key here would be a contract change.
-const TOOL_KEYS = ['source', 'label', 'plan', 'haveLimits', 'limits', 'modelLimits', 'projection', 'activity', 'dataAt', 'freshness', 'limitsDiagnostic'];
+const TOOL_KEYS = ['source', 'label', 'plan', 'haveLimits', 'limits', 'modelLimits', 'accountLimits', 'projection', 'activity', 'dataAt', 'freshness', 'limitsDiagnostic'];
 const STATE_KEYS = ['tools', 'headroom', 'generatedAt'];
 const WINDOW_KEYS = ['usedPct', 'remainingPct', 'resetsAt', 'capturedAt'];
 
@@ -102,6 +102,22 @@ test('model-specific limits are explicit supplemental tool data', () => {
   });
   const codex = s.tools.find((t) => t.source === 'codex');
   assert.deepEqual(codex.modelLimits, []);
+});
+
+test('account limits are additive, bounded, and unsupported when no reset evidence exists', () => {
+  for (const tool of buildState(FIXED).tools) {
+    assert.deepEqual(tool.accountLimits, {
+      scope: 'account-wide',
+      resetCredits: {
+        available: false,
+        status: 'unsupported',
+        availableCount: null,
+        expirations: [],
+        missingExpirationCount: 0,
+        capturedAt: null,
+      },
+    });
+  }
 });
 
 test('/api/state handler response is byte-identical whether or not peers are configured (FR-16)', async () => {

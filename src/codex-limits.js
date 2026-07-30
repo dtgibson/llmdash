@@ -23,8 +23,8 @@ let observedHasCredits;
 let observedHasCreditsAtMs = null;
 let observedCreditBalance;
 let observedCreditBalanceAtMs = null;
-let observedResetCreditsAvailable;
-let observedResetCreditsAvailableAtMs = null;
+let observedResetCreditsSnapshot = null;
+let observedResetCreditsAtMs = null;
 // The poller owns live Codex reads. HTTP state assembly consumes this cache so
 // a complete response can be authoritative not only for the values it contains,
 // but also for a window that is absent. That distinction cannot be reconstructed
@@ -62,8 +62,95 @@ function clearObservedCredits() {
   observedHasCreditsAtMs = null;
   observedCreditBalance = undefined;
   observedCreditBalanceAtMs = null;
-  observedResetCreditsAvailable = undefined;
-  observedResetCreditsAvailableAtMs = null;
+  observedResetCreditsSnapshot = null;
+  observedResetCreditsAtMs = null;
+}
+
+function unsupportedResetCredits() {
+  return {
+    available: false,
+    status: 'unsupported',
+    availableCount: null,
+    expirations: [],
+    missingExpirationCount: 0,
+    capturedAt: null,
+  };
+}
+
+function plainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function resetExpirationIso(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const ms = value * 1000;
+  const date = new Date(ms);
+  if (!Number.isFinite(date.getTime())) return null;
+  try { return date.toISOString(); } catch { return null; }
+}
+
+// Normalize only the provider fields needed by the product. The internal
+// snapshot deliberately retains no IDs, titles, descriptions, grant times, or
+// raw provider objects. Expired instants remain only long enough for the
+// detached reader to subtract them from a sparse last-good count at render
+// time; they never leave this module as available expirations.
+function normalizeResetCreditsObservation(raw, observedAtMs) {
+  if (!plainObject(raw)) return null;
+  const countRaw = raw.availableCount ?? raw.available_count;
+  if (typeof countRaw !== 'number' || !Number.isFinite(countRaw)
+    || !Number.isInteger(countRaw) || countRaw < 0) return null;
+  const availableCount = Math.min(1_000_000, countRaw);
+  if (availableCount === 0) return { availableCount: 0, expirations: [], observedAtMs };
+
+  const details = Array.isArray(raw.credits) ? raw.credits.slice(0, 128) : [];
+  const expirations = [];
+  for (const detail of details) {
+    if (!plainObject(detail)) continue;
+    if ((detail.resetType ?? detail.reset_type) !== 'codexRateLimits') continue;
+    if (detail.status !== 'available') continue;
+    const iso = resetExpirationIso(detail.expiresAt ?? detail.expires_at);
+    if (iso) expirations.push(iso);
+  }
+  expirations.sort((a, b) => Date.parse(a) - Date.parse(b));
+  return {
+    availableCount,
+    // An impossible provider list with more dates than its authoritative count
+    // is bounded to the count. Keep the soonest dates, which are the ones the
+    // user can act on first.
+    expirations: expirations.slice(0, Math.min(128, availableCount)),
+    observedAtMs,
+  };
+}
+
+// A detached, time-aware account snapshot for /api/state. The poller is the
+// only writer; HTTP assembly only reads this bounded object. Every call returns
+// new arrays/objects so consumers cannot mutate sparse cache state.
+export function codexResetCredits(nowMs = Date.now()) {
+  const now = Number(nowMs);
+  const snapshot = fresh(observedResetCreditsSnapshot, observedResetCreditsAtMs,
+    Number.isFinite(now) ? now : Date.now());
+  if (!snapshot) return unsupportedResetCredits();
+
+  const at = Number.isFinite(now) ? now : Date.now();
+  const expiredCount = snapshot.expirations.reduce((sum, iso) =>
+    sum + (Date.parse(iso) <= at ? 1 : 0), 0);
+  const availableCount = Math.max(0,
+    snapshot.availableCount - Math.min(snapshot.availableCount, expiredCount));
+  const expirations = snapshot.expirations
+    .filter((iso) => Date.parse(iso) > at)
+    .slice(0, Math.min(128, availableCount));
+  const missingExpirationCount = Math.max(0, availableCount - expirations.length);
+  return {
+    available: true,
+    status: availableCount === 0 ? 'zero'
+      : missingExpirationCount > 0 ? 'partial' : 'available',
+    availableCount,
+    expirations: [...expirations],
+    missingExpirationCount,
+    capturedAt: new Date(snapshot.observedAtMs).toISOString(),
+  };
 }
 
 export function codexPlanLabel(nowMs = Date.now()) {
@@ -79,7 +166,8 @@ export function codexAccountFacts(nowMs = Date.now()) {
   const unlimited = fresh(observedCreditUnlimited, observedCreditUnlimitedAtMs, nowMs);
   const hasCredits = fresh(observedHasCredits, observedHasCreditsAtMs, nowMs);
   const balance = fresh(observedCreditBalance, observedCreditBalanceAtMs, nowMs);
-  const resetCreditsAvailable = fresh(observedResetCreditsAvailable, observedResetCreditsAvailableAtMs, nowMs);
+  const resetCredits = codexResetCredits(nowMs);
+  const resetCreditsAvailable = resetCredits.available ? resetCredits.availableCount : undefined;
   const status = unlimited === true
     ? 'unlimited'
     : hasCredits === true
@@ -162,12 +250,11 @@ function observeAccountFacts(result, rl) {
 
   if (!result || typeof result !== 'object') return;
   const resetCredits = result.rateLimitResetCredits ?? result.rate_limit_reset_credits;
-  if (!resetCredits || typeof resetCredits !== 'object' || Array.isArray(resetCredits)) return;
-  const count = resetCredits.availableCount ?? resetCredits.available_count;
-  if (typeof count === 'number' && Number.isFinite(count) && Number.isInteger(count) && count >= 0) {
-    observedResetCreditsAvailable = Math.min(1_000_000, count);
-    observedResetCreditsAvailableAtMs = observedAtMs;
-  }
+  if (resetCredits == null) return; // sparse update: retain last good evidence
+  const snapshot = normalizeResetCreditsObservation(resetCredits, observedAtMs);
+  if (!snapshot) return; // malformed/unknown evidence never erases last good
+  observedResetCreditsSnapshot = snapshot;
+  observedResetCreditsAtMs = observedAtMs;
 }
 
 // Record a spawn failure and log it ONCE per distinct cause (not every poll

@@ -177,6 +177,82 @@ export function normalizeIso(v) {
   return new Date(ms).toISOString();
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function unsupportedResetCredits() {
+  return {
+    available: false,
+    status: 'unsupported',
+    availableCount: null,
+    expirations: [],
+    missingExpirationCount: 0,
+    capturedAt: null,
+  };
+}
+
+function unsupportedAccountLimits() {
+  return { scope: 'account-wide', resetCredits: unsupportedResetCredits() };
+}
+
+const RESET_CREDIT_STATUSES = new Set(['available', 'zero', 'partial', 'unsupported']);
+
+// Normalize one peer's account reset evidence into a detached, bounded shape.
+// The local clock filters known expirations and lowers the effective count by
+// exactly those records; missing dates remain missing rather than guessed.
+export function normalizeResetCredits(value, nowMs = Date.now()) {
+  if (!isPlainObject(value) || !RESET_CREDIT_STATUSES.has(value.status)) {
+    return unsupportedResetCredits();
+  }
+  if (value.available !== true || value.status === 'unsupported') {
+    return unsupportedResetCredits();
+  }
+  const count = value.availableCount;
+  const capturedAt = typeof value.capturedAt === 'string' ? normalizeIso(value.capturedAt) : null;
+  if (typeof count !== 'number' || !Number.isFinite(count)
+    || !Number.isInteger(count) || count < 0 || count > 1_000_000 || !capturedAt) {
+    return unsupportedResetCredits();
+  }
+
+  const allExpirations = [];
+  const input = Array.isArray(value.expirations) ? value.expirations.slice(0, 128) : [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const iso = normalizeIso(raw);
+    if (iso) allExpirations.push(iso);
+  }
+  allExpirations.sort((a, b) => Date.parse(a) - Date.parse(b));
+  const bounded = allExpirations.slice(0, Math.min(128, count));
+  const now = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const expiredCount = bounded.reduce((sum, iso) => sum + (Date.parse(iso) <= now ? 1 : 0), 0);
+  const availableCount = Math.max(0, count - Math.min(count, expiredCount));
+  const expirations = bounded.filter((iso) => Date.parse(iso) > now)
+    .slice(0, Math.min(128, availableCount));
+  const missingExpirationCount = Math.max(0, availableCount - expirations.length);
+  return {
+    available: true,
+    status: availableCount === 0 ? 'zero'
+      : missingExpirationCount > 0 ? 'partial' : 'available',
+    availableCount,
+    expirations: [...expirations],
+    missingExpirationCount,
+    capturedAt,
+  };
+}
+
+export function normalizeAccountLimits(value, nowMs = Date.now()) {
+  if (!isPlainObject(value) || value.scope !== 'account-wide') {
+    return unsupportedAccountLimits();
+  }
+  return {
+    scope: 'account-wide',
+    resetCredits: normalizeResetCredits(value.resetCredits, nowMs),
+  };
+}
+
 // Clamp an externally-sourced percentage into 0–100, or null if not finite.
 function clampPct(v) {
   const n = Number(v);
@@ -222,6 +298,12 @@ function normalizeModelSource(v, model, toolSource) {
   return `${prefix}:${model}`;
 }
 
+function boundedDisplayText(value, fallback, max = 96) {
+  if (typeof value !== 'string') return fallback;
+  const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim();
+  return [...clean].slice(0, max).join('') || fallback;
+}
+
 function normalizeModelLimit(m, toolSource) {
   if (!m || typeof m !== 'object') return null;
   const model = modelSlug(m.model ?? m.label ?? m.source);
@@ -230,9 +312,9 @@ function normalizeModelLimit(m, toolSource) {
   if (usedPct == null) return null;
   return {
     source: normalizeModelSource(m.source, model, toolSource),
-    provider: typeof m.provider === 'string' ? m.provider : toolSource,
+    provider: boundedDisplayText(m.provider, toolSource),
     model,
-    label: typeof m.label === 'string' ? m.label : model, // raw; esc()'d at render
+    label: boundedDisplayText(m.label, model), // normalized raw text; esc()'d at render
     window: normalizeModelWindow(m.window),
     usedPct,
     remainingPct: Math.max(0, 100 - usedPct),
@@ -243,7 +325,7 @@ function normalizeModelLimit(m, toolSource) {
 
 function normalizeModelLimits(modelLimits, toolSource) {
   if (!Array.isArray(modelLimits)) return [];
-  return modelLimits.map((m) => normalizeModelLimit(m, toolSource)).filter(Boolean);
+  return modelLimits.slice(0, 128).map((m) => normalizeModelLimit(m, toolSource)).filter(Boolean);
 }
 
 // Projection is derived pacing data; pass through the booleans/numbers we use,
@@ -339,6 +421,7 @@ function normalizeTool(t) {
     haveLimits: !!(limits.five_hour || limits.seven_day),
     limits,
     modelLimits: normalizeModelLimits(t.modelLimits, source),
+    accountLimits: normalizeAccountLimits(t.accountLimits),
     projection: normalizeProjection(t.projection),
     activity: normalizeActivity(t.activity),
     freshness: normalizeFreshness(t.freshness),

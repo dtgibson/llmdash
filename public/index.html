@@ -24,8 +24,15 @@
         </div>
         <p class="scope-copy"><strong>Account-wide</strong> · the same limit windows on every machine signed in to each account.</p>
       </div>
-      <div id="tools" class="limit-tools"></div>
-      <div id="limit-notes" class="limit-notes"></div>
+      <article class="account-block" id="single-account-block" aria-labelledby="single-account-title">
+        <div class="account-identity" id="account-identity">
+          <h2 class="account-number" id="single-account-title">Account</h2>
+          <span class="account-members"><strong>Shown once</strong> · from this machine</span>
+        </div>
+        <div id="tools" class="limit-tools"></div>
+        <div id="supplementary-limits"></div>
+        <div id="limit-notes" class="limit-notes"></div>
+      </article>
     </section>
 
     <!-- Multi-host mode replaces the single account surface above with one

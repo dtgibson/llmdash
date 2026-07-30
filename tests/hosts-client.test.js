@@ -35,6 +35,7 @@ function makeFooter() {
 async function renderWith(combined, resetBillingView = null, {
   DateImpl = Date,
   resetBillingFetch = null,
+  includeAccountContainers = true,
 } = {}) {
   const els = {
     headroom: makeEl('headroom'), tools: makeEl('tools'), hosts: makeEl('hosts'),
@@ -48,6 +49,10 @@ async function renderWith(combined, resetBillingView = null, {
     'claude-trends-range': makeEl('claude-trends-range'), 'codex-trends-range': makeEl('codex-trends-range'),
     range: null,
   };
+  if (includeAccountContainers) {
+    els['account-identity'] = makeEl('account-identity');
+    els['supplementary-limits'] = makeEl('supplementary-limits');
+  }
   const footer = makeFooter();
   const doc = {
     getElementById: (id) => els[id] || null,
@@ -112,6 +117,10 @@ const claudeTool = (fhReset, sdReset) => ({
     seven_day: { usedPct: 36, remainingPct: 64, resetsAt: iso(sdReset), capturedAt: iso(-30_000) },
   },
   modelLimits: [],
+  accountLimits: { scope: 'account-wide', resetCredits: {
+    available: false, status: 'unsupported', availableCount: null,
+    expirations: [], missingExpirationCount: 0, capturedAt: null,
+  } },
   projection: { five_hour: null, seven_day: null },
   activity: { hasData: true, tokens: { last5h: 18.4e6, week: 72e6, today: 44.1e6 }, sessionsToday: 9, cacheHitRate: 0.88, estValueWeek: 214.6, estValueToday: 52.3, cacheSavingsWeek: 61.2, tokenMix: { input: 10.1e6, output: 8.6e6, cacheRead: 45.4e6, cacheWrite: 7.9e6 } },
   freshness: { capturedAt: iso(-30_000), freshForMs: 300_000, staleAfterMs: 600_000 },
@@ -123,9 +132,45 @@ const codexTool = (sdReset) => ({
     five_hour: null,
     seven_day: { usedPct: 41, remainingPct: 59, resetsAt: iso(sdReset), capturedAt: iso(-20_000) },
   },
-  modelLimits: [], projection: { five_hour: null, seven_day: null },
+  modelLimits: [], accountLimits: { scope: 'account-wide', resetCredits: {
+    available: false, status: 'unsupported', availableCount: null,
+    expirations: [], missingExpirationCount: 0, capturedAt: null,
+  } }, projection: { five_hour: null, seven_day: null },
   activity: { hasData: false }, freshness: null, limitsDiagnostic: null, dataAt: iso(-20_000),
 });
+const modelLimit = ({
+  model, label, remainingPct, capturedAt = iso(-30_000), resetsAt = iso(2 * 86400_000),
+}) => ({
+  source: `claude-model:${model}`,
+  provider: 'claude-code',
+  model,
+  label,
+  window: 'seven_day',
+  usedPct: 100 - remainingPct,
+  remainingPct,
+  resetsAt,
+  capturedAt,
+});
+const resetSnapshot = ({
+  availableCount,
+  expirations = [],
+  status = availableCount === 0 ? 'zero'
+    : expirations.length < availableCount ? 'partial' : 'available',
+  capturedAt = iso(-20_000),
+  available = true,
+}) => ({
+  available,
+  status,
+  availableCount,
+  expirations,
+  missingExpirationCount: availableCount == null
+    ? 0 : Math.max(0, availableCount - expirations.length),
+  capturedAt,
+});
+const withResetCredits = (tool, snapshot) => {
+  tool.accountLimits = { scope: 'account-wide', resetCredits: snapshot };
+  return tool;
+};
 const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
 
 function configuredResetView(nextResetAt) {
@@ -355,24 +400,257 @@ test('single-host diagnostics follow all four account slots instead of splitting
 
 test('single-host mode renders model-specific caps and escapes model labels', async () => {
   const tool = claudeTool(3 * 3600_000, 3 * 86400_000);
-  tool.modelLimits = [{
-    source: 'claude-model:fable',
-    provider: 'claude-code',
-    model: 'fable',
-    label: '<img src=x onerror=alert(1)>',
-    window: 'seven_day',
-    usedPct: 49,
-    remainingPct: 51,
-    resetsAt: iso(2 * 86400_000),
-    capturedAt: iso(-30_000),
-  }];
+  tool.modelLimits = [modelLimit({
+    model: 'fable', label: '<img src=x onerror=alert(1)>', remainingPct: 51,
+  })];
   const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]) }], generatedAt: iso(0) };
   const { els } = await renderWith(combined);
-  const h = els['claude-details'].innerHTML;
-  assert.match(h, /Model-specific caps/);
-  assert.match(h, /51<span class="unit">%</);
+  const h = els['supplementary-limits'].innerHTML;
+  assert.match(h, /Claude model caps/);
+  assert.match(h, /51<span class="unit">% left/);
   assert.doesNotMatch(h, /<img src=x onerror/, 'raw model label must not reach innerHTML');
   assert.match(h, /&lt;img src=x onerror/, 'model label is escaped');
+  assert.doesNotMatch(els['claude-details'].innerHTML, /model-limit|model caps|&lt;img/i,
+    'the account-wide cap is not repeated in lower machine-local details');
+});
+
+test('single-host top area shows three resets and every visible expiration date', async () => {
+  const expirations = [iso(60 * 60_000), iso(2 * 60 * 60_000), iso(3 * 60 * 60_000)];
+  const codex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 3, expirations,
+  }));
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]),
+  }], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined);
+  const h = els['supplementary-limits'].innerHTML;
+  assert.match(h, /Other global limits/);
+  assert.match(h, /Codex reset credits/);
+  assert.match(h, /<strong>3<\/strong><span>available<\/span>/);
+  assert.equal((h.match(/<time class="expiry-date"/g) || []).length, 3);
+  for (const expiry of expirations) {
+    assert.match(h, new RegExp(`datetime="${expiry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`));
+  }
+  assert.doesNotMatch(h, /title="[^\"]*20\d\d/, 'dates are visible content, not tooltip-only');
+});
+
+test('identical reset expirations group only with their exact quantity', async () => {
+  const first = iso(60 * 60_000);
+  const second = iso(2 * 60 * 60_000);
+  const codex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 3, expirations: [second, first, first],
+  }));
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]),
+  }], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined);
+  const h = els['supplementary-limits'].innerHTML;
+  assert.equal((h.match(/class="expiry-item"/g) || []).length, 2);
+  assert.match(h, /2 resets expire in/);
+  assert.ok(h.indexOf(`datetime="${first}"`) < h.indexOf(`datetime="${second}"`),
+    'expiration groups stay soonest-first');
+  assert.equal((h.match(new RegExp(`datetime="${first}"`, 'g')) || []).length, 1,
+    'the exact duplicate instant is represented by one quantity-labeled row');
+});
+
+for (const fixture of [
+  {
+    name: 'authoritative zero',
+    snapshot: resetSnapshot({ availableCount: 0 }),
+    matches: [/<strong>0<\/strong><span>available<\/span>/, /No expiration dates/],
+    misses: [/class="expiry-item"/, /Unavailable/],
+  },
+  {
+    name: 'partial evidence',
+    snapshot: resetSnapshot({ availableCount: 3, expirations: [iso(60 * 60_000), iso(2 * 60 * 60_000)] }),
+    matches: [/>partial</, /1 expiration date is unavailable/, /<strong>3<\/strong><span>available<\/span>/],
+  },
+  {
+    name: 'unsupported evidence',
+    snapshot: {
+      available: false, status: 'unsupported', availableCount: null,
+      expirations: [], missingExpirationCount: 0, capturedAt: null,
+    },
+    matches: [/Unavailable/, />unsupported</, /not supported by this reading/],
+  },
+  {
+    name: 'malformed evidence',
+    snapshot: {
+      available: false, status: 'malformed', availableCount: 'three',
+      expirations: ['not-a-date'], missingExpirationCount: 0, capturedAt: null,
+    },
+    matches: [/Count unavailable/, />malformed</, /No count or expiration was guessed/],
+    misses: [/NaN|not-a-date|three/],
+  },
+  {
+    name: 'stale last-good evidence',
+    snapshot: resetSnapshot({
+      availableCount: 1, expirations: [iso(60 * 60_000)], capturedAt: iso(-20 * 60_000),
+    }),
+    diagnostic: { reason: 'stale-reading', capturedAt: iso(-20 * 60_000) },
+    matches: [/>stale · /, /last good reset reading is old/, /<strong>1<\/strong><span>available<\/span>/],
+  },
+  {
+    name: 'source error with last-good evidence',
+    snapshot: resetSnapshot({
+      availableCount: 1, expirations: [iso(60 * 60_000)], capturedAt: iso(-2 * 60_000),
+    }),
+    diagnostic: { reason: 'codex-cmd-failed', cmd: 'codex', detail: 'not found' },
+    matches: [/source error/, /latest Codex account read failed/, /<strong>1<\/strong><span>available<\/span>/],
+  },
+]) {
+  test(`Codex reset presentation distinguishes ${fixture.name}`, async () => {
+    const codex = withResetCredits(codexTool(5 * 86400_000), fixture.snapshot);
+    codex.limitsDiagnostic = fixture.diagnostic || null;
+    const combined = { hosts: [{
+      host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+      hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]),
+    }], generatedAt: iso(0) };
+    const { els } = await renderWith(combined);
+    const h = els['supplementary-limits'].innerHTML;
+    for (const pattern of fixture.matches) assert.match(h, pattern);
+    for (const pattern of fixture.misses || []) assert.doesNotMatch(h, pattern);
+  });
+}
+
+test('one-second render tick removes a reset at its exact expiry boundary', async () => {
+  const startMs = Date.now();
+  const firstExpiry = new Date(startMs + 1000).toISOString();
+  const secondExpiry = new Date(startMs + 60_000).toISOString();
+  const clock = controlledClock(startMs);
+  const codex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 2,
+    expirations: [firstExpiry, secondExpiry],
+    capturedAt: new Date(startMs - 1000).toISOString(),
+  }));
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]),
+  }], generatedAt: iso(0) };
+
+  const { els, intervals } = await renderWith(combined, null, { DateImpl: clock.DateImpl });
+  assert.match(els['supplementary-limits'].innerHTML, /<strong>2<\/strong><span>available<\/span>/);
+  assert.equal((els['supplementary-limits'].innerHTML.match(/class="expiry-item"/g) || []).length, 2);
+  const tick = intervals.find(({ fn, ms }) => ms === 1000 && String(fn).includes('render()'));
+  assert.ok(tick);
+  clock.set(Date.parse(firstExpiry));
+  tick.fn();
+  assert.match(els['supplementary-limits'].innerHTML, /<strong>1<\/strong><span>available<\/span>/);
+  assert.equal((els['supplementary-limits'].innerHTML.match(/class="expiry-item"/g) || []).length, 1);
+  assert.doesNotMatch(els['supplementary-limits'].innerHTML, new RegExp(`datetime="${firstExpiry}"`));
+});
+
+test('same-account hosts select newest supplementary evidence on its own clocks', async () => {
+  const localClaude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  const peerClaude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  peerClaude.limits.five_hour.resetsAt = localClaude.limits.five_hour.resetsAt;
+  peerClaude.limits.seven_day.resetsAt = localClaude.limits.seven_day.resetsAt;
+  localClaude.modelLimits = [modelLimit({
+    model: 'fable', label: 'Fable', remainingPct: 12, capturedAt: iso(-5 * 60_000),
+  })];
+  peerClaude.modelLimits = [modelLimit({
+    model: 'fable', label: 'Fable', remainingPct: 77, capturedAt: iso(-30_000),
+  })];
+
+  const localCodex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 1, expirations: [iso(60 * 60_000)], capturedAt: iso(-5 * 60_000),
+  }));
+  const peerCodex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 2,
+    expirations: [iso(2 * 60 * 60_000), iso(3 * 60 * 60_000)],
+    capturedAt: iso(-20_000),
+  }));
+  peerCodex.limits.seven_day.resetsAt = localCodex.limits.seven_day.resetsAt;
+  const combined = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([localClaude, localCodex]) },
+    { host: 'peer', label: 'Desktop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-1000), state: stateOf([peerClaude, peerCodex]) },
+  ], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined);
+  const overview = els.hosts.innerHTML.slice(0, els.hosts.innerHTML.indexOf('class="host '));
+  assert.equal((overview.match(/Codex reset credits/g) || []).length, 1);
+  assert.match(overview, /Fable[\s\S]*77<span class="unit">% left/);
+  assert.doesNotMatch(overview, /Fable[\s\S]*12<span class="unit">% left/);
+  assert.match(overview, /reset-count"><strong>2<\/strong><span>available<\/span>/);
+  assert.doesNotMatch(overview, /reset-count"><strong>1<\/strong><span>available<\/span>/);
+});
+
+test('different accounts keep model caps and reset evidence in separate account blocks', async () => {
+  const localClaude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  localClaude.modelLimits = [modelLimit({ model: 'fable', label: 'Fable', remainingPct: 81 })];
+  const localCodex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 1, expirations: [iso(60 * 60_000)],
+  }));
+  const remoteClaude = claudeTool(60 * 60_000, 6 * 86400_000);
+  remoteClaude.modelLimits = [modelLimit({ model: 'sonnet', label: 'Sonnet 4.5', remainingPct: 34 })];
+  const remoteCodex = withResetCredits(codexTool(7 * 86400_000), resetSnapshot({
+    availableCount: 3,
+    expirations: [iso(2 * 60 * 60_000), iso(3 * 60 * 60_000), iso(4 * 60 * 60_000)],
+  }));
+  const combined = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([localClaude, localCodex]) },
+    { host: 'remote', label: 'Work laptop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-1000), state: stateOf([remoteClaude, remoteCodex]) },
+  ], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined);
+  const blocks = els.hosts.innerHTML.split('<article class="account-block"').slice(1);
+  assert.equal(blocks.length, 2);
+  assert.match(blocks[0], /from This machine/);
+  assert.match(blocks[0], /Fable/);
+  assert.doesNotMatch(blocks[0], /Sonnet 4\.5/);
+  assert.match(blocks[0], /reset-count"><strong>1<\/strong><span>available<\/span>/);
+  assert.match(blocks[1], /from Work laptop/);
+  assert.match(blocks[1], /Sonnet 4\.5/);
+  assert.doesNotMatch(blocks[1], /Fable/);
+  assert.match(blocks[1], /reset-count"><strong>3<\/strong><span>available<\/span>/);
+});
+
+test('global allowances appear once at the top and never duplicate in lower tool details', async () => {
+  const claude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  claude.modelLimits = [
+    modelLimit({ model: 'fable', label: 'Fable', remainingPct: 51 }),
+    modelLimit({ model: 'sonnet', label: 'Sonnet 4.5', remainingPct: 64 }),
+    modelLimit({ model: 'future-cap', label: 'Future global cap', remainingPct: 72 }),
+  ];
+  const codex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 1, expirations: [iso(60 * 60_000)],
+  }));
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claude, codex]),
+  }], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined);
+  const top = els['supplementary-limits'].innerHTML;
+  assert.match(top, /Fable/);
+  assert.match(top, /Sonnet 4\.5/);
+  assert.match(top, /Future global cap/);
+  assert.match(top, /Codex reset credits/);
+  const lower = els['claude-details'].innerHTML + els['codex-details'].innerHTML;
+  assert.doesNotMatch(lower, /Fable|Sonnet 4\.5|Future global cap|Codex reset credits|expiry-item/);
+});
+
+test('minimal-DOM fallback keeps the complete account story visible', async () => {
+  const claude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  claude.modelLimits = [modelLimit({ model: 'fable', label: 'Fable', remainingPct: 51 })];
+  const codex = withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 1, expirations: [iso(60 * 60_000)],
+  }));
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claude, codex]),
+  }], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined, null, { includeAccountContainers: false });
+  assert.match(els.tools.innerHTML, /Shown once/);
+  assert.match(els.tools.innerHTML, /Other global limits/);
+  assert.match(els.tools.innerHTML, /Fable/);
+  assert.match(els.tools.innerHTML, /Codex reset credits/);
+  assert.match(els.tools.innerHTML, /<strong>1<\/strong><span>available<\/span>/);
 });
 
 test('multi-host same-account: ONE limits overview, activity per host, no duplicated meter (QA-15/QA-17)', async () => {

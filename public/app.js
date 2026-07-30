@@ -263,30 +263,189 @@ function windowLabel(key) {
   return 'Model cap';
 }
 
-function modelLimitsHtml(tool) {
-  const caps = Array.isArray(tool.modelLimits) ? tool.modelLimits : [];
-  const items = caps.filter((m) => m && Number.isFinite(Number(m.usedPct)));
-  if (!items.length) return '';
-  const rows = items.map((m) => {
+function modelLimitRowsHtml(tool) {
+  const caps = Array.isArray(tool && tool.modelLimits) ? tool.modelLimits.slice(0, 128) : [];
+  return caps.filter((m) => m && Number.isFinite(Number(m.usedPct))).map((m) => {
     const usedPct = Math.min(100, Math.max(0, Number(m.usedPct)));
-    const remainingPct = Math.min(100, Math.max(0, Number.isFinite(Number(m.remainingPct)) ? Number(m.remainingPct) : 100 - usedPct));
+    const remainingPct = Math.min(100, Math.max(0,
+      Number.isFinite(Number(m.remainingPct)) ? Number(m.remainingPct) : 100 - usedPct));
     const rem = Math.floor(remainingPct), used = Math.ceil(usedPct), cls = statusClass(rem);
     const maxed = remainingPct <= 0;
-    const resetMs = m.resetsAt ? Date.parse(m.resetsAt) : NaN;
-    const resetIn = Number.isFinite(resetMs) ? fmtDur(resetMs - Date.now()) : '—';
+    const resetMs = typeof m.resetsAt === 'string' ? Date.parse(m.resetsAt) : NaN;
+    const resetIn = Number.isFinite(resetMs) && resetMs > Date.now()
+      ? `resets in ${fmtDur(resetMs - Date.now())}` : 'reset unavailable';
+    const captured = typeof m.capturedAt === 'string' ? fmtAge(m.capturedAt) : null;
+    const evidence = captured ? `${resetIn} · ${captured}` : resetIn;
     const barWidth = maxed ? 100 : remainingPct;
     const sub = maxed ? `<span class="is-crit">limit reached</span>` : `${used}% used`;
-    return `<div class="model-limit"><div class="model-limit-head"><div class="model-limit-namewrap">`
+    return `<li class="model-limit"><div class="model-limit-head"><div class="model-limit-namewrap">`
       + `<span class="model-name">${esc(m.label || m.model || 'Model')}</span>`
       + `<span class="model-window">${esc(windowLabel(m.window))}</span></div>`
-      + `<div class="model-limit-metric"><span class="model-remaining is-${cls}">${rem}<span class="unit">%</span></span>`
-      + `<span class="model-reset">resets in ${resetIn}</span></div></div>`
-      + `<div class="model-limit-sub">${sub}</div><div class="bar model-bar"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
+      + `<div class="model-limit-metric"><span class="model-remaining is-${cls}">${rem}<span class="unit">% left</span></span>`
+      + `<span class="model-reset">${esc(evidence)}</span></div></div>`
+      + `<div class="model-limit-sub">${sub}</div><div class="bar model-bar" aria-hidden="true"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></li>`;
   }).join('');
-  return `<section class="model-limits subsection"><div class="subsection-head"><h3>Model-specific caps</h3>`
-    + `<span class="subsection-scope"><span class="scope-tag">Account-wide</span>supplemental limits</span></div>`
-    + `<div class="model-limit-grid">${rows}</div>`
-    + `<div class="model-limit-note">These caps are specific to ${esc(tool.label)} models; they do not add account-wide budget.</div></section>`;
+}
+
+const RESET_DISPLAY_STATUSES = new Set([
+  'available', 'zero', 'partial', 'unsupported', 'malformed', 'stale', 'source-error',
+]);
+
+function resetCreditsForDisplay(tool, nowMs = Date.now()) {
+  const raw = tool && tool.accountLimits && tool.accountLimits.scope === 'account-wide'
+    ? tool.accountLimits.resetCredits : null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)
+    || !RESET_DISPLAY_STATUSES.has(raw.status)) return { state: 'unsupported' };
+  if (raw.status === 'malformed') return { state: 'malformed' };
+  if (raw.available !== true || raw.status === 'unsupported') return { state: 'unsupported' };
+
+  const count = raw.availableCount;
+  const capturedMs = typeof raw.capturedAt === 'string' ? Date.parse(raw.capturedAt) : NaN;
+  if (typeof count !== 'number' || !Number.isFinite(count) || !Number.isInteger(count)
+    || count < 0 || count > 1_000_000 || !Number.isFinite(capturedMs)) {
+    return { state: 'malformed' };
+  }
+
+  const canonical = [];
+  const rawExpirations = Array.isArray(raw.expirations) ? raw.expirations.slice(0, 128) : [];
+  for (const value of rawExpirations) {
+    if (typeof value !== 'string') continue;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) continue;
+    canonical.push(new Date(ms).toISOString());
+  }
+  canonical.sort((a, b) => Date.parse(a) - Date.parse(b));
+  const bounded = canonical.slice(0, Math.min(128, count));
+  const expiredCount = bounded.reduce((sum, iso) => sum + (Date.parse(iso) <= nowMs ? 1 : 0), 0);
+  const availableCount = Math.max(0, count - Math.min(count, expiredCount));
+  const expirations = bounded.filter((iso) => Date.parse(iso) > nowMs)
+    .slice(0, Math.min(128, availableCount));
+  const missingExpirationCount = Math.max(0, availableCount - expirations.length);
+  let stateName = availableCount === 0 ? 'zero'
+    : missingExpirationCount > 0 ? 'partial' : 'available';
+  if (raw.status === 'stale' || raw.status === 'source-error') stateName = raw.status;
+  if (tool && tool.limitsDiagnostic && tool.limitsDiagnostic.reason === 'stale-reading') {
+    stateName = 'stale';
+  } else if (tool && tool.limitsDiagnostic
+    && (tool.limitsDiagnostic.reason === 'codex-cmd-failed'
+      || tool.limitsDiagnostic.reason === 'no-reading')) {
+    stateName = 'source-error';
+  }
+  return {
+    state: stateName,
+    availableCount,
+    expirations,
+    missingExpirationCount,
+    capturedAt: new Date(capturedMs).toISOString(),
+  };
+}
+
+function resetStatePill(stateName, capturedAt) {
+  if (stateName === 'partial') return '<span class="state-pill pill-warn">partial</span>';
+  if (stateName === 'malformed') return '<span class="state-pill pill-crit">malformed</span>';
+  if (stateName === 'unsupported') return '<span class="state-pill pill-warn">unsupported</span>';
+  if (stateName === 'stale') {
+    const age = fmtAge(capturedAt);
+    return `<span class="state-pill pill-warn">stale${age ? ` · ${esc(age.replace(/^updated /, ''))}` : ''}</span>`;
+  }
+  if (stateName === 'source-error') return '<span class="state-pill pill-crit">source error</span>';
+  return '';
+}
+
+function resetExpirationLabel(iso) {
+  try {
+    return new Intl.DateTimeFormat([], {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+    }).format(new Date(iso));
+  } catch { return null; }
+}
+
+function resetExpiryRows(expirations, nowMs = Date.now()) {
+  const grouped = [];
+  for (const iso of expirations) {
+    const previous = grouped[grouped.length - 1];
+    if (previous && previous.iso === iso) previous.quantity += 1;
+    else grouped.push({ iso, quantity: 1 });
+  }
+  const rows = grouped.map((item, index) => {
+    const date = resetExpirationLabel(item.iso);
+    if (!date) return '';
+    const relative = `${item.quantity > 1 ? `${item.quantity} resets expire` : 'expires'} in ${fmtDur(Date.parse(item.iso) - nowMs)}`;
+    return `<li class="expiry-item"><span class="expiry-index" aria-hidden="true">${index + 1}</span><span>`
+      + `<time class="expiry-date" datetime="${esc(item.iso)}">${esc(date)}</time>`
+      + `<span class="expiry-relative">${esc(relative)}</span></span></li>`;
+  }).join('');
+  return `<ol class="expiry-list" aria-label="Reset expiration dates">${rows}</ol>`;
+}
+
+function resetCreditsHtml(tool) {
+  const reset = resetCreditsForDisplay(tool);
+  const pill = resetStatePill(reset.state, reset.capturedAt);
+  if (reset.state === 'unsupported') {
+    return `<div class="reset-summary"><span class="unavailable-metric">Unavailable</span>${pill}</div>`
+      + `<p class="empty-evidence"><strong>Reset-credit details are not supported by this reading.</strong> The standard Codex windows above are unaffected.</p>`;
+  }
+  if (reset.state === 'malformed') {
+    return `<div class="reset-summary"><span class="unavailable-metric">Count unavailable</span>${pill}</div>`
+      + `<p class="empty-evidence"><strong>The reset data could not be safely read.</strong> No count or expiration was guessed.</p>`;
+  }
+
+  const count = reset.availableCount;
+  const observed = fmtAge(reset.capturedAt);
+  let html = `<div class="reset-summary"><div class="reset-count"><strong>${count.toLocaleString()}</strong><span>available</span></div>${pill}</div>`;
+  if (count === 0) {
+    html += '<p class="zero-copy">No expiration dates because no resets are currently available.</p>';
+  } else {
+    html += `<p class="reset-copy">Each reset is listed soonest-first${observed ? ` · ${esc(observed)}` : ''}. Dates use this browser's timezone.</p>`;
+    html += resetExpiryRows(reset.expirations);
+  }
+  if (reset.missingExpirationCount > 0) {
+    const n = reset.missingExpirationCount;
+    html += `<p class="evidence-note"><strong>${n.toLocaleString()} expiration ${n === 1 ? 'date is' : 'dates are'} unavailable.</strong> The provider count remains authoritative.</p>`;
+  }
+  if (reset.state === 'stale') {
+    html += `<p class="evidence-note"><strong>The last good reset reading is old.</strong> The original capture time is preserved and the allowance may have changed.</p>`;
+  } else if (reset.state === 'source-error') {
+    html += `<p class="evidence-note critical"><strong>The latest Codex account read failed.</strong> Showing the last good reset evidence${observed ? `, captured ${esc(observed.replace(/^updated /, ''))}` : ''}.</p>`;
+  }
+  return html;
+}
+
+function globalToolGroupHtml(tool, suffix) {
+  const codex = tool && tool.source === 'codex';
+  const mark = tool && tool.source === 'claude-code' ? '◆' : codex ? '▲' : '';
+  const title = codex ? 'Codex reset credits'
+    : tool && tool.source === 'claude-code' ? 'Claude model caps' : `${tool && tool.label ? tool.label : 'Provider'} model caps`;
+  const id = `global-limit-${suffix}-${String(tool && tool.source || 'provider').replace(/[^a-z0-9]+/gi, '-')}`;
+  const rows = modelLimitRowsHtml(tool);
+  let body = codex ? resetCreditsHtml(tool) : '';
+  if (rows) {
+    body += codex ? '<h4 class="nested-limit-title">Model caps</h4>' : '';
+    body += `<ul class="model-limit-list">${rows}</ul>`;
+  } else if (!codex) {
+    body += `<p class="empty-evidence"><strong>No additional ${esc(tool.label)} model caps are reported.</strong> The standard account windows above remain the complete current reading.</p>`;
+  }
+  return `<section class="global-limit-group ${toolToneClass(tool)}" aria-labelledby="${id}">`
+    + `<div class="global-limit-head"><h3 class="global-limit-title" id="${id}">`
+    + `${mark ? `<span class="tool-mark" aria-hidden="true">${mark}</span>` : ''}${esc(title)}</h3>`
+    + `<span class="global-limit-meta">provider-reported</span></div>${body}</section>`;
+}
+
+function supplementaryLimitsHtml(tools, suffix = 'account') {
+  const order = (source) => {
+    const index = ['claude-code', 'codex'].indexOf(source);
+    return index === -1 ? 99 : index;
+  };
+  const ordered = (tools || []).filter(Boolean).slice().sort((a, b) =>
+    order(a.source) - order(b.source));
+  if (!ordered.length) return '';
+  const id = `supplementary-${suffix}`;
+  return `<section class="supplementary" aria-labelledby="${id}">`
+    + `<div class="supplementary-heading"><h2 class="section-label" id="${id}">Other global limits</h2>`
+    + `<span class="supplementary-scope">same account · before pacing and local activity</span></div>`
+    + `<div class="supplement-grid">${ordered.map((tool) => globalToolGroupHtml(tool, suffix)).join('')}</div>`
+    + `</section><p class="account-honesty">All readings in this block are account-wide. Machine-local usage begins below.</p>`;
 }
 
 const tile = (label, valHtml, note) =>
@@ -400,15 +559,14 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
     ? (tilesHtml(a) + mixHtml(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   const summary = tool.source === 'claude-code'
-    ? 'Pacing · activity · model caps · trends'
+    ? 'Pacing · activity · trends'
     : 'Pacing · activity · deeper insights · trends';
   const idAttr = titleId ? ` id="${titleId}"` : '';
   return `<div class="tool-group-head"><h2${idAttr}>${toolNameHtml(tool)}</h2><span class="group-summary">${summary} · ${sub}</span></div>`
     + burnHtml(tool, weeklyResetSelection)
     + `<section class="subsection activity-section"><div class="subsection-head"><h3>Activity</h3>`
     + `<span class="subsection-scope"><span class="scope-tag">${esc(activityScope)}</span>local ${esc(tool.label)} session logs</span></div>`
-    + activityBlock + `</section>`
-    + modelLimitsHtml(tool);
+    + activityBlock + `</section>`;
 }
 
 function limitLaneHtml(tool, scopeCopy = '', weeklyResetSelection = null) {
@@ -523,49 +681,124 @@ function activityOnlyHtml(tool, hostLabel, weeklyResetSelection = null) {
   return `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, hostLabel, null, weeklyResetSelection)}</section>`;
 }
 
-// Every unique reachable account identity renders here before any per-machine
-// activity. Same-account reset identities collapse to one lane; genuinely
-// different accounts stay distinct and name their host membership.
-function accountOverviewHtml(hosts, groups, localResetSelection = null) {
-  const lanes = [];
-  const entries = [];
+function memberHostKey(host) {
+  return `${host && host.host || ''}:${host && host.port || ''}`;
+}
+
+function newestRepresentative(members) {
+  return members.slice().sort((a, b) =>
+    (Date.parse(b.tool.dataAt || 0) || 0) - (Date.parse(a.tool.dataAt || 0) || 0))[0];
+}
+
+// Primary windows and supplementary account facts have independent evidence
+// clocks. Select model caps per cap identity and reset credits by their own
+// capturedAt, but only inside one already-grouped account membership set.
+function supplementaryToolForMembers(members, representative) {
+  const tool = { ...representative.tool };
+  const newestModels = new Map();
+  for (const member of members) {
+    for (const model of Array.isArray(member.tool.modelLimits) ? member.tool.modelLimits.slice(0, 128) : []) {
+      if (!model || typeof model !== 'object') continue;
+      const key = `${model.source || ''}|${model.model || ''}|${model.window || ''}`;
+      const at = Date.parse(model.capturedAt || '');
+      if (!Number.isFinite(at)) continue;
+      const current = newestModels.get(key);
+      if (!current || at > current.at) newestModels.set(key, { at, model });
+    }
+  }
+  tool.modelLimits = [...newestModels.values()].map((entry) => entry.model).slice(0, 128);
+
+  const resetCandidates = members.map((member) => member.tool.accountLimits)
+    .filter((limits) => limits && limits.scope === 'account-wide'
+      && limits.resetCredits && limits.resetCredits.available === true
+      && Number.isFinite(Date.parse(limits.resetCredits.capturedAt || 0)))
+    .sort((a, b) => Date.parse(b.resetCredits.capturedAt) - Date.parse(a.resetCredits.capturedAt));
+  tool.accountLimits = resetCandidates[0] || representative.tool.accountLimits
+    || { scope: 'account-wide', resetCredits: { available: false, status: 'unsupported' } };
+  return tool;
+}
+
+function accountRecords(hosts, groups) {
+  const records = [];
   const represented = new Set();
   for (const src of ['claude-code', 'codex']) {
     const map = groups[src];
     if (!map) continue;
-    for (const members of map.values()) {
-      const rep = members.slice().sort((a, b) =>
-        (Date.parse(b.tool.dataAt || 0) || 0) - (Date.parse(a.tool.dataAt || 0) || 0))[0];
-      for (const member of members) represented.add(`${member.host.host}|${src}`);
-      const membership = members.length > 1
-        ? `identical on ${joinLabels(members.map((member) => member.host.label))}`
-        : `from ${esc(rep.host.label)}`;
-      const scopeCopy = `${esc(rep.tool.plan)} · ${membership}`;
-      const containsSelf = members.some((member) => member.host.self);
-      const selection = src === 'claude-code' && containsSelf ? localResetSelection : null;
-      lanes.push(limitsOnlyHtml(rep.tool, scopeCopy, selection));
-      entries.push({ tool: rep.tool, scopeCopy });
+    for (const [key, members] of map.entries()) {
+      const representative = newestRepresentative(members);
+      for (const member of members) represented.add(`${memberHostKey(member.host)}|${src}`);
+      records.push({ source: src, key, members, representative });
     }
   }
-  // A reachable tool with no usable reset identity still gets two honest slots;
-  // it simply cannot be collapsed with another machine's account.
+  // A reachable tool with no usable reset identity still gets an honest
+  // account record; it simply cannot collapse with another host.
   for (const host of hosts) {
     if (!host.reachable || !host.state || !Array.isArray(host.state.tools)) continue;
     for (const tool of host.state.tools) {
-      if (represented.has(`${host.host}|${tool.source}`)) continue;
-      const scopeCopy = `${esc(tool.plan)} · from ${esc(host.label)}`;
-      const selection = tool.source === 'claude-code' && host.self ? localResetSelection : null;
-      lanes.push(limitsOnlyHtml(tool, scopeCopy, selection));
-      entries.push({ tool, scopeCopy });
+      if (represented.has(`${memberHostKey(host)}|${tool.source}`)) continue;
+      const member = { host, tool };
+      records.push({ source: tool.source, key: null, members: [member], representative: member });
     }
   }
-  if (!lanes.length) return '';
+  return records;
+}
+
+// Pair provider lanes only when they have the exact same host membership.
+// Account identities remain source-specific; this bundling is presentation
+// composition, never quota merging. Different membership sets always produce
+// separate account blocks.
+function accountBundles(hosts, groups) {
+  const bundles = [];
+  const byMembership = new Map();
+  for (const record of accountRecords(hosts, groups)) {
+    const signature = record.members.map((member) => memberHostKey(member.host)).sort().join('|');
+    let bundle = byMembership.get(signature);
+    if (!bundle || bundle.records[record.source]) {
+      bundle = { signature, records: {}, members: record.members };
+      bundles.push(bundle);
+      if (!byMembership.has(signature)) byMembership.set(signature, bundle);
+    }
+    bundle.records[record.source] = record;
+  }
+  return bundles;
+}
+
+// Every unique reachable account identity renders here before any per-machine
+// activity. Same-account reset identities collapse to one lane; genuinely
+// different accounts stay distinct and name their host membership.
+function accountOverviewHtml(hosts, groups, localResetSelection = null) {
+  const bundles = accountBundles(hosts, groups);
+  if (!bundles.length) return '';
+  const accountHtml = bundles.map((bundle, index) => {
+    const records = ['claude-code', 'codex'].map((source) => bundle.records[source]).filter(Boolean);
+    const labels = bundle.members.map((member) => member.host.label);
+    const membership = bundle.members.length > 1
+      ? `identical on ${joinLabels(labels)}` : `from ${joinLabels(labels)}`;
+    const containsSelf = bundle.members.some((member) => member.host.self);
+    const entries = [];
+    const lanes = records.map((record) => {
+      const rep = record.representative;
+      const scopeCopy = `${esc(rep.tool.plan)} · ${membership}`;
+      const selection = record.source === 'claude-code' && containsSelf ? localResetSelection : null;
+      entries.push({ tool: rep.tool, scopeCopy });
+      return limitsOnlyHtml(rep.tool, scopeCopy, selection);
+    }).join('');
+    const supplementaryTools = records.map((record) =>
+      supplementaryToolForMembers(record.members, record.representative));
+    const accountId = `account-${index + 1}`;
+    const accountLabel = bundles.length === 1 ? 'Account' : `Account ${index + 1}`;
+    return `<article class="account-block" aria-labelledby="${accountId}">`
+      + `<div class="account-identity"><h2 class="account-number" id="${accountId}">${accountLabel}</h2>`
+      + `<span class="account-members"><strong>Shown once</strong> · ${membership}</span></div>`
+      + `<div class="limit-tools">${lanes}</div>`
+      + supplementaryLimitsHtml(supplementaryTools, accountId)
+      + `<div class="limit-notes">${limitNotesHtml(entries)}</div></article>`;
+  }).join('');
   return `<section class="limits-overview multi-limits" aria-labelledby="multi-limits-title">`
     + `<div class="limits-heading"><div><div class="section-kicker">Account limits</div>`
     + `<h1 id="multi-limits-title">Claude Code and Codex</h1></div>`
     + `<p class="scope-copy"><strong>Account-wide</strong> · matching account readings are shown once; different accounts remain labeled.</p></div>`
-    + `<div class="limit-tools">${lanes.join('')}</div>`
-    + `<div class="limit-notes">${limitNotesHtml(entries)}</div></section>`;
+    + accountHtml + `</section>`;
 }
 
 // hostDiagnostic reason → offline callout copy. Own-key (hasOwnProperty) lookup;
@@ -685,6 +918,8 @@ function renderHosts(combined) {
   const claudeDetails = document.getElementById('claude-details');
   const codexDetails = document.getElementById('codex-details');
   const limitNotes = document.getElementById('limit-notes');
+  const accountIdentity = document.getElementById('account-identity');
+  const supplementaryEl = document.getElementById('supplementary-limits');
 
   const renderStaticGroups = (tools, localOnly = false) => {
     const bySource = new Map((tools || []).map((tool) => [tool.source, tool]));
@@ -720,14 +955,28 @@ function renderHosts(combined) {
     const limitEntries = (st.tools || []).map((tool) => ({ tool }));
     const lanes = limitEntries.map(({ tool }) => limitLaneHtml(tool, '',
       tool.source === 'claude-code' ? dashboardResetSelection : null)).join('');
+    const membership = `from ${joinLabels([hosts[0].label])}`;
+    const identity = `<h2 class="account-number" id="single-account-title">Account</h2>`
+      + `<span class="account-members"><strong>Shown once</strong> · ${membership}</span>`;
+    const supplementary = supplementaryLimitsHtml(st.tools || [], 'single-account');
+    if (accountIdentity) accountIdentity.innerHTML = identity;
+    if (supplementaryEl) supplementaryEl.innerHTML = supplementary;
     const notes = limitNotesHtml(limitEntries);
     if (limitNotes) limitNotes.innerHTML = notes;
     const hasStaticGroups = renderStaticGroups(st.tools || []);
     // Minimal-DOM unit harnesses don't instantiate index.html; retain a
     // complete fallback render there without changing the product DOM.
-    toolsEl.innerHTML = hasStaticGroups ? lanes : lanes + (limitNotes ? '' : `<div class="limit-notes-inline">${notes}</div>`) + (st.tools || []).map((tool) =>
-      `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, 'this machine', toolDetailsTitleId(tool),
-        tool.source === 'claude-code' ? dashboardResetSelection : null)}</section>`).join('');
+    const stableAccountDom = Boolean(accountIdentity && supplementaryEl);
+    const fallbackAccountStart = stableAccountDom
+      ? '' : `<div class="account-identity limit-tools-wide">${identity}</div>`;
+    const fallbackSupplementary = stableAccountDom
+      ? '' : `<div class="limit-tools-wide">${supplementary}</div>`;
+    toolsEl.innerHTML = fallbackAccountStart + lanes + fallbackSupplementary
+      + (hasStaticGroups ? ''
+        : (limitNotes ? '' : `<div class="limit-notes-inline">${notes}</div>`)
+          + (st.tools || []).map((tool) =>
+            `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, 'this machine', toolDetailsTitleId(tool),
+              tool.source === 'claude-code' ? dashboardResetSelection : null)}</section>`).join(''));
     const freshest = (st.tools || []).map((t) => t.dataAt).filter(Boolean).sort().pop();
     document.getElementById('age').textContent = freshest ? fmtAge(freshest) : 'no readings yet';
     document.getElementById('freshness').classList.toggle('stale', !freshest);
@@ -739,6 +988,8 @@ function renderHosts(combined) {
   // local tool stories. Offline stations are dimmed and sorted last.
   toolsEl.innerHTML = '';
   if (singleLimits) singleLimits.hidden = true;
+  if (accountIdentity) accountIdentity.innerHTML = '';
+  if (supplementaryEl) supplementaryEl.innerHTML = '';
   if (limitNotes) limitNotes.innerHTML = '';
   headEl.hidden = true; // headroom is a per-host, cross-tool cue; not shown at the aggregate level
   const groups = groupAccounts(hosts);
@@ -961,9 +1212,6 @@ function insightAccountHtml(account) {
     const balance = boundedInsightLabel(credits.balance, '');
     if (balance) bits.push(`<span>Balance ${esc(balance)}</span>`);
   }
-  const resetCount = credits && credits.available === true
-    ? safeInsightCount(credits.resetCreditsAvailable) : null;
-  if (resetCount != null) bits.push(`<span>${resetCount.toLocaleString()} reset ${plural(resetCount, 'credit')}</span>`);
   return `<div class="insights-account">${bits.join('')}</div>`;
 }
 
