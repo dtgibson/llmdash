@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-28 features shipped.
+29 features shipped.
 
-- **Last shipped:** Complete-uninstall hardening — teardown now proves the service
-  is absent before removing anything, preserves every SQLite sidecar, and reports
-  its result with all recovery locations.
-- **Previously:** Reset and billing configuration — Claude has an owner-saved
-  weekly fallback, recurring monthly Claude/Codex access costs update
-  automatically, and fixed billing inputs are editable over Tailscale.
+- **Last shipped:** Codex resets and global limits — the leading account view now
+  shows every provider-reported global cap plus the available Codex reset count and
+  each explicit expiration, once per account.
+- **Previously:** Complete-uninstall hardening — teardown proves the service is
+  absent before removing anything, preserves every SQLite sidecar, and reports its
+  result with all recovery locations.
 
 ---
 
@@ -23,16 +23,17 @@ product. Update it freely.
 
 1. **Limit alerts** — a heads-up when you're running low on a window.
 
-Limit alerts now stand on three things that shipped since they were queued: a
+Limit alerts now stand on four things that shipped since they were queued: a
 fresh-by-default Claude reading (auto-refresh — DECISIONS.md 2026-07-02) so an
 alert isn't built on a permanently stale number; the menu-bar badge's
 most-constrained-window selection + honesty-state model (2026-07-02), which an
 alert can reuse for its trigger logic rather than reinvent; and the multi-host
 peer plumbing (2026-07-02), so an alert can now fire **across hosts** (a combined
 `/api/hosts` view already carries every machine's per-tool picture) rather than
-only the local machine. Alerts should still respect the freshness bands — a
-reading can lag during inactivity, the probe can be failing or disabled, and a
-peer can be offline — rather than blindly trust an old reading.
+only the local machine; plus explicit Codex reset expirations and global model-cap
+evidence with distinct partial, unsupported, stale, and source-error states.
+Alerts should still respect those evidence states and freshness bands rather than
+blindly trust an old reading or invent a missing expiration.
 
 ---
 

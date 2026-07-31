@@ -8,16 +8,16 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 
 ## Shipped Capabilities
 - **Claude Code live dashboard** — the 5-hour and weekly limit windows (remaining
-  %, reset countdowns, status colors), model-specific weekly caps when Claude
-  reports them, pacing predictors for **both** windows (on pace / at risk / limit
-  reached, with status pills), and activity stats from local logs: tokens (5h /
-  week / today), cache hit rate, session counts, and weekly token mix, with limit
-  snapshots logged to SQLite.
+  %, reset countdowns, status colors), provider-reported model-specific weekly
+  caps in the leading account story, pacing predictors for **both** windows (on
+  pace / at risk / limit reached, with status pills), and activity stats from local
+  logs: tokens (5h / week / today), cache hit rate, session counts, and weekly token
+  mix, with limit snapshots logged to SQLite.
 - **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
-  Claude in the leading account-limit comparison, with absent windows left
-  unavailable and its account facts, local activity, reasoning, work mix,
-  context/compaction pressure, latency, and daily patterns grouped into one
-  honest Codex story.
+  Claude in the leading account-limit comparison alongside its current reset-credit
+  count and every explicit expiration, with absent evidence left unavailable and
+  its account facts, local activity, reasoning, work mix, context/compaction
+  pressure, latency, and daily patterns grouped into one honest Codex story.
 - **Local cost analysis** — an independent 7d / 30d / 90d view compares
   owner-confirmed subscription spend with exact-model, effective-dated
   API-equivalent values for the same retained Claude/Codex usage under observed
@@ -93,14 +93,16 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   caps, and account-only statusline captures preserve those active model caps until
   reset instead of deleting them. Activity stats are computed on demand from
   `~/.claude/projects/**/*.jsonl`.
-- Codex limits and account facts come from `codex app-server` (polled on the
-  interval, not per request) with a rollout-file fallback; explicit duration
-  identifies each current window, a complete response can authoritatively omit a
-  window, and historical snapshot rows never repopulate that missing current
-  slot. A bounded local scanner reduces `~/.codex/sessions` into cached aggregate
-  activity and 24h/7d/30d diagnostics for `/api/codex-insights`, never returning
-  raw session content or identifiers; deeper insight history is re-derived from
-  logs and never written to `usage_snapshots`.
+- Codex limits, reset-credit entitlements, and account facts come from `codex
+  app-server` (polled on the interval, not per request) with a rollout-file
+  fallback; explicit duration identifies each current window, a complete response
+  can authoritatively omit a window, and historical snapshot rows never repopulate
+  that missing current slot. Reset credits retain only a bounded available count,
+  explicit expiration instants, and their observation time in process memory. A
+  bounded local scanner reduces `~/.codex/sessions` into cached aggregate activity
+  and 24h/7d/30d diagnostics for `/api/codex-insights`, never returning raw session
+  content or identifiers; deeper insight history is re-derived from logs and never
+  written to `usage_snapshots`.
 - Cost analysis reduces a bounded 90-day local Claude/Codex ledger on the poller,
   combines optional owner-confirmed subscription periods with reviewed
   effective-dated rates using fixed-point arithmetic, and atomically caches 7d,
@@ -155,9 +157,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   the interval poller fans out a bounded, credential-free `GET /api/state` to each
   peer, caching the result per host in memory (peers are never persisted). A new
   `GET /api/hosts` serves the combined view from that cache — off the request path.
-  `/api/state` and its badge/local consumers are byte-for-byte unchanged (a golden
-  test guards it); the same-account collapse is a client-side derivation (matching
-  reset epochs), so it needs no new server field.
+  The same account appears once in the leading comparison while different accounts
+  remain separate; reset-credit and model-cap evidence keep their own observation
+  clocks instead of inheriting machine activity freshness.
 
 ## Data Sources & Honesty
 - **Limits** are account-wide (each tool's own numbers) — identical across every
@@ -165,6 +167,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   that machine's logs only. The UI states this distinction, and in multi-host mode
   it is load-bearing: same-account limits are shown once (never repeated as if
   independent budgets), while per-machine activity leads the differentiation.
+- Current reset-credit counts and expirations are explicit provider evidence,
+  never inferred from usage history; authoritative zero, partial, unsupported,
+  stale, and source-error states remain distinct.
 - **Configured subscription spend** is fixed access cost supplied by the owner;
   **API-equivalent values** are counterfactual estimates from retained local logs,
   not invoices or provider charges, and any missing source/rate coverage remains

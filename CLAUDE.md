@@ -129,10 +129,15 @@
   the checkout-deleting step runs from the node helper's temp copy (the installer
   script is itself in the checkout being deleted).
 - Persist only what has no other history: limit **snapshots** go to SQLite
-  (deduped). Activity/token stats are derived on demand from Claude Code logs —
-  no extra storage.
+  (deduped). Time-limited provider entitlements are current account facts and stay
+  bounded in memory; never persist them without explicit historical semantics and
+  expiry cleanup. Activity/token stats are derived on demand from Claude Code logs
+  — no extra storage.
 - **Be honest in the UI.** When a number's source or scope differs from the
   headline data (e.g. account-wide limits vs local-log activity), say so.
+  Account-wide allowances have one canonical home in the leading account story;
+  when promoted there, remove exact lower-page duplicates rather than presenting
+  one allowance as several budgets.
 - **A visible change to a shipped default that every user sees is ratified +
   disclosed, never silent.** The badge's default tool cue swapped `C`/`X` → `◆`/`▲`
   (diamond = Claude, triangle = Codex) — this alters the always-on glyph of every
@@ -289,7 +294,12 @@
   live account response expire after a bounded TTL, and an explicit plan change or
   unknown plan clears facts that could belong to the prior account. Display-bound
   external strings must strip Unicode control/format/line-separator characters in
-  addition to HTML escaping; adjacent account facts use bidi isolation.
+  addition to HTML escaping; apply the same length and control-character bounds at
+  local and peer ingest boundaries. Adjacent account facts use bidi isolation.
+  Same-account supplementary evidence collapses only after the provider-specific
+  account identity check: reset credits select one newest valid snapshot, each
+  model cap selects its newest valid capture independently, and different accounts
+  never merge.
 - Empty/error limit states cross the wire as **enum reason codes**
   (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
   the few free-form fields. The server knows the cause — the client never guesses.

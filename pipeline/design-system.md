@@ -60,6 +60,14 @@ Spacing & shape:
   Lanes sit side by side at desktop widths and stack on phones while each keeps a
   two-column window grid, so all four Claude/Codex slots remain visible before
   supporting statistics without horizontal scrolling at 320px.
+- **Supplementary global-limit band** (`.supplementary` + `.supplement-grid`): a
+  flat, account-scoped divided band directly beneath all elevated primary gauges
+  and before pacing or machine-local activity. Tool-aligned groups carry generic
+  provider model caps and current reset entitlements with text-first evidence
+  states; every known expiration stays visible in semantic reading order, and an
+  exact duplicate instant may group only with its quantity shown. Same-account
+  readings collapse once, different accounts remain separate, and an allowance
+  promoted here loses its exact lower-page duplicate.
 - **Primary metric panel** (`.panel`): headline figure + label + status bar + meta
   line. Account-window gauges are the only strongly elevated metric layer.
 - **Unavailable window panel** (`.limit-card.unavailable`): retain the primary

@@ -1,5 +1,26 @@
 # Decisions — llmdash
 
+## Codex resets and global limits — current entitlement evidence in one account story — 2026-07-30 (feature)
+
+**Decision:** Provider-reported Codex reset credits are current account facts:
+retain only the bounded available count, every explicit unexpired expiration, and
+the original observation time in process memory. Reset credits and provider model
+caps are canonical in the leading account story beneath the primary windows, so
+their exact lower-page duplicates are removed. Same-account hosts may collapse
+only after the existing provider-specific identity check, with reset and per-model
+evidence selected on independent clocks; different accounts never merge.
+**Rationale:** A user planning work needs to see the allowance most likely to stop
+them without mistaking repeated host readings for additional budgets. Persisting
+short-lived entitlements or retaining provider IDs and descriptions would create
+misleading history and unnecessary privacy surface, while guessing missing dates
+would violate the dashboard's evidence-first contract.
+**Implications:** Future account-wide entitlements must preserve authoritative
+zero, partial, unsupported, stale, and source-error states; never infer expirations;
+remain poller-owned, bounded, normalized, and cache-served; and appear once in the
+account layer before machine-local activity. Shipped as `50e08d6`; 753 tests passed
+with 2 expected skips, security had no open findings, and production verified three
+Codex resets with all three explicit expirations plus the weekly Fable limit.
+
 ## Complete-uninstall hardening — exact absence proof, SQLite sidecar parity, and recovery reporting — 2026-07-27 (improve)
 
 **Decision:** Complete uninstall may remove its first artifact only after a
