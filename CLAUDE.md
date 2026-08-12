@@ -238,6 +238,13 @@
   one. Each tool shows a pacing predictor for **both** windows at once; a maxed
   window (≈0 remaining) reads "limit reached" and is binding **per window** (one
   maxed window never suppresses the other's pacing line).
+- **Primary quota gauges accept only bounded, duration-derived reset copy.** Keep
+  their remaining-quota baselines independent of provenance length: source labels,
+  exact schedules, timezones, freshness, host names, and arbitrary provider text
+  belong once in the associated pacing row as ordinary readable DOM that may wrap,
+  never truncated, clamped, hover-only, or duplicated in the gauge. Available,
+  maxed, missing-reset, and unavailable cards share deterministic row geometry;
+  unavailable cards remain percentage-free and show `RESET · —`.
 - **Live provider reset evidence outranks owner fallback configuration.** Use the
   saved IANA-zone weekly schedule only when the live account reset is missing,
   expired, invalid, or non-current; label it configured, and never let it refresh

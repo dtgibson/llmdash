@@ -7,12 +7,10 @@ your own machine, is viewable on phone or laptop over Tailscale, and covers Clau
 Code (Max) and Codex (the live ChatGPT account tier) side by side.
 
 ## Shipped Capabilities
-- **Claude Code live dashboard** — the 5-hour and weekly limit windows (remaining
-  %, reset countdowns, status colors), provider-reported model-specific weekly
-  caps in the leading account story, pacing predictors for **both** windows (on
-  pace / at risk / limit reached, with status pills), and activity stats from local
-  logs: tokens (5h / week / today), cache hit rate, session counts, and weekly token
-  mix, with limit snapshots logged to SQLite.
+- **Claude Code live dashboard** — the leading 5-hour and weekly cards keep
+  remaining quota and compact reset timing aligned while full reset provenance
+  and schedules live in pacing alongside both-window predictors, provider-reported
+  model caps, and local-log activity stats, with limit snapshots logged to SQLite.
 - **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
   Claude in the leading account-limit comparison alongside its current reset-credit
   count and every explicit expiration, with absent evidence left unavailable and

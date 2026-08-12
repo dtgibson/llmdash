@@ -68,8 +68,14 @@ Spacing & shape:
   exact duplicate instant may group only with its quantity shown. Same-account
   readings collapse once, different accounts remain separate, and an allowance
   promoted here loses its exact lower-page duplicate.
-- **Primary metric panel** (`.panel`): headline figure + label + status bar + meta
-  line. Account-window gauges are the only strongly elevated metric layer.
+- **Primary metric panel** (`.panel`): account-window gauges use a deterministic
+  stack of window label, headline remaining figure, usage state, status bar, and
+  bounded duration-only reset line. Full provenance, exact schedules/timezones,
+  freshness, host context, and arbitrary provider copy live once as readable,
+  wrap-safe text in the associated pacing row—never truncated or hover-only in
+  the gauge. Available, maxed, missing-reset, and unavailable states retain the
+  same geometry; unavailable stays percentage-free with `RESET · —`. Account-
+  window gauges are the only strongly elevated metric layer.
 - **Unavailable window panel** (`.limit-card.unavailable`): retain the primary
   slot's geometry but replace the percentage, countdown, and filled meter with a
   plain `Unavailable` state and source-specific explanation; another window is

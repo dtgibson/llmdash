@@ -1,5 +1,20 @@
 # Decisions — llmdash
 
+## Quota-card metadata hierarchy — 2026-08-11 (improve)
+
+**Decision:** Primary account-window cards render only remaining quota, usage
+state, the meter, and bounded duration-derived reset timing in deterministic rows.
+Full reset provenance, exact configured schedules, timezones, freshness, host
+context, and other variable-length evidence appear once in the associated pacing
+row as ordinary readable text.
+**Rationale:** Long configured-weekly metadata displaced the headline percentage;
+truncating it would hide evidence, while repeating it in both layers weakened the
+limits-first hierarchy.
+**Implications:** Future quota-card metadata must be bounded by construction, not
+clamped or hidden behind hover. Available, maxed, missing-reset, and unavailable
+states retain uniform geometry, while unavailable windows never fabricate a
+percentage or reset value.
+
 ## Codex resets and global limits — current entitlement evidence in one account story — 2026-07-30 (feature)
 
 **Decision:** Provider-reported Codex reset credits are current account facts:
