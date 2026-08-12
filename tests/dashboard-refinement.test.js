@@ -65,9 +65,16 @@ test('range controls, narrow reflow, themes, and reduced motion stay explicit', 
   assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.window-grid, \.gauges\.window-grid\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s,
     'each compact tool lane retains two windows');
   assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.page-shell\s*\{[^}]*100% - 22px/s, '320px uses bounded phone gutters');
-  assert.match(styles, /\.limit-card\s*\{[^}]*min-width: 0/s);
-  assert.match(styles, /\.limit-card \.win-reset\s*\{[^}]*white-space: normal[^}]*overflow-wrap: anywhere/s,
-    'reset copy can wrap at narrow desktop and mobile widths');
+  assert.match(styles, /\.limit-card\s*\{[^}]*display: grid[^}]*grid-template-rows: 0\.75rem 3\.1rem 2\.1rem 7px 1rem[^}]*min-width: 0/s,
+    'desktop cards reserve the same five reading rows');
+  assert.match(styles, /\.limit-reset-compact\s*\{[^}]*white-space: nowrap/s,
+    'the in-card reset value uses a bounded one-line grammar');
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.limit-card\.panel\s*\{[^}]*grid-template-rows: 0\.7rem 2\.35rem 1\.9rem 6px 0\.9rem[^}]*row-gap: 6px/s,
+    '390px and 320px cards retain deterministic compact rows');
+  assert.match(styles, /\.burn-cap\s*\{[^}]*overflow-wrap: anywhere/s,
+    'full reset evidence may wrap in pacing without widening the viewport');
+  assert.doesNotMatch(appJs, /win-reset|resetCountdownCopy|showProvenance/,
+    'quota cards do not receive the former unbounded evidence formatter');
   assert.match(styles, /\.pill\s*\{[^}]*min-width: 32px[^}]*min-height: 32px/s,
     'range controls keep a 32px interaction floor');
   assert.match(styles, /@media \(max-width: 430px\)[\s\S]*?\.model-limit-head/);

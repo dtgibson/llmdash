@@ -134,17 +134,28 @@ function configuredResetMoment(reset) {
   } catch { return null; }
 }
 
-function resetContextCopy(reset, showProvenance = false) {
-  const parts = [];
-  if (showProvenance) parts.push(reset.label);
+function resetContextCopy(reset) {
+  const parts = [reset.source === 'live' ? 'Live provider reading' : reset.label];
   const configuredMoment = configuredResetMoment(reset);
   if (configuredMoment) parts.push(configuredMoment);
   return parts.join(' · ');
 }
 
-function resetCountdownCopy(reset, showProvenance = false) {
-  if (!reset) return null;
-  const context = resetContextCopy(reset, showProvenance);
+// Primary gauges get one bounded, duration-only value. Detailed reset source,
+// schedule, and timezone evidence belongs to the associated pacing row below.
+function compactResetValue(reset) {
+  if (!reset || !Number.isFinite(reset.resetMs) || reset.resetMs <= Date.now()) return '—';
+  return fmtDur(reset.resetMs - Date.now());
+}
+
+function compactResetHtml(reset) {
+  return `<div class="limit-reset-compact"><span class="limit-reset-label">Reset ·</span>`
+    + `<span class="limit-reset-value">${compactResetValue(reset)}</span></div>`;
+}
+
+function resetEvidenceCopy(reset) {
+  if (!reset || !Number.isFinite(reset.resetMs) || reset.resetMs <= Date.now()) return null;
+  const context = resetContextCopy(reset);
   return `${context ? `${esc(context)} · ` : ''}resets in ${fmtDur(reset.resetMs - Date.now())}`;
 }
 
@@ -187,43 +198,45 @@ function toolDetailsTitleId(tool) {
 }
 
 function gaugeHtml(win, label, tool, reset = null) {
-  const resetCopy = resetCountdownCopy(reset, label === 'Weekly');
   if (!win) {
     const codexShort = tool && tool.source === 'codex' && label === '5-hour';
     const note = codexShort ? 'No short-window reading' : 'No current window reading';
     return `<div class="panel limit-card unavailable">`
-      + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">${resetCopy || 'not reported'}</span></div>`
+      + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span></div>`
       + `<div class="limit-unavailable">Unavailable</div><div class="sub limit-meta">${note}</div>`
-      + `<div class="unavailable-rule" aria-hidden="true"></div></div>`;
+      + `<div class="unavailable-rule" aria-hidden="true"></div>${compactResetHtml(null)}</div>`;
   }
+  const compactReset = compactResetHtml(reset);
   const rem = Math.floor(win.remainingPct), used = Math.ceil(win.usedPct), cls = statusClass(rem);
   const maxed = win.remainingPct <= 0;
   const sub = maxed ? `<span class="is-crit">limit reached</span>` : `remaining · ${used}% used`;
   // A maxed window shows a full red bar (limit consumed), not an empty/blank bar.
   const barWidth = maxed ? 100 : win.remainingPct;
   return `<div class="panel limit-card">`
-    + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span><span class="win-reset reset">${resetCopy || 'resets in —'}</span></div>`
+    + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span></div>`
     + `<div class="remaining limit-value is-${cls}">${rem}<span class="unit">%</span></div><div class="sub limit-meta">${sub}</div>`
-    + `<div class="bar" aria-hidden="true"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div></div>`;
+    + `<div class="bar" aria-hidden="true"><div class="bar-fill fill-${cls}" style="width:${barWidth}%"></div></div>${compactReset}</div>`;
 }
 
 // One window's pacing row: [name column] [pacing sentence] [status pill].
 // Each window is evaluated independently — a maxed window reads "limit reached"
 // on its own row and never suppresses the other window's row (FR-04 / FR-08).
 function pacingLine(label, win, proj, unavailableCopy = '', reset = null, windowHours = 5) {
-  const resetCopy = resetCountdownCopy(reset, label === 'Weekly');
-  const displayProjection = pacingProjection(win, proj, reset, windowHours);
+  const usableReset = reset && Number.isFinite(reset.resetMs) && reset.resetMs > Date.now()
+    ? reset : null;
+  const resetCopy = resetEvidenceCopy(usableReset);
+  const displayProjection = pacingProjection(win, proj, usableReset, windowHours);
   let text, pillCls = '', pillLabel = '';
   if (win && win.remainingPct <= 0) {
     text = `<span class="is-crit">${label} limit reached</span>`
-      + (resetCopy ? `<span class="burn-cap">${resetCopy}</span>` : '');
+      + `<span class="burn-cap">${resetCopy || 'Reset time not reported · pacing unavailable'}</span>`;
     pillCls = 'pill-crit'; pillLabel = 'limit reached';
   } else if (win && resetCopy != null) {
     // We have a reading and a reset time, so we can speak to pacing.
     if (displayProjection && displayProjection.etaMs != null && displayProjection.hitsBeforeReset) {
-      const resetContext = resetContextCopy(reset, label === 'Weekly');
+      const resetContext = resetContextCopy(usableReset);
       text = `On pace to hit the ${label} limit in <strong>~${fmtDur(displayProjection.etaMs - Date.now())}</strong>`
-        + `<span class="burn-cap">${resetContext ? `${esc(resetContext)} · ` : ''}before it resets in ${fmtDur(reset.resetMs - Date.now())} — at risk</span>`;
+        + `<span class="burn-cap">${resetContext ? `${esc(resetContext)} · ` : ''}before it resets in ${fmtDur(usableReset.resetMs - Date.now())} — at risk</span>`;
       pillCls = 'pill-warn'; pillLabel = 'at risk';
     } else {
       // Projected to stay under, or no measurable burn yet (e.g. 0% used / fresh window).
@@ -235,7 +248,7 @@ function pacingLine(label, win, proj, unavailableCopy = '', reset = null, window
     // No reading, or a reading with no reset time — can't project honestly.
     text = `limit data not available yet`
       + (resetCopy ? `<span class="burn-cap">${resetCopy} · usage reading unavailable</span>`
-        : unavailableCopy ? `<span class="burn-cap">${unavailableCopy}</span>` : '');
+        : `<span class="burn-cap">${win ? 'Reset time not reported' : (unavailableCopy || 'No current window reading')} · pacing unavailable</span>`);
   }
   const pill = pillLabel ? `<span class="burn-pill ${pillCls}">${pillLabel}</span>` : `<span></span>`;
   return `<div class="burn-line"><span class="burn-win">${label}</span>`

@@ -183,6 +183,25 @@ function configuredResetView(nextResetAt) {
   };
 }
 
+function compactResetValues(html) {
+  return [...html.matchAll(/<div class="limit-reset-compact"><span class="limit-reset-label">Reset ·<\/span><span class="limit-reset-value">([^<]+)<\/span><\/div>/g)]
+    .map((match) => match[1]);
+}
+
+function assertBoundedCompactResets(html, expectedCount) {
+  const values = compactResetValues(html);
+  assert.equal(values.length, expectedCount, 'every quota card has one compact reset footer');
+  for (const value of values) {
+    assert.match(value, /^(?:—|now|\d+m|\d+h \d+m|\d+d \d+h)$/,
+      `unexpected in-card reset grammar: ${value}`);
+  }
+  assert.doesNotMatch(html, /Configured|Live provider reading|Provider reading|America\//,
+    'source, schedule, and timezone evidence stay out of quota cards');
+  assert.doesNotMatch(html, /resets in/,
+    'quota cards contain only the bounded duration, not pacing prose');
+  return values;
+}
+
 async function renderConfiguredResetBoundary() {
   const startMs = Date.now();
   const boundaryMs = startMs + 60_000;
@@ -224,7 +243,9 @@ async function renderConfiguredResetBoundary() {
 test('configured reset refetches immediately at the exact reset boundary', async () => {
   const h = await renderConfiguredResetBoundary();
   assert.equal(h.resetFetchCount(), 1);
-  assert.match(h.els.tools.innerHTML, /Weekly[\s\S]*Configured/);
+  assertBoundedCompactResets(h.els.tools.innerHTML, 2);
+  assert.match(h.els['claude-details'].innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/,
+    'full configured evidence is immediately available in pacing');
 
   h.clock.set(h.boundaryMs - 1);
   h.tick.fn();
@@ -260,18 +281,21 @@ test('configured reset boundary recovers as soon as the guarded refetch resolves
   const h = await renderConfiguredResetBoundary();
   h.clock.set(h.boundaryMs);
   h.tick.fn();
-  assert.match(h.els.tools.innerHTML,
-    /Weekly<\/span><span class="win-reset reset">resets in —<\/span>/,
-  'the expired reset is not presented as current while recovery is pending');
+  assert.equal(compactResetValues(h.els.tools.innerHTML)[1], '—',
+    'the expired reset is not presented as current while recovery is pending');
+  assert.match(h.els['claude-details'].innerHTML,
+    /Weekly[\s\S]*Reset time not reported · pacing unavailable/);
 
   h.resolveBoundary();
   await flushAsync();
   await flushAsync();
 
   assert.equal(h.resetFetchCount(), 2, 'recovery did not wait for or invoke the 60-second poll');
-  assert.match(h.els.tools.innerHTML,
-    /Weekly<\/span><span class="win-reset reset">Configured · [\s\S]* · resets in (?!—)/,
-  'the newly resolved configured occurrence is rendered immediately');
+  assert.notEqual(compactResetValues(h.els.tools.innerHTML)[1], '—',
+    'the newly resolved occurrence restores the compact duration immediately');
+  assert.match(h.els['claude-details'].innerHTML,
+    /Weekly[\s\S]*Configured · [\s\S]*America\/Los_Angeles[\s\S]*resets in/,
+    'the newly resolved configured evidence is rendered immediately in pacing');
 });
 
 test('configured local Claude weekly reset fills only the display/pacing gap and preserves stale honesty', async () => {
@@ -292,8 +316,8 @@ test('configured local Claude weekly reset fills only the display/pacing gap and
   const { els, fetchUrls, sandbox } = await renderWith(combined, configuredResetView(configuredAt));
   assert.ok(fetchUrls.includes('/api/hosts'));
   assert.ok(fetchUrls.includes('/api/config/reset-billing'), 'configuration is fetched independently');
-  assert.match(els.tools.innerHTML,
-    /Weekly[\s\S]*Configured · [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2} (?:AM|PM) P[DS]T \/ America\/Los_Angeles · resets in/);
+  const compact = assertBoundedCompactResets(els.tools.innerHTML, 2);
+  assert.match(compact[1], /^\d+d \d+h$/);
   assert.match(els['claude-details'].innerHTML,
     /On pace to hit the Weekly limit[\s\S]*Configured · [\s\S]*America\/Los_Angeles · before it resets in[\s\S]*at risk/);
   assert.match(els['limit-notes'].innerHTML, /Stale reading/, 'configured timing does not make usage fresh');
@@ -317,8 +341,9 @@ test('a stale future Claude timestamp stays raw for account identity while confi
   }], generatedAt: iso(0) };
 
   const { els, sandbox } = await renderWith(combined, configuredResetView(configuredAt));
-  assert.match(els.tools.innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/);
-  assert.doesNotMatch(els.tools.innerHTML, /Weekly[\s\S]*Provider reading/,
+  assertBoundedCompactResets(els.tools.innerHTML, 2);
+  assert.match(els['claude-details'].innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/);
+  assert.doesNotMatch(els['claude-details'].innerHTML, /Weekly[\s\S]*Provider reading/,
     'stale provider evidence must not outrank the resolved configured selection');
   assert.doesNotMatch(els.tools.innerHTML, /resets in (?:2[0-9]|30)m/,
     'the stale near-term provider countdown is not presented as the selected reset');
@@ -340,8 +365,9 @@ test('a provider weekly reset wins a conflicting configured fallback and is labe
     hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
   }], generatedAt: iso(0) };
   const { els } = await renderWith(combined, configuredResetView(configuredAt));
-  assert.match(els.tools.innerHTML, /Weekly[\s\S]*Live · resets in/);
-  assert.doesNotMatch(els.tools.innerHTML, /Configured|America\/Los_Angeles/);
+  assertBoundedCompactResets(els.tools.innerHTML, 2);
+  assert.match(els['claude-details'].innerHTML, /Weekly[\s\S]*Live provider reading · resets in/);
+  assert.doesNotMatch(els['claude-details'].innerHTML, /Configured|America\/Los_Angeles/);
   assert.equal(tool.limits.seven_day.resetsAt, providerAt);
 });
 
@@ -366,8 +392,15 @@ test('local fallback stays off unrelated peer lanes but follows a collapsed lane
   const overview = collapsed.els.hosts.innerHTML.slice(0, collapsed.els.hosts.innerHTML.indexOf('class="host '));
   assert.equal((overview.match(/class="limit-tool tool/g) || []).length, 1);
   assert.match(overview, /identical on This machine &amp; Remote/);
-  assert.match(overview, /Configured[\s\S]*America\/Los_Angeles/,
-    'membership in the self account authorizes the display-only fallback on its collapsed lane');
+  assertBoundedCompactResets(overview, 2);
+  const localStart = collapsed.els.hosts.innerHTML.indexOf('<span class="host-name">This machine</span>');
+  const remoteStart = collapsed.els.hosts.innerHTML.indexOf('<span class="host-name">Remote</span>');
+  const localStory = collapsed.els.hosts.innerHTML.slice(localStart, remoteStart);
+  const remoteStory = collapsed.els.hosts.innerHTML.slice(remoteStart);
+  assert.match(localStory, /Configured[\s\S]*America\/Los_Angeles/,
+    'membership in the self account keeps full fallback evidence in its pacing story');
+  assert.doesNotMatch(remoteStory, /Configured|America\/Los_Angeles/,
+    'local fallback evidence never enters the remote pacing story');
 });
 
 test('single-host mode renders both tools limits-first with NO host chrome (QA-18)', async () => {
@@ -375,6 +408,8 @@ test('single-host mode renders both tools limits-first with NO host chrome (QA-1
   const { els, footer } = await renderWith(combined);
   assert.equal((els.tools.innerHTML.match(/class="limit-tool tool/g) || []).length, 2, 'two tool lanes render together');
   assert.equal((els.tools.innerHTML.match(/class="panel limit-card/g) || []).length, 4, 'four fixed account-window slots render first');
+  const compactResets = assertBoundedCompactResets(els.tools.innerHTML, 4);
+  assert.equal(compactResets[2], '—', 'an unavailable current window never fabricates reset timing');
   assert.match(els.tools.innerHTML, /class="gauges window-grid"/, 'each lane keeps its two-window grid');
   assert.match(els.tools.innerHTML, /class="tool-mark" aria-hidden="true">◆</, 'Claude keeps the shared tool identity mark');
   assert.ok(els.tools.innerHTML.indexOf('Claude Code') < els.tools.innerHTML.indexOf('Codex'), 'tool order is stable');
@@ -383,9 +418,58 @@ test('single-host mode renders both tools limits-first with NO host chrome (QA-1
   assert.doesNotMatch(els.tools.innerHTML, /class="stat-grid"/, 'supporting statistics do not interleave with the four slots');
   assert.match(els['claude-details'].innerHTML, /Pacing[\s\S]*Activity/);
   assert.match(els['codex-details'].innerHTML, /Pacing[\s\S]*Activity/);
+  assert.match(els['claude-details'].innerHTML, /5-hour[\s\S]*Live provider reading · resets in/,
+    'full live provenance stays in Claude pacing');
+  assert.match(els['codex-details'].innerHTML, /Weekly[\s\S]*Provider reading · resets in/,
+    'full provider-reading provenance stays in Codex pacing');
   assert.equal(els.hosts.innerHTML, '', 'no host chrome in single-host mode');
   assert.doesNotMatch(els.hosts.innerHTML, /acct|host-head/, 'no banner, no host header');
   assert.match(footer._spans[0].textContent, /Activity: local session logs/, 'single-host footer');
+});
+
+test('missing and unavailable reset states keep compact cards honest and full evidence in pacing', async () => {
+  const tool = claudeTool(3 * 3600_000, 2 * 86400_000);
+  tool.limits.five_hour.remainingPct = 0;
+  tool.limits.five_hour.usedPct = 100;
+  tool.limits.seven_day.resetsAt = null;
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool, codexTool(5 * 86400_000)]),
+  }], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined);
+  const values = assertBoundedCompactResets(els.tools.innerHTML, 4);
+  assert.notEqual(values[0], '—', 'a maxed window retains its usable compact countdown');
+  assert.equal(values[1], '—', 'a reading with no reset reports an em dash');
+  assert.equal(values[2], '—', 'an unavailable window reports an em dash');
+  assert.match(els.tools.innerHTML,
+    /remaining limit-value is-crit">0[\s\S]*limit reached[\s\S]*fill-crit" style="width:100%/,
+    'maxed semantics and the full consumed bar are unchanged');
+  assert.match(els['claude-details'].innerHTML,
+    /5-hour limit reached[\s\S]*Live provider reading · resets in/);
+  assert.match(els['claude-details'].innerHTML,
+    /Weekly[\s\S]*Reset time not reported · pacing unavailable/);
+  assert.match(els['codex-details'].innerHTML,
+    /5-hour[\s\S]*Codex did not report a short window · pacing unavailable/);
+});
+
+test('an unavailable weekly window keeps configured evidence only in pacing', async () => {
+  const tool = claudeTool(3 * 3600_000, 2 * 86400_000);
+  tool.limits.seven_day = null;
+  const configuredAt = iso(2 * 86400_000);
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
+  }], generatedAt: iso(0) };
+
+  const { els } = await renderWith(combined, configuredResetView(configuredAt));
+  const values = assertBoundedCompactResets(els.tools.innerHTML, 2);
+  assert.equal(values[1], '—', 'unavailable geometry never implies a reset value');
+  assert.match(els.tools.innerHTML, /Weekly[\s\S]*Unavailable[\s\S]*No current window reading/);
+  assert.doesNotMatch(els.tools.innerHTML, /Weekly[\s\S]*remaining limit-value/);
+  assert.match(els['claude-details'].innerHTML,
+    /Weekly[\s\S]*Configured · [\s\S]*America\/Los_Angeles · resets in[\s\S]*usage reading unavailable/,
+    'full configured evidence remains readable and associated in pacing');
 });
 
 test('single-host diagnostics follow all four account slots instead of splitting the tool lanes', async () => {
