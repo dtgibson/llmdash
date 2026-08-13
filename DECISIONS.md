@@ -1,22 +1,25 @@
 # Decisions — llmdash
 
-## Device health snapshot — host-scoped current evidence, not monitoring — 2026-08-12
+## Capacity-now health history — bounded host-scoped evidence — 2026-08-12
 
-**Decision:** Device condition is a host-scoped current fact: each reachable
-machine reports its own minute-sampled CPU, RAM, and available llmdash data-volume
-space through the existing host story. Samples remain in memory, never combine
-across machines, and present retained evidence and named degradation without a
-health verdict, alert, trend, or remediation control.
-**Rationale:** The owner needs to distinguish sustained machine pressure from AI
-provider or tool latency at a glance, but realtime telemetry and historical
-resource storage would add noise, privacy/retention obligations, and a second
-monitoring product. The data volume is the relevant disk target because its
-exhaustion threatens llmdash's irreplaceable no-backfill history.
-**Implications:** Future machine-condition facts belong inside each host's state,
-must keep observation time separate from failed update attempts, and must not be
-promoted into account-wide aggregates or persistent trends without a new explicit
-product decision. Older peers remain reachable when they omit the optional fact,
-and unsupported or failed metrics degrade independently rather than becoming zero.
+**Decision:** The dashboard's canonical first read is account quota and allowances,
+then one compact operational summary per reachable host (pacing, current CPU/RAM
+used, disk available, and health history), then diagnostics, activity, and longer
+analysis. The existing poller records each completed health attempt in that host's
+process-lifetime history, retains only the newest 60 attempts, and never writes
+them to SQLite or backfills them. Failed attempts create null metric gaps at their
+attempt time without restamping retained last-good snapshot values; histories
+never combine across hosts.
+**Rationale:** This hierarchy keeps capacity decisions glanceable and lets the
+owner distinguish sustained machine pressure from provider or tool latency without
+turning llmdash into a persistent monitoring product. Attempt gaps preserve honest
+collection evidence, while the data-volume reading remains the relevant disk fact
+because exhaustion threatens llmdash's irreplaceable no-backfill history.
+**Implications:** The effective host set is capped at 16 unique remote peers plus
+the always-present local host, bounding polling, cache, and rendered history work.
+Older peers may omit history while retaining their current snapshot; unsupported
+or failed metrics degrade independently rather than becoming zero. Any persistent
+or cross-host health trend requires a new explicit product decision.
 
 ## Quota-card metadata hierarchy — 2026-08-11 (improve)
 

@@ -222,6 +222,13 @@
   on overflow) so a peer can neither hang the poller nor OOM the process. Every
   fetched field is then untrusted data — clamp/normalize at ingest, `esc()` at
   render (above). Runs on the poller, never the request path.
+- **A per-host rendered collection needs independent item and host bounds.** Apply
+  the item cap before traversal/allocation at its producer and untrusted-ingest
+  boundaries, and cap unique configured remotes before fan-out, caching, or DOM
+  work; the always-present local host sits outside that remote ceiling. Pin the
+  full cross-product with a maximum-load render fixture (currently 60 health
+  attempts across 16 remotes plus local = at most 1,020 history rows), because an
+  item-only bound does not contain host-count multiplication.
 - **Any subprocess/pty probe follows the fixed-runner pattern** in
   `src/claude-refresh.js`: a fixed-constant runner (`/bin/sh` + `/usr/bin/script`
   by absolute path), config entering **only** as quoted positional argv (never

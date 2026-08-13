@@ -8,14 +8,13 @@ product. Update it freely.
 
 ## Shipped
 
-30 features shipped.
+31 features shipped.
 
-- **Last shipped:** Device health snapshot — each reachable machine now shows a
-  minute-sampled CPU, RAM, and available llmdash data-volume snapshot near the top
-  without combining hosts or implying realtime monitoring.
-- **Previously:** Codex resets and global limits — the leading account view shows
-  every provider-reported global cap plus the available Codex reset count and each
-  explicit expiration, once per account.
+- **Last shipped:** Dashboard density and health trends — the first read now moves
+  from canonical account capacity to compact host operations, with current health
+  and bounded process-lifetime history kept separate per machine.
+- **Previously:** Device health snapshot — each reachable machine shows its own
+  minute-sampled CPU, RAM, and available llmdash data-volume evidence.
 
 ---
 
