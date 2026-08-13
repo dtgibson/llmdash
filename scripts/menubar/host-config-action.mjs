@@ -38,6 +38,7 @@ const POST_ADD = (host) => `Added ${host} — it'll appear on the next update.`;
 const DUP_MSG = (label, addr) =>
   `That host is already being watched. ${label} (${addr}) is already in your list — nothing changed.`;
 const WRITE_FAIL = (reason) => `Couldn't save the host list — ${reason}. Nothing changed.`;
+const LIMIT_MSG = (reason) => `Host limit reached — ${reason}. Remove a watched machine before adding another.`;
 const REMOVE_CONFIRM = (label, addr) => `Stop watching ${label} (${addr})?`;
 
 // A value is passed to AppleScript ONLY as a literal we control (fixed copy) — an
@@ -118,6 +119,8 @@ export function runAdd({
     if (res.reason === 'duplicate') {
       const label = res.detail || entry;
       showMessage(DUP_MSG(label, label));
+    } else if (res.reason === 'limit') {
+      showMessage(LIMIT_MSG(res.detail || 'the watched-host list is full'));
     } else if (res.reason === 'write-failed') {
       showMessage(WRITE_FAIL(res.detail || 'write failed'));
     } else {

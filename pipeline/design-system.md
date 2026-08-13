@@ -49,8 +49,9 @@ Spacing & shape:
 
 ## Patterns
 - **Cross-surface reading order:** dashboard = complete Claude/Codex account-
-  window comparison → one grouped tool story at a time (pacing → activity →
-  supplemental detail → trends) → secondary cross-tool analysis; native menu =
+  window comparison + supplementary allowances → one compact operational summary
+  per reachable host (pacing → current health → health history) → grouped tool
+  activity/diagnostics/trends → secondary cross-tool analysis; native menu =
   binding summary → host/tool readings → attached diagnostics → settings/actions.
   Preserve this order as either surface gains content; diagnostics never split
   the primary comparison, and secondary analysis never enters the native menu by
@@ -84,8 +85,10 @@ Spacing & shape:
   grouped into a flat divided band rather than a grid of elevated cards.
 - **Status bar** (`.bar` / `.bar-fill`): thin rounded bar; fill width = the
   positive value (remaining), colored by status threshold.
-- **Pacing band** (`.burn`): compact accent-tinted second layer immediately below
-  the account gauges. It stacks a rate line and one aligned row per window.
+- **Pacing band** (`.burn`): compact host-scoped layer inside Capacity now,
+  immediately after account facts and beside current health/history where width
+  permits. It stacks a rate line and one aligned row per window; lower tool
+  details do not duplicate it.
 - **Pacing pill** (`.burn-pill` + `.pill-good` / `.pill-warn` / `.pill-crit`): a
   small status-tinted chip (ON PACE / AT RISK / LIMIT REACHED) in each window's
   pacing row inside the burn callout. Color by remaining-% status, backed by
@@ -129,6 +132,14 @@ Spacing & shape:
   pill) but still shown — no fabricated zeros. The menu-bar badge miniaturizes the
   same vocabulary onto one glyph + dropdown (glyph host cue `▪ <host>·◆ <pct>`,
   the tightest machine named), so a change here should hold for both surfaces.
+- **Compact operational host summary** (`.operational-host` +
+  `.operational-grid`): a flat host-scoped Capacity now layer. Pacing sits beside
+  one current-health band and one bounded history figure on desktop, then stacks
+  first on phone. History is process-lifetime (up to 60 attempts), never merged
+  across hosts, and renders CPU used as solid/circle, RAM used as dashed/square,
+  and disk available as dotted/diamond. Null metrics and cadence jumps segment
+  the paths; visible coverage/gap copy, host-specific SVG names, and an exact
+  screen-reader table carry the same meaning without color.
 - **Tool marks** (`◆` Claude / `▲` Codex): the neutral glyph pair that identifies
   which tool a reading is — different silhouettes (diamond vs. triangle), solid,
   monochrome-legible at menu-bar size (a same-shape/different-fill pair like

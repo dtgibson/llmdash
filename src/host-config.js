@@ -21,7 +21,7 @@
 import realFs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
-import { sanitizeHostPort, parseHosts } from './hosts.js';
+import { MAX_REMOTE_HOSTS, sanitizeHostPort, parseHosts } from './hosts.js';
 
 // The file body ↔ LLMDASH_HOSTS grammar mapping (the load-bearing reuse):
 // LLMDASH_HOSTS is a COMMA-separated list of host[:port][=label]; the file is
@@ -390,7 +390,7 @@ export function writeDisplayConfig(hostsFile, next, {
 // ── addHost — sanitize → validate → dedupe → atomic append (FR-15) ────────────
 // entry = a raw host[:port][=label] string (from the osascript dialog, ARGV-only).
 // Returns { ok:true, canonical } on a successful append, or
-//   { ok:false, reason:'invalid'|'duplicate'|'write-failed', detail? }  — NOTHING
+//   { ok:false, reason:'invalid'|'duplicate'|'limit'|'write-failed', detail? }  — NOTHING
 // written on invalid/duplicate. Reuses parseHosts's per-entry grammar to validate
 // exactly as LLMDASH_HOSTS does; a host that is empty-after-sanitize or has a bad
 // port is 'invalid'; a host:port already in the set is 'duplicate' (deduped,
@@ -430,6 +430,13 @@ export function addHost(hostsFile, entry, {
   if (existing.hosts.some((h) => !h.self && h.key === parsedEntry.key)) {
     const dup = existing.hosts.find((h) => !h.self && h.key === parsedEntry.key);
     return { ok: false, reason: 'duplicate', detail: dup ? dup.label : parsedEntry.key };
+  }
+  if (existing.hosts.filter((h) => !h.self).length >= MAX_REMOTE_HOSTS) {
+    return {
+      ok: false,
+      reason: 'limit',
+      detail: `at most ${MAX_REMOTE_HOSTS} remote peers can be watched`,
+    };
   }
 
   // Canonical stored line: sanitized host, explicit :port when non-default,

@@ -13,6 +13,7 @@ import {
   effectivePollInterval,
   refreshDeviceHealth,
   getDeviceHealthSnapshot,
+  appendHealthObservation,
   _resetDeviceHealth,
 } from '../src/device-health.js';
 
@@ -165,7 +166,51 @@ test('last-good values retain capturedAt while failed attempts advance attempted
   assert.equal(failed.ram.reason, 'probe-failed');
   assert.equal(failed.disk.capturedAt, good.disk.capturedAt);
   assert.equal(failed.disk.reason, 'statfs-failed');
+  const latest = failed.history.at(-1);
+  assert.equal(latest.ramUsedPct, null, 'retained last-good RAM is a gap for the failed attempt');
+  assert.equal(latest.diskAvailablePct, null, 'retained last-good disk is a gap for the failed attempt');
+  assert.equal(latest.cpuUsedPct, 50, 'an independently successful metric remains measured');
   assert.doesNotMatch(JSON.stringify(failed), /private detail/);
+});
+
+test('history records every attempt, replaces duplicate times, sorts corrections, and evicts to 60', async () => {
+  let history = [];
+  for (let i = 0; i < 61; i += 1) {
+    history = appendHealthObservation(history, {
+      capturedAt: new Date(i * 60_000).toISOString(),
+      cpuUsedPct: i, ramUsedPct: 50, diskAvailablePct: 25,
+    });
+  }
+  assert.equal(history.length, 60);
+  assert.equal(history[0].capturedAt, new Date(60_000).toISOString());
+  assert.equal(history.at(-1).capturedAt, new Date(60 * 60_000).toISOString());
+  history = appendHealthObservation(history, {
+    capturedAt: new Date(30 * 60_000).toISOString(),
+    cpuUsedPct: null, ramUsedPct: 99, diskAvailablePct: null,
+  });
+  assert.equal(history.length, 60);
+  assert.equal(history.find((sample) => sample.capturedAt === new Date(30 * 60_000).toISOString()).ramUsedPct, 99);
+  assert.deepEqual(history, history.slice().sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt)));
+});
+
+test('CPU baseline and all-null failures are honest per-metric history gaps', async () => {
+  const first = await refreshDeviceHealth({
+    nowMs: 0, platform: 'darwin', cpusImpl: () => [cpu(100, 900)],
+    ramProbe: okRam(60), statfsProbe: okDisk(),
+  });
+  assert.deepEqual(first.history[0], {
+    capturedAt: new Date(0).toISOString(),
+    cpuUsedPct: null, ramUsedPct: 60, diskAvailablePct: 250 / 1024 * 100,
+  });
+  const failed = await refreshDeviceHealth({
+    nowMs: 60_000, platform: 'darwin', cpusImpl: () => [],
+    ramProbe: async () => ({ ok: false, reason: 'probe-failed' }),
+    statfsProbe: async () => ({ ok: false, reason: 'statfs-failed' }),
+  });
+  assert.deepEqual(failed.history[1], {
+    capturedAt: new Date(60_000).toISOString(),
+    cpuUsedPct: null, ramUsedPct: null, diskAvailablePct: null,
+  });
 });
 
 test('snapshot reads are detached and overlapping refreshes share one collection', async () => {
@@ -185,7 +230,9 @@ test('snapshot reads are detached and overlapping refreshes share one collection
   assert.equal(ramCalls, 1);
   const detached = getDeviceHealthSnapshot();
   detached.disk.target = 'changed';
+  detached.history.push({ capturedAt: 'changed' });
   assert.equal(getDeviceHealthSnapshot().disk.target, 'data-volume');
+  assert.equal(getDeviceHealthSnapshot().history.length, 1);
 });
 
 test('poll interval normalization is bounded with a one-minute fallback', () => {

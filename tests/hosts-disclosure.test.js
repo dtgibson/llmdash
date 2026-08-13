@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { peerDisclosureLine, peerHealthLines, hostsConfigLine, displayDisclosure } from '../src/health.js';
-import { parseHosts } from '../src/hosts.js';
+import { MAX_REMOTE_HOSTS, parseHosts } from '../src/hosts.js';
 
 // FR-19 / QA-19: the peer-list config is disclosed — a startup line stating how
 // many peers and to which host:ports outbound reads go (or the single-host / no-
@@ -36,6 +36,17 @@ test('malformed entries are surfaced in the disclosure, never silently dropped (
   assert.match(line, /1 peer configured/);
   assert.match(line, /malformed/i);
   assert.match(line, /bad:99999/);
+});
+
+test('configured-host overflow is named separately from malformed input', () => {
+  const raw = Array.from({ length: MAX_REMOTE_HOSTS + 1 }, (_, i) => `peer-${i}`).join(',');
+  const parsed = parse(raw);
+  const line = peerDisclosureLine(parsed);
+  assert.match(line, /16 peers configured/);
+  assert.match(line, /Host limit reached/);
+  assert.match(line, /only the first 16 remote peers are watched/);
+  assert.doesNotMatch(line, /malformed/i);
+  assert.match(peerHealthLines(parsed, () => null).join('\n'), /host limit reached.*additional entries are ignored/i);
 });
 
 test('per-peer health lines name reachable / last-error + the fix (QA-19)', () => {

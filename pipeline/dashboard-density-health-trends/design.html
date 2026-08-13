@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>llmdash · Dashboard density and health trends</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --panel-glass: rgba(255, 255, 255, .9);
+      --border: #dfe5ec;
+      --border-strong: #cfd7e2;
+      --text: #151a21;
+      --muted: #667181;
+      --faint: #8994a3;
+      --track: #e8edf3;
+      --grid: #e9edf2;
+      --accent: #2563eb;
+      --accent-bg: #eaf0ff;
+      --teal: #0d9488;
+      --good: #168a45;
+      --good-bg: #e8f6ed;
+      --warn: #b96807;
+      --warn-bg: #fff2df;
+      --crit: #cc3434;
+      --crit-bg: #fdebec;
+      --claude: #b85d43;
+      --codex: #2563eb;
+      --accent-glow: rgba(37, 99, 235, .09);
+      --good-glow: rgba(22, 138, 69, .05);
+      --focus-ring: rgba(37, 99, 235, .32);
+      --gauge-shadow: 0 14px 34px rgba(37, 58, 86, .08), 0 2px 8px rgba(37, 58, 86, .04);
+      --frame-shadow: 0 24px 80px rgba(37, 58, 86, .13);
+      --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0c1015;
+      --panel: #151b22;
+      --panel-soft: #11171e;
+      --panel-glass: rgba(21, 27, 34, .92);
+      --border: #27303b;
+      --border-strong: #34404e;
+      --text: #edf1f5;
+      --muted: #a0aab6;
+      --faint: #75808d;
+      --track: #252e39;
+      --grid: #232b34;
+      --accent: #7ea4ff;
+      --accent-bg: #18243e;
+      --teal: #2dd4bf;
+      --good: #55cb7b;
+      --good-bg: #14291d;
+      --warn: #e8a54e;
+      --warn-bg: #2b2114;
+      --crit: #ff7777;
+      --crit-bg: #32191c;
+      --claude: #e18468;
+      --codex: #7ea4ff;
+      --accent-glow: rgba(126, 164, 255, .11);
+      --good-glow: rgba(85, 203, 123, .05);
+      --focus-ring: rgba(126, 164, 255, .38);
+      --gauge-shadow: 0 18px 44px rgba(0, 0, 0, .24), 0 2px 9px rgba(0, 0, 0, .16);
+      --frame-shadow: 0 28px 90px rgba(0, 0, 0, .34);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0c1015;
+        --panel: #151b22;
+        --panel-soft: #11171e;
+        --panel-glass: rgba(21, 27, 34, .92);
+        --border: #27303b;
+        --border-strong: #34404e;
+        --text: #edf1f5;
+        --muted: #a0aab6;
+        --faint: #75808d;
+        --track: #252e39;
+        --grid: #232b34;
+        --accent: #7ea4ff;
+        --accent-bg: #18243e;
+        --teal: #2dd4bf;
+        --good: #55cb7b;
+        --good-bg: #14291d;
+        --warn: #e8a54e;
+        --warn-bg: #2b2114;
+        --crit: #ff7777;
+        --crit-bg: #32191c;
+        --claude: #e18468;
+        --codex: #7ea4ff;
+        --accent-glow: rgba(126, 164, 255, .11);
+        --good-glow: rgba(85, 203, 123, .05);
+        --focus-ring: rgba(126, 164, 255, .38);
+        --gauge-shadow: 0 18px 44px rgba(0, 0, 0, .24), 0 2px 9px rgba(0, 0, 0, .16);
+        --frame-shadow: 0 28px 90px rgba(0, 0, 0, .34);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-width: 280px; margin: 0; }
+    body {
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--panel-soft);
+      font-family: var(--sans);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { color: inherit; font: inherit; }
+    button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .review-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 9px 14px;
+      min-height: 58px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-glass);
+      backdrop-filter: blur(16px);
+    }
+    .review-label, .control-label {
+      color: var(--faint);
+      font: 650 .59rem/1 var(--mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .review-control { display: flex; align-items: center; gap: 7px; }
+    .segmented {
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+    }
+    .segmented button {
+      min-height: 31px;
+      padding: 6px 10px;
+      border: 0;
+      border-radius: 999px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font: 620 .65rem/1 var(--mono);
+      transition: color 160ms ease-out, background-color 160ms ease-out, box-shadow 120ms ease-out;
+    }
+    .segmented button:hover { color: var(--text); }
+    .segmented button[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
+    .segmented button:active { box-shadow: inset 0 0 0 1px var(--focus-ring); }
+    .review-note { margin: 0; color: var(--faint); font-size: .66rem; }
+
+    .review-stage { display: grid; place-items: start center; min-width: 0; padding: 24px 0 64px; overflow-x: clip; }
+    .preview-frame {
+      container-type: inline-size;
+      width: min(940px, calc(100% - 24px));
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--bg);
+      box-shadow: var(--frame-shadow);
+      transition: width 220ms cubic-bezier(.2, .8, .2, 1);
+    }
+    .preview-frame[data-viewport="phone"] { width: min(360px, calc(100% - 24px)); }
+    .dashboard {
+      min-width: 0;
+      padding: 26px 16px 44px;
+      background:
+        radial-gradient(880px 430px at 10% -8%, var(--accent-glow), transparent 68%),
+        radial-gradient(680px 340px at 92% 1%, var(--good-glow), transparent 72%),
+        var(--bg);
+    }
+    .dashboard-inner { width: min(860px, 100%); min-width: 0; margin: 0 auto; }
+
+    .app-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 2px 2px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .wordmark { font: 680 1.16rem/1 var(--mono); letter-spacing: -.04em; }
+    .wordmark-sub { display: block; margin-top: 7px; color: var(--muted); font: 500 .7rem/1.35 var(--sans); letter-spacing: 0; }
+    .freshness { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 500 .7rem/1.2 var(--mono); white-space: nowrap; }
+    .pulse { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px var(--good-glow); }
+
+    h1, h2, h3, p { margin-top: 0; }
+    .first-read { margin-top: 18px; }
+    .capacity-panel {
+      min-width: 0;
+      padding: 17px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel-glass);
+    }
+    .capacity-heading, .host-heading, .supporting-heading, .health-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .section-kicker, .metric-label, .window-label, .allowance-label, .pace-tool, .host-label {
+      font-family: var(--mono);
+      font-weight: 650;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .section-kicker { margin-bottom: 5px; color: var(--accent); font-size: .63rem; }
+    .capacity-heading h1 { margin-bottom: 0; font: 680 1.18rem/1.2 var(--mono); letter-spacing: -.03em; }
+    .scope-copy { max-width: 340px; margin-bottom: 0; color: var(--muted); font-size: .69rem; text-align: right; }
+    .scope-copy strong { color: var(--text); font-weight: 630; }
+
+    .quota-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 14px; }
+    .quota-card {
+      --tone: var(--good);
+      min-width: 0;
+      padding: 11px 12px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: var(--gauge-shadow);
+    }
+    .quota-card.warn { --tone: var(--warn); }
+    .quota-tool { display: flex; align-items: center; gap: 6px; color: var(--muted); font: 650 .68rem/1.2 var(--mono); }
+    .quota-tool.claude { color: var(--claude); }
+    .quota-tool.codex { color: var(--codex); }
+    .window-label { margin-top: 8px; color: var(--faint); font-size: .56rem; }
+    .quota-value { margin-top: 5px; color: var(--tone); font: 650 1.75rem/.96 var(--mono); letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
+    .quota-value span { margin-left: 2px; color: var(--muted); font-size: .62rem; letter-spacing: 0; }
+    .bar { height: 5px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: var(--track); }
+    .bar > i { display: block; width: var(--value); height: 100%; border-radius: inherit; background: var(--tone); transition: width 220ms cubic-bezier(.2,.8,.2,1); }
+    .quota-meta { margin-top: 7px; color: var(--faint); font: 500 .56rem/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+
+    .allowance-band {
+      display: grid;
+      grid-template-columns: auto repeat(3, minmax(0, 1fr));
+      align-items: stretch;
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+    .allowance-intro { min-width: 134px; padding: 10px 12px 10px 0; }
+    .allowance-intro strong { display: block; font: 650 .68rem/1.3 var(--mono); }
+    .allowance-intro span { display: block; margin-top: 3px; color: var(--muted); font-size: .62rem; }
+    .allowance { min-width: 0; padding: 10px 12px; border-left: 1px solid var(--border); }
+    .allowance-label { color: var(--faint); font-size: .55rem; }
+    .allowance-value { margin-top: 3px; font: 650 .86rem/1.25 var(--mono); font-variant-numeric: tabular-nums; }
+    .allowance-value span { color: var(--muted); font: 500 .6rem/1.2 var(--sans); }
+    .allowance-note { margin-top: 2px; color: var(--muted); font-size: .59rem; }
+
+    .operational-host {
+      min-width: 0;
+      margin-top: 12px;
+      padding: 14px 15px 15px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--panel-soft);
+    }
+    .operational-host[hidden] { display: none; }
+    .host-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .host-heading h2 { margin-bottom: 0; font: 670 .9rem/1.2 var(--mono); letter-spacing: -.02em; }
+    .host-label { display: inline-flex; align-items: center; min-height: 20px; padding: 2px 7px; border-radius: 999px; color: var(--accent); background: var(--accent-bg); font-size: .52rem; }
+    .host-copy { margin: 3px 0 0; color: var(--muted); font-size: .65rem; }
+    .host-state { display: flex; align-items: center; gap: 7px; color: var(--faint); font: 500 .61rem/1.2 var(--mono); white-space: nowrap; }
+    .operational-grid { display: grid; grid-template-columns: minmax(205px, .82fr) minmax(0, 1.7fr); gap: 13px; margin-top: 11px; }
+
+    .pacing-block, .health-block { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+    .pacing-block { padding: 11px; }
+    .block-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .block-title h3 { margin-bottom: 0; font: 660 .72rem/1.2 var(--mono); }
+    .block-title span { color: var(--faint); font-size: .57rem; }
+    .pace-list { display: grid; gap: 6px; margin-top: 9px; }
+    .pace-row { display: grid; grid-template-columns: 59px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; }
+    .pace-tool { color: var(--muted); font-size: .52rem; }
+    .pace-tool.claude { color: var(--claude); }
+    .pace-tool.codex { color: var(--codex); }
+    .pace-copy { min-width: 0; color: var(--muted); font-size: .59rem; line-height: 1.25; }
+    .pace-copy strong { display: block; color: var(--text); font: 620 .62rem/1.25 var(--mono); }
+    .status-pill { padding: 3px 6px; border-radius: 999px; font: 650 .49rem/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+    .status-pill.good { color: var(--good); background: var(--good-bg); }
+    .status-pill.warn { color: var(--warn); background: var(--warn-bg); }
+    .pace-source { margin: 9px 0 0; padding-top: 8px; border-top: 1px solid var(--border); color: var(--faint); font-size: .56rem; }
+
+    .health-block { overflow: hidden; }
+    .health-heading { padding: 10px 11px 8px; }
+    .health-heading h3 { margin-bottom: 0; font: 660 .72rem/1.2 var(--mono); }
+    .health-age { color: var(--faint); font: 500 .57rem/1.2 var(--mono); white-space: nowrap; }
+    .health-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .health-metric { min-width: 0; padding: 8px 10px; }
+    .health-metric + .health-metric { border-left: 1px solid var(--border); }
+    .metric-label { color: var(--faint); font-size: .5rem; }
+    .metric-value { margin-top: 2px; font: 650 1rem/1.15 var(--mono); font-variant-numeric: tabular-nums; }
+    .metric-value small { color: var(--muted); font-size: .55rem; font-weight: 500; }
+    .metric-note { margin-top: 2px; color: var(--muted); font-size: .54rem; line-height: 1.25; }
+    .metric-note.failed { color: var(--crit); }
+
+    .health-chart { min-width: 0; padding: 8px 10px 9px; }
+    .chart-figure { margin: 0; }
+    .health-chart svg { display: block; width: 100%; height: auto; min-height: 96px; overflow: visible; }
+    .chart-grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .chart-axis-label { fill: var(--faint); font: 8px var(--mono); }
+    .series { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .series.cpu { stroke: var(--accent); }
+    .series.ram { stroke: var(--teal); stroke-dasharray: 5 4; }
+    .series.disk { stroke: var(--warn); stroke-dasharray: 1 4; stroke-linecap: round; }
+    .point-cpu { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+    .point-ram { fill: var(--teal); }
+    .point-disk { fill: var(--panel); stroke: var(--warn); stroke-width: 1.5; }
+    .chart-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-top: 5px; }
+    .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .54rem; white-space: nowrap; }
+    .legend-sample { position: relative; display: inline-block; width: 18px; height: 8px; }
+    .legend-sample::before { content: ""; position: absolute; top: 3px; right: 0; left: 0; border-top: 2px solid var(--accent); }
+    .legend-sample.cpu::after { content: ""; position: absolute; top: 1px; left: 7px; width: 4px; height: 4px; border: 1px solid var(--accent); border-radius: 50%; background: var(--panel); }
+    .legend-sample.ram::before { border-color: var(--teal); border-top-style: dashed; }
+    .legend-sample.ram::after { content: ""; position: absolute; top: 1px; left: 7px; width: 5px; height: 5px; background: var(--teal); }
+    .legend-sample.disk::before { border-color: var(--warn); border-top-style: dotted; }
+    .legend-sample.disk::after { content: ""; position: absolute; top: 1px; left: 7px; width: 5px; height: 5px; border: 1px solid var(--warn); background: var(--panel); transform: rotate(45deg); }
+    .coverage { max-width: 220px; color: var(--muted); font-size: .54rem; line-height: 1.35; text-align: right; }
+    .coverage strong { color: var(--text); font-weight: 630; }
+    .chart-state { display: none; min-height: 114px; place-items: center; padding: 18px; border-top: 1px solid var(--border); text-align: center; }
+    .chart-state strong { display: block; font: 650 .72rem/1.3 var(--mono); }
+    .chart-state span { display: block; max-width: 330px; margin-top: 5px; color: var(--muted); font-size: .6rem; }
+
+    .state-current .gap-path, .state-current .collecting-path, .state-current .gap-copy, .state-current .collecting-copy { display: none; }
+    .state-gaps .full-path, .state-gaps .collecting-path, .state-gaps .full-copy, .state-gaps .collecting-copy { display: none; }
+    .state-collecting .full-path, .state-collecting .gap-path, .state-collecting .full-copy, .state-collecting .gap-copy { display: none; }
+    .state-legacy .chart-figure { display: none; }
+    .state-legacy .chart-state { display: grid; }
+    .state-current .failure-only, .state-collecting .failure-only, .state-legacy .failure-only { display: none; }
+    .state-gaps .normal-ram, .state-legacy .normal-ram { display: none; }
+
+    .supporting { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--border); }
+    .supporting-heading h2 { margin-bottom: 4px; font: 670 .9rem/1.2 var(--mono); }
+    .supporting-heading p { margin-bottom: 0; color: var(--muted); font-size: .68rem; }
+    .range { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
+    .range span { min-height: 27px; padding: 7px 9px; border-radius: 999px; color: var(--faint); font: 600 .58rem/1 var(--mono); }
+    .range .active { color: var(--accent); background: var(--accent-bg); }
+    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .detail-card { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-soft); }
+    .detail-card h3 { margin-bottom: 3px; font: 650 .72rem/1.2 var(--mono); }
+    .detail-card p { margin-bottom: 10px; color: var(--muted); font-size: .6rem; }
+    .detail-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--border); }
+    .detail-stat { min-width: 0; padding: 9px 7px 0 0; }
+    .detail-stat + .detail-stat { padding-left: 9px; border-left: 1px solid var(--border); }
+    .detail-stat strong { display: block; font: 650 .82rem/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+    .detail-stat span { display: block; margin-top: 2px; color: var(--faint); font-size: .54rem; }
+    .scope-footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 22px; padding: 13px 2px 0; border-top: 1px solid var(--border); color: var(--faint); font-size: .58rem; }
+
+    @container (max-width: 660px) {
+      .dashboard { padding-right: 11px; padding-left: 11px; }
+      .capacity-heading, .supporting-heading { display: block; }
+      .scope-copy { max-width: none; margin-top: 7px; text-align: left; }
+      .quota-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .allowance-band { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .allowance-intro { grid-column: 1 / -1; padding: 9px 0 7px; }
+      .allowance { border-top: 1px solid var(--border); }
+      .allowance:nth-of-type(2) { border-left: 0; }
+      .operational-grid { grid-template-columns: minmax(0, 1fr); }
+      .detail-grid { grid-template-columns: minmax(0, 1fr); }
+      .supporting-heading .range { margin-top: 10px; }
+    }
+
+    @container (max-width: 390px) {
+      .dashboard { padding-top: 20px; }
+      .app-header { gap: 10px; padding-bottom: 15px; }
+      .wordmark-sub { max-width: 150px; }
+      .freshness { font-size: .6rem; }
+      .capacity-panel { padding: 12px; }
+      .capacity-heading h1 { font-size: 1rem; }
+      .quota-grid { gap: 7px; margin-top: 11px; }
+      .quota-card { padding: 9px 9px 10px; }
+      .quota-value { font-size: 1.5rem; }
+      .allowance-band { grid-template-columns: minmax(0, 1fr); }
+      .allowance-intro { grid-column: auto; }
+      .allowance { padding-left: 0; border-top: 1px solid var(--border); border-left: 0; }
+      .operational-host { padding: 11px; }
+      .host-heading { display: block; }
+      .host-state { margin-top: 6px; }
+      .pace-row { grid-template-columns: 52px minmax(0, 1fr); }
+      .pace-row .status-pill { grid-column: 2; justify-self: start; }
+      .health-metrics { grid-template-columns: minmax(0, 1fr); }
+      .health-metric + .health-metric { border-top: 1px solid var(--border); border-left: 0; }
+      .health-metric { display: grid; grid-template-columns: minmax(86px, .8fr) minmax(70px, .62fr) minmax(0, 1.4fr); align-items: center; gap: 8px; }
+      .metric-value, .metric-note { margin-top: 0; }
+      .chart-footer { display: block; }
+      .coverage { max-width: none; margin-top: 6px; text-align: left; }
+      .scope-footer { display: block; }
+      .scope-footer span { display: block; margin-top: 4px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="review-toolbar" aria-label="Prototype review controls">
+    <span class="review-label">Prototype</span>
+    <div class="review-control">
+      <span class="control-label">Viewport</span>
+      <div class="segmented" data-control="viewport" role="group" aria-label="Preview viewport">
+        <button type="button" data-value="desktop" aria-pressed="true">Desktop</button>
+        <button type="button" data-value="phone" aria-pressed="false">Phone</button>
+      </div>
+    </div>
+    <div class="review-control">
+      <span class="control-label">Hosts</span>
+      <div class="segmented" data-control="hosts" role="group" aria-label="Preview host count">
+        <button type="button" data-value="one" aria-pressed="true">1 host</button>
+        <button type="button" data-value="two" aria-pressed="false">2 hosts</button>
+      </div>
+    </div>
+    <div class="review-control">
+      <span class="control-label">Evidence</span>
+      <div class="segmented" data-control="evidence" role="group" aria-label="Preview health evidence state">
+        <button type="button" data-value="current" aria-pressed="true">Current</button>
+        <button type="button" data-value="gaps" aria-pressed="false">Gaps</button>
+        <button type="button" data-value="collecting" aria-pressed="false">Collecting</button>
+        <button type="button" data-value="legacy" aria-pressed="false">Older peer</button>
+      </div>
+    </div>
+    <button class="review-note" id="theme-toggle" type="button">Toggle theme</button>
+  </div>
+
+  <main class="review-stage">
+    <div class="preview-frame" id="preview-frame" data-viewport="desktop">
+      <div class="dashboard">
+        <div class="dashboard-inner">
+          <header class="app-header">
+            <div class="wordmark">llmdash<span class="wordmark-sub">AI coding headroom, at a glance.</span></div>
+            <div class="freshness"><span class="pulse" aria-hidden="true"></span>updated 18s ago</div>
+          </header>
+
+          <section class="first-read" aria-labelledby="capacity-title">
+            <div class="capacity-panel">
+              <div class="capacity-heading">
+                <div>
+                  <div class="section-kicker">Capacity now</div>
+                  <h1 id="capacity-title">Headroom, allowances, and machines</h1>
+                </div>
+                <p class="scope-copy"><strong>Limits and allowances are account-wide.</strong> Pacing and device health stay attached to the machine that reported them.</p>
+              </div>
+
+              <div class="quota-grid" aria-label="Primary account quota remaining">
+                <article class="quota-card">
+                  <div class="quota-tool claude">◆ Claude</div>
+                  <div class="window-label">5-hour remaining</div>
+                  <div class="quota-value">68<span>%</span></div>
+                  <div class="bar" aria-hidden="true"><i style="--value:68%"></i></div>
+                  <div class="quota-meta">reset · 2h 14m</div>
+                </article>
+                <article class="quota-card warn">
+                  <div class="quota-tool claude">◆ Claude</div>
+                  <div class="window-label">Weekly remaining</div>
+                  <div class="quota-value">43<span>%</span></div>
+                  <div class="bar" aria-hidden="true"><i style="--value:43%"></i></div>
+                  <div class="quota-meta">reset · 3d 8h</div>
+                </article>
+                <article class="quota-card">
+                  <div class="quota-tool codex">▲ Codex</div>
+                  <div class="window-label">5-hour remaining</div>
+                  <div class="quota-value">82<span>%</span></div>
+                  <div class="bar" aria-hidden="true"><i style="--value:82%"></i></div>
+                  <div class="quota-meta">reset · 4h 02m</div>
+                </article>
+                <article class="quota-card">
+                  <div class="quota-tool codex">▲ Codex</div>
+                  <div class="window-label">Weekly remaining</div>
+                  <div class="quota-value">61<span>%</span></div>
+                  <div class="bar" aria-hidden="true"><i style="--value:61%"></i></div>
+                  <div class="quota-meta">reset · 5d 11h</div>
+                </article>
+              </div>
+
+              <section class="allowance-band" aria-labelledby="allowance-title">
+                <div class="allowance-intro">
+                  <strong id="allowance-title">Other global limits</strong>
+                  <span>same account · shown once</span>
+                </div>
+                <div class="allowance">
+                  <div class="allowance-label">Codex resets</div>
+                  <div class="allowance-value">4 <span>available</span></div>
+                  <div class="allowance-note">2 expire in 6d · current</div>
+                </div>
+                <div class="allowance">
+                  <div class="allowance-label">Sonnet model cap</div>
+                  <div class="allowance-value">91% <span>remaining</span></div>
+                  <div class="allowance-note">resets in 3d 8h</div>
+                </div>
+                <div class="allowance">
+                  <div class="allowance-label">Codex credits</div>
+                  <div class="allowance-value">Included <span>Pro plan</span></div>
+                  <div class="allowance-note">provider account reading</div>
+                </div>
+              </section>
+            </div>
+
+            <article class="operational-host state-current" id="primary-host" aria-labelledby="primary-host-title">
+              <div class="host-heading">
+                <div>
+                  <div class="host-title-line"><h2 id="primary-host-title">Developer MacBook</h2><span class="host-label">This machine</span></div>
+                  <p class="host-copy">Pacing and device evidence from this machine · sampled once per minute</p>
+                </div>
+                <div class="host-state"><span class="pulse" aria-hidden="true"></span>sampled 18s ago</div>
+              </div>
+              <div class="operational-grid">
+                <section class="pacing-block" aria-labelledby="pacing-title">
+                  <div class="block-title"><h3 id="pacing-title">Pacing</h3><span>local burn + account resets</span></div>
+                  <div class="pace-list">
+                    <div class="pace-row"><span class="pace-tool claude">◆ 5-hour</span><span class="pace-copy"><strong>6.2M tokens / hr</strong>reset in 2h 14m</span><span class="status-pill good">on pace</span></div>
+                    <div class="pace-row"><span class="pace-tool claude">◆ weekly</span><span class="pace-copy"><strong>43% remains</strong>projected under reset</span><span class="status-pill good">on pace</span></div>
+                    <div class="pace-row"><span class="pace-tool codex">▲ 5-hour</span><span class="pace-copy"><strong>1.8M tokens / hr</strong>reset in 4h 02m</span><span class="status-pill good">on pace</span></div>
+                    <div class="pace-row"><span class="pace-tool codex">▲ weekly</span><span class="pace-copy"><strong>61% remains</strong>projected under reset</span><span class="status-pill good">on pace</span></div>
+                  </div>
+                  <p class="pace-source">Pacing is a projection, not added quota. Provider reset timing remains visible.</p>
+                </section>
+
+                <section class="health-block" aria-labelledby="health-title">
+                  <div class="health-heading"><h3 id="health-title">Device health · last hour</h3><span class="health-age">current</span></div>
+                  <div class="health-metrics">
+                    <div class="health-metric"><div class="metric-label">CPU used</div><div class="metric-value">37<small>%</small></div><div class="metric-note">60s interval</div></div>
+                    <div class="health-metric"><div class="metric-label">RAM used</div><div class="metric-value normal-ram">68<small>%</small></div><div class="metric-value failure-only">68<small>%</small></div><div class="metric-note normal-ram">active + wired</div><div class="metric-note failed failure-only">update failed · sampled 3m ago</div></div>
+                    <div class="health-metric"><div class="metric-label">Disk available</div><div class="metric-value">24<small>%</small></div><div class="metric-note">247 GiB · data volume</div></div>
+                  </div>
+                  <div class="health-chart">
+                    <figure class="chart-figure" aria-labelledby="health-chart-title health-chart-desc">
+                      <svg viewBox="0 0 430 112" role="img">
+                        <title id="health-chart-title">Developer MacBook health history for the last hour</title>
+                        <desc id="health-chart-desc">CPU used is a solid line with circle markers, RAM used is a dashed line with square markers, and disk available is a dotted line with diamond markers. The gaps view separates failed measurements and never plots them as zero.</desc>
+                        <line class="chart-grid" x1="28" y1="10" x2="422" y2="10"/><text class="chart-axis-label" x="2" y="13">100</text>
+                        <line class="chart-grid" x1="28" y1="53" x2="422" y2="53"/><text class="chart-axis-label" x="8" y="56">50</text>
+                        <line class="chart-grid" x1="28" y1="96" x2="422" y2="96"/><text class="chart-axis-label" x="14" y="99">0</text>
+                        <text class="chart-axis-label" x="28" y="109">2:00</text><text class="chart-axis-label" x="392" y="109">now</text>
+                        <g class="full-path">
+                          <path class="series cpu" d="M28 72 L63 67 L98 74 L133 56 L168 62 L203 50 L238 64 L273 58 L308 68 L343 61 L378 65 L422 64"/>
+                          <path class="series ram" d="M28 41 L63 40 L98 39 L133 38 L168 38 L203 36 L238 35 L273 35 L308 34 L343 35 L378 36 L422 37"/>
+                          <path class="series disk" d="M28 74 L63 74 L98 74 L133 75 L168 75 L203 75 L238 75 L273 75 L308 76 L343 76 L378 76 L422 76"/>
+                          <circle class="point-cpu" cx="422" cy="64" r="2.5"/><rect class="point-ram" x="419.5" y="34.5" width="5" height="5"/><path class="point-disk" d="M422 72.5 l3.5 3.5 -3.5 3.5 -3.5 -3.5z"/>
+                        </g>
+                        <g class="gap-path">
+                          <path class="series cpu" d="M28 72 L63 67 L98 74 L133 56 M203 50 L238 64 L273 58 M343 61 L378 65 L422 64"/>
+                          <path class="series ram" d="M28 41 L63 40 L98 39 M168 38 L203 36 L238 35 M308 34 L343 35 M422 37"/>
+                          <path class="series disk" d="M28 74 L63 74 L98 74 L133 75 L168 75 L203 75 M273 75 L308 76 L343 76 L378 76 L422 76"/>
+                          <circle class="point-cpu" cx="422" cy="64" r="2.5"/><rect class="point-ram" x="419.5" y="34.5" width="5" height="5"/><path class="point-disk" d="M422 72.5 l3.5 3.5 -3.5 3.5 -3.5 -3.5z"/>
+                        </g>
+                        <g class="collecting-path">
+                          <path class="series cpu" d="M378 68 L400 61 L422 64"/><path class="series ram" d="M378 36 L400 36 L422 37"/><path class="series disk" d="M378 76 L400 76 L422 76"/>
+                          <circle class="point-cpu" cx="422" cy="64" r="2.5"/><rect class="point-ram" x="419.5" y="34.5" width="5" height="5"/><path class="point-disk" d="M422 72.5 l3.5 3.5 -3.5 3.5 -3.5 -3.5z"/>
+                        </g>
+                      </svg>
+                      <figcaption class="chart-footer">
+                        <span class="legend" aria-label="Health chart legend">
+                          <span class="legend-item"><i class="legend-sample cpu" aria-hidden="true"></i>CPU used</span>
+                          <span class="legend-item"><i class="legend-sample ram" aria-hidden="true"></i>RAM used</span>
+                          <span class="legend-item"><i class="legend-sample disk" aria-hidden="true"></i>Disk available</span>
+                        </span>
+                        <span class="coverage full-copy"><strong>60 samples</strong> · 2:00–2:59 PM · no gaps</span>
+                        <span class="coverage gap-copy"><strong>57 samples</strong> · 2:00–2:59 PM · 3 gaps shown</span>
+                        <span class="coverage collecting-copy"><strong>3 samples</strong> · 2:57–2:59 PM · collecting</span>
+                      </figcaption>
+                      <table class="sr-only">
+                        <caption>Representative recent Developer MacBook health observations. Missing metrics are not measured, never zero.</caption>
+                        <thead><tr><th>Time</th><th>CPU used</th><th>RAM used</th><th>Disk available</th></tr></thead>
+                        <tbody><tr><td>2:57 PM</td><td>32%</td><td>69%</td><td>24%</td></tr><tr><td>2:58 PM</td><td>41%</td><td>69%</td><td>24%</td></tr><tr><td>2:59 PM</td><td>37%</td><td>68%</td><td>24%</td></tr></tbody>
+                      </table>
+                    </figure>
+                    <div class="chart-state"><div><strong>History unavailable</strong><span>Not reported by this host. Current CPU, RAM, and disk evidence remains above.</span></div></div>
+                  </div>
+                </section>
+              </div>
+            </article>
+
+            <article class="operational-host" id="secondary-host" aria-labelledby="secondary-host-title" hidden>
+              <div class="host-heading">
+                <div>
+                  <div class="host-title-line"><h2 id="secondary-host-title">Studio Mac</h2><span class="host-label">Tailnet host</span></div>
+                  <p class="host-copy">Pacing and device evidence from Studio Mac · never combined with Developer MacBook</p>
+                </div>
+                <div class="host-state"><span class="pulse" aria-hidden="true"></span>sampled 41s ago</div>
+              </div>
+              <div class="operational-grid">
+                <section class="pacing-block" aria-labelledby="secondary-pacing-title">
+                  <div class="block-title"><h3 id="secondary-pacing-title">Pacing</h3><span>Studio Mac activity</span></div>
+                  <div class="pace-list">
+                    <div class="pace-row"><span class="pace-tool claude">◆ 5-hour</span><span class="pace-copy"><strong>9.7M tokens / hr</strong>reset in 2h 14m</span><span class="status-pill warn">at risk</span></div>
+                    <div class="pace-row"><span class="pace-tool claude">◆ weekly</span><span class="pace-copy"><strong>43% remains</strong>same account reading</span><span class="status-pill good">on pace</span></div>
+                    <div class="pace-row"><span class="pace-tool codex">▲ 5-hour</span><span class="pace-copy"><strong>0.6M tokens / hr</strong>reset in 4h 02m</span><span class="status-pill good">on pace</span></div>
+                    <div class="pace-row"><span class="pace-tool codex">▲ weekly</span><span class="pace-copy"><strong>61% remains</strong>same account reading</span><span class="status-pill good">on pace</span></div>
+                  </div>
+                  <p class="pace-source">Shared account limits remain shown once above; local burn is not collapsed.</p>
+                </section>
+                <section class="health-block" aria-labelledby="secondary-health-title">
+                  <div class="health-heading"><h3 id="secondary-health-title">Device health · last hour</h3><span class="health-age">current</span></div>
+                  <div class="health-metrics">
+                    <div class="health-metric"><div class="metric-label">CPU used</div><div class="metric-value">71<small>%</small></div><div class="metric-note">60s interval</div></div>
+                    <div class="health-metric"><div class="metric-label">RAM used</div><div class="metric-value">83<small>%</small></div><div class="metric-note">active + wired</div></div>
+                    <div class="health-metric"><div class="metric-label">Disk available</div><div class="metric-value">58<small>%</small></div><div class="metric-note">604 GiB · data volume</div></div>
+                  </div>
+                  <div class="health-chart">
+                    <figure class="chart-figure" aria-labelledby="secondary-chart-title secondary-chart-desc">
+                      <svg viewBox="0 0 430 112" role="img">
+                        <title id="secondary-chart-title">Studio Mac health history for the last hour</title>
+                        <desc id="secondary-chart-desc">Studio Mac only. CPU used is solid with circles, RAM used is dashed with squares, and disk available is dotted with diamonds. A skipped interval is rendered as a gap.</desc>
+                        <line class="chart-grid" x1="28" y1="10" x2="422" y2="10"/><text class="chart-axis-label" x="2" y="13">100</text>
+                        <line class="chart-grid" x1="28" y1="53" x2="422" y2="53"/><text class="chart-axis-label" x="8" y="56">50</text>
+                        <line class="chart-grid" x1="28" y1="96" x2="422" y2="96"/><text class="chart-axis-label" x="14" y="99">0</text>
+                        <text class="chart-axis-label" x="28" y="109">2:00</text><text class="chart-axis-label" x="392" y="109">now</text>
+                        <path class="series cpu" d="M28 52 L63 46 L98 41 L133 38 L168 45 M238 36 L273 32 L308 39 L343 30 L378 35 L422 35"/>
+                        <path class="series ram" d="M28 29 L63 28 L98 27 L133 27 L168 26 M238 24 L273 25 L308 24 L343 24 L378 25 L422 25"/>
+                        <path class="series disk" d="M28 46 L63 46 L98 46 L133 46 L168 46 M238 46 L273 46 L308 46 L343 46 L378 46 L422 46"/>
+                        <circle class="point-cpu" cx="422" cy="35" r="2.5"/><rect class="point-ram" x="419.5" y="22.5" width="5" height="5"/><path class="point-disk" d="M422 42.5 l3.5 3.5 -3.5 3.5 -3.5 -3.5z"/>
+                      </svg>
+                      <figcaption class="chart-footer">
+                        <span class="legend"><span class="legend-item"><i class="legend-sample cpu" aria-hidden="true"></i>CPU used</span><span class="legend-item"><i class="legend-sample ram" aria-hidden="true"></i>RAM used</span><span class="legend-item"><i class="legend-sample disk" aria-hidden="true"></i>Disk available</span></span>
+                        <span class="coverage"><strong>59 samples</strong> · 2:00–2:59 PM · 1 gap shown</span>
+                      </figcaption>
+                    </figure>
+                  </div>
+                </section>
+              </div>
+            </article>
+          </section>
+
+          <section class="supporting" aria-labelledby="supporting-title">
+            <div class="supporting-heading">
+              <div><h2 id="supporting-title">Supporting detail</h2><p>Activity, diagnostics, cost, and longer history remain available after the complete capacity read.</p></div>
+              <div class="range" aria-label="Illustrative detail range"><span>24h</span><span class="active">7d</span><span>30d</span></div>
+            </div>
+            <div class="detail-grid">
+              <article class="detail-card"><h3>◆ Claude Code</h3><p>This machine · local session logs</p><div class="detail-stats"><div class="detail-stat"><strong>18.2M</strong><span>tokens today</span></div><div class="detail-stat"><strong>93%</strong><span>cache hit rate</span></div></div></article>
+              <article class="detail-card"><h3>▲ Codex</h3><p>This machine · structured local metadata</p><div class="detail-stats"><div class="detail-stat"><strong>42</strong><span>sessions · 7d</span></div><div class="detail-stat"><strong>8m 14s</strong><span>median session</span></div></div></article>
+              <article class="detail-card"><h3>Cost analysis</h3><p>Configured spend and API-equivalent value</p><div class="detail-stats"><div class="detail-stat"><strong>$40</strong><span>monthly access</span></div><div class="detail-stat"><strong>$286</strong><span>API-equivalent · 30d</span></div></div></article>
+            </div>
+          </section>
+
+          <footer class="scope-footer"><span>Limits and allowances: account-wide · Pacing and device health: per machine</span><span>Health history: process lifetime · up to 60 samples · served over Tailscale</span></footer>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const frame = document.getElementById('preview-frame');
+    const primaryHost = document.getElementById('primary-host');
+    const secondaryHost = document.getElementById('secondary-host');
+    const root = document.documentElement;
+
+    document.querySelectorAll('[data-control]').forEach((group) => {
+      group.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-value]');
+        if (!button) return;
+        group.querySelectorAll('button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+        const control = group.dataset.control;
+        const value = button.dataset.value;
+        if (control === 'viewport') frame.dataset.viewport = value;
+        if (control === 'hosts') secondaryHost.hidden = value !== 'two';
+        if (control === 'evidence') primaryHost.className = `operational-host state-${value}`;
+      });
+    });
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const current = root.dataset.theme;
+      if (!current) root.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark';
+      else if (current === 'dark') root.dataset.theme = 'light';
+      else root.removeAttribute('data-theme');
+    });
+  </script>
+</body>
+</html>

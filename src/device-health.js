@@ -11,6 +11,7 @@ const PROBE_TIMEOUT_MS = 2_000;
 const PROBE_MAX_BYTES = 32 * 1024;
 const MAX_INTERVAL_MS = 86_400_000;
 const DEFAULT_POLL_MS = 60_000;
+export const MAX_HEALTH_HISTORY = 60;
 
 const CPU_REASONS = new Set([
   'baseline-required', 'counter-unavailable', 'counter-invalid', 'counter-reset',
@@ -67,6 +68,7 @@ let snapshot = {
   cpu: cpuEmpty(),
   ram: ramEmpty(),
   disk: diskEmpty(),
+  history: [],
 };
 let cpuBaseline = null;
 let refreshInFlight = null;
@@ -78,6 +80,37 @@ function detached(value) {
 
 export function getDeviceHealthSnapshot() {
   return detached(snapshot);
+}
+
+function observationPct(metric, field, attemptedAt) {
+  if (!metric || metric.status !== 'available' || metric.updateStatus !== 'ok'
+    || metric.capturedAt !== attemptedAt || metric.attemptedAt !== attemptedAt
+    || typeof metric[field] !== 'number' || !Number.isFinite(metric[field])) return null;
+  return Math.min(100, Math.max(0, metric[field]));
+}
+
+export function healthObservation(nextSnapshot, capturedAt) {
+  return {
+    capturedAt,
+    cpuUsedPct: observationPct(nextSnapshot && nextSnapshot.cpu, 'usedPct', capturedAt),
+    ramUsedPct: observationPct(nextSnapshot && nextSnapshot.ram, 'usedPct', capturedAt),
+    diskAvailablePct: observationPct(nextSnapshot && nextSnapshot.disk, 'availablePct', capturedAt),
+  };
+}
+
+// Pure bounded reducer: a wall-clock correction cannot reorder the wire data,
+// and a retried timestamp replaces rather than duplicates its earlier attempt.
+export function appendHealthObservation(previous, observation) {
+  const byTime = new Map();
+  for (const sample of Array.isArray(previous) ? previous.slice(-MAX_HEALTH_HISTORY) : []) {
+    if (sample && typeof sample.capturedAt === 'string') byTime.set(sample.capturedAt, { ...sample });
+  }
+  if (observation && typeof observation.capturedAt === 'string') {
+    byTime.set(observation.capturedAt, { ...observation });
+  }
+  return [...byTime.values()]
+    .sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt))
+    .slice(-MAX_HEALTH_HISTORY);
 }
 
 export function summarizeCpu(cpus, observedAtMs) {
@@ -307,13 +340,18 @@ export function refreshDeviceHealth({
         : Promise.resolve({ ok: false, unsupported: true, reason: 'unsupported-platform' }),
       settleProbe(statfsProbe, 'statfs-failed'),
     ]);
-    snapshot = {
+    const nextSnapshot = {
       scope: 'device',
       pollIntervalMs: effectivePollInterval(pollIntervalMs),
       cpu: reduceCpu(snapshot.cpu, cpu, attemptedAt),
       ram: reduceRam(snapshot.ram, ram, attemptedAt, platform),
       disk: reduceDisk(snapshot.disk, disk, attemptedAt),
     };
+    nextSnapshot.history = appendHealthObservation(
+      snapshot.history,
+      healthObservation(nextSnapshot, attemptedAt),
+    );
+    snapshot = nextSnapshot;
     return getDeviceHealthSnapshot();
   })();
   refreshInFlight = work;
@@ -324,7 +362,7 @@ export function refreshDeviceHealth({
 export function _resetDeviceHealth({ platform = process.platform, pollIntervalMs = config.pollIntervalMs } = {}) {
   snapshot = {
     scope: 'device', pollIntervalMs: effectivePollInterval(pollIntervalMs),
-    cpu: cpuEmpty(), ram: ramEmpty(platform), disk: diskEmpty(),
+    cpu: cpuEmpty(), ram: ramEmpty(platform), disk: diskEmpty(), history: [],
   };
   cpuBaseline = null;
   refreshInFlight = null;

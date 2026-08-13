@@ -19,8 +19,8 @@
     <section class="limits-overview" id="single-limits" aria-labelledby="limits-title">
       <div class="limits-heading">
         <div>
-          <div class="section-kicker">Account limits</div>
-          <h1 id="limits-title">Claude Code and Codex</h1>
+          <div class="section-kicker">Capacity now</div>
+          <h1 id="limits-title">Headroom, allowances, and machines</h1>
         </div>
         <p class="scope-copy"><strong>Account-wide</strong> · the same limit windows on every machine signed in to each account.</p>
       </div>
@@ -31,11 +31,12 @@
         </div>
         <div id="tools" class="limit-tools"></div>
         <div id="supplementary-limits"></div>
-        <div id="limit-notes" class="limit-notes"></div>
       </article>
     </section>
 
     <div id="device-health"></div>
+
+    <section id="limit-notes" class="limit-notes capacity-diagnostics" aria-label="Account diagnostics"></section>
 
     <!-- Multi-host mode replaces the single account surface above with one
          limits-first overview followed by host-first tool details. -->
@@ -43,8 +44,8 @@
 
     <div class="details-heading" id="details-heading">
       <div class="details-title">
-        <h2 id="details-title">Tool details</h2>
-        <p>Activity, diagnostics, and history stay with the tool they describe.</p>
+        <h2 id="details-title">Supporting detail</h2>
+        <p>Activity, diagnostics, cost, and longer history stay available below the complete capacity read.</p>
       </div>
       <div class="trend-control">
         <span class="control-label">Trend range</span>
@@ -125,8 +126,8 @@
     </section>
 
     <footer>
-      <span>Limits: account-wide · Device health: this machine · Activity, insights, and cost analysis: this machine · Codex activity buckets: UTC</span>
-      <span>served over Tailscale</span>
+      <span>Limits and allowances: account-wide · Pacing and device health: this machine · Activity, insights, and cost analysis: this machine</span>
+      <span>Health history: process lifetime · up to 60 samples · served over Tailscale</span>
     </footer>
   </div>
 

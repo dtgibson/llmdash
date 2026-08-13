@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { MAX_REMOTE_HOSTS, parseHosts } from '../src/hosts.js';
 
 // Verify the multi-host client actually RENDERS (not just that the page loads) —
 // the project's "renders, not just loads" convention. public/app.js is a browser
@@ -178,6 +179,7 @@ const healthState = (capturedAt = iso(-60_000)) => ({
   cpu: { status: 'available', usedPct: 42, capturedAt, attemptedAt: capturedAt, updateStatus: 'ok', reason: null, intervalMs: 60_000 },
   ram: { status: 'unsupported', usedPct: null, capturedAt: null, attemptedAt: capturedAt, updateStatus: 'unsupported', reason: 'unsupported-platform' },
   disk: { status: 'available', availableBytes: 250 * (1024 ** 3), totalBytes: 1024 ** 4, availablePct: 24.4140625, target: 'data-volume', capturedAt, attemptedAt: capturedAt, updateStatus: 'ok', reason: null },
+  history: [],
 });
 
 function configuredResetView(nextResetAt) {
@@ -251,7 +253,7 @@ test('configured reset refetches immediately at the exact reset boundary', async
   const h = await renderConfiguredResetBoundary();
   assert.equal(h.resetFetchCount(), 1);
   assertBoundedCompactResets(h.els.tools.innerHTML, 2);
-  assert.match(h.els['claude-details'].innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/,
+  assert.match(h.els['device-health'].innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/,
     'full configured evidence is immediately available in pacing');
 
   h.clock.set(h.boundaryMs - 1);
@@ -290,7 +292,7 @@ test('configured reset boundary recovers as soon as the guarded refetch resolves
   h.tick.fn();
   assert.equal(compactResetValues(h.els.tools.innerHTML)[1], '—',
     'the expired reset is not presented as current while recovery is pending');
-  assert.match(h.els['claude-details'].innerHTML,
+  assert.match(h.els['device-health'].innerHTML,
     /Weekly[\s\S]*Reset time not reported · pacing unavailable/);
 
   h.resolveBoundary();
@@ -300,7 +302,7 @@ test('configured reset boundary recovers as soon as the guarded refetch resolves
   assert.equal(h.resetFetchCount(), 2, 'recovery did not wait for or invoke the 60-second poll');
   assert.notEqual(compactResetValues(h.els.tools.innerHTML)[1], '—',
     'the newly resolved occurrence restores the compact duration immediately');
-  assert.match(h.els['claude-details'].innerHTML,
+  assert.match(h.els['device-health'].innerHTML,
     /Weekly[\s\S]*Configured · [\s\S]*America\/Los_Angeles[\s\S]*resets in/,
     'the newly resolved configured evidence is rendered immediately in pacing');
 });
@@ -325,7 +327,7 @@ test('configured local Claude weekly reset fills only the display/pacing gap and
   assert.ok(fetchUrls.includes('/api/config/reset-billing'), 'configuration is fetched independently');
   const compact = assertBoundedCompactResets(els.tools.innerHTML, 2);
   assert.match(compact[1], /^\d+d \d+h$/);
-  assert.match(els['claude-details'].innerHTML,
+  assert.match(els['device-health'].innerHTML,
     /On pace to hit the Weekly limit[\s\S]*Configured · [\s\S]*America\/Los_Angeles · before it resets in[\s\S]*at risk/);
   assert.match(els['limit-notes'].innerHTML, /Stale reading/, 'configured timing does not make usage fresh');
   assert.equal(JSON.stringify(tool.limits), before, 'provider window bytes stay untouched');
@@ -349,8 +351,8 @@ test('a stale future Claude timestamp stays raw for account identity while confi
 
   const { els, sandbox } = await renderWith(combined, configuredResetView(configuredAt));
   assertBoundedCompactResets(els.tools.innerHTML, 2);
-  assert.match(els['claude-details'].innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/);
-  assert.doesNotMatch(els['claude-details'].innerHTML, /Weekly[\s\S]*Provider reading/,
+  assert.match(els['device-health'].innerHTML, /Weekly[\s\S]*Configured[\s\S]*America\/Los_Angeles/);
+  assert.doesNotMatch(els['device-health'].innerHTML, /Weekly[\s\S]*Provider reading/,
     'stale provider evidence must not outrank the resolved configured selection');
   assert.doesNotMatch(els.tools.innerHTML, /resets in (?:2[0-9]|30)m/,
     'the stale near-term provider countdown is not presented as the selected reset');
@@ -373,8 +375,8 @@ test('a provider weekly reset wins a conflicting configured fallback and is labe
   }], generatedAt: iso(0) };
   const { els } = await renderWith(combined, configuredResetView(configuredAt));
   assertBoundedCompactResets(els.tools.innerHTML, 2);
-  assert.match(els['claude-details'].innerHTML, /Weekly[\s\S]*Live provider reading · resets in/);
-  assert.doesNotMatch(els['claude-details'].innerHTML, /Configured|America\/Los_Angeles/);
+  assert.match(els['device-health'].innerHTML, /Weekly[\s\S]*Live provider reading · resets in/);
+  assert.doesNotMatch(els['device-health'].innerHTML, /Configured|America\/Los_Angeles/);
   assert.equal(tool.limits.seven_day.resetsAt, providerAt);
 });
 
@@ -396,14 +398,15 @@ test('local fallback stays off unrelated peer lanes but follows a collapsed lane
   peer.limits.five_hour.resetsAt = local.limits.five_hour.resetsAt;
   peer.dataAt = iso(1_000); // make the peer the representative of the collapsed lane
   const collapsed = await renderWith(separate, configured);
-  const overview = collapsed.els.hosts.innerHTML.slice(0, collapsed.els.hosts.innerHTML.indexOf('class="host '));
+  const overview = collapsed.els.hosts.innerHTML.slice(0, collapsed.els.hosts.innerHTML.indexOf('class="multi-operational"'));
   assert.equal((overview.match(/class="limit-tool tool/g) || []).length, 1);
   assert.match(overview, /identical on This machine &amp; Remote/);
   assertBoundedCompactResets(overview, 2);
-  const localStart = collapsed.els.hosts.innerHTML.indexOf('<span class="host-name">This machine</span>');
-  const remoteStart = collapsed.els.hosts.innerHTML.indexOf('<span class="host-name">Remote</span>');
-  const localStory = collapsed.els.hosts.innerHTML.slice(localStart, remoteStart);
-  const remoteStory = collapsed.els.hosts.innerHTML.slice(remoteStart);
+  const localCapacityStart = collapsed.els.hosts.innerHTML.indexOf('Capacity now for This machine');
+  const remoteCapacityStart = collapsed.els.hosts.innerHTML.indexOf('Capacity now for Remote');
+  const localStory = collapsed.els.hosts.innerHTML.slice(localCapacityStart, remoteCapacityStart);
+  const remoteStory = collapsed.els.hosts.innerHTML.slice(remoteCapacityStart,
+    collapsed.els.hosts.innerHTML.indexOf('</section></section>', remoteCapacityStart) + 20);
   assert.match(localStory, /Configured[\s\S]*America\/Los_Angeles/,
     'membership in the self account keeps full fallback evidence in its pacing story');
   assert.doesNotMatch(remoteStory, /Configured|America\/Los_Angeles/,
@@ -423,11 +426,12 @@ test('single-host mode renders both tools limits-first with NO host chrome (QA-1
   assert.match(els.tools.innerHTML, /Codex[\s\S]*5-hour[\s\S]*Unavailable/);
   assert.match(els.tools.innerHTML, /Unavailable[\s\S]*No short-window reading/);
   assert.doesNotMatch(els.tools.innerHTML, /class="stat-grid"/, 'supporting statistics do not interleave with the four slots');
-  assert.match(els['claude-details'].innerHTML, /Pacing[\s\S]*Activity/);
-  assert.match(els['codex-details'].innerHTML, /Pacing[\s\S]*Activity/);
-  assert.match(els['claude-details'].innerHTML, /5-hour[\s\S]*Live provider reading · resets in/,
+  assert.doesNotMatch(els['claude-details'].innerHTML, /Pacing/);
+  assert.doesNotMatch(els['codex-details'].innerHTML, /Pacing/);
+  assert.match(els['device-health'].innerHTML, /Pacing[\s\S]*Device health/);
+  assert.match(els['device-health'].innerHTML, /5-hour[\s\S]*Live provider reading · resets in/,
     'full live provenance stays in Claude pacing');
-  assert.match(els['codex-details'].innerHTML, /Weekly[\s\S]*Provider reading · resets in/,
+  assert.match(els['device-health'].innerHTML, /Weekly[\s\S]*Provider reading · resets in/,
     'full provider-reading provenance stays in Codex pacing');
   assert.equal(els.hosts.innerHTML, '', 'no host chrome in single-host mode');
   assert.doesNotMatch(els.hosts.innerHTML, /acct|host-head/, 'no banner, no host header');
@@ -475,6 +479,85 @@ test('device-health freshness boundaries and failed last-good evidence remain vi
   assert.match(rendered.els['device-health'].innerHTML, /Last update failed · value sampled/);
 });
 
+test('health history renders accessible segmented series and an exact bounded table', async () => {
+  const hostState = stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]);
+  hostState.deviceHealth = healthState();
+  hostState.deviceHealth.history = [
+    { capturedAt: iso(-180_000), cpuUsedPct: 20, ramUsedPct: 60, diskAvailablePct: 30 },
+    { capturedAt: iso(-120_000), cpuUsedPct: null, ramUsedPct: 61, diskAvailablePct: 29 },
+    { capturedAt: iso(0), cpuUsedPct: 40, ramUsedPct: null, diskAvailablePct: 28 },
+  ];
+  const combined = { hosts: [{
+    host: 'local', label: '<Owner Mac>', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: hostState,
+  }], generatedAt: iso(0) };
+  const { els, sandbox } = await renderWith(combined);
+  const html = els['device-health'].innerHTML;
+  assert.match(html, /CPU used[\s\S]*RAM used[\s\S]*Disk available/);
+  assert.match(html, /health-series-cpu" d="M[^L]+ M/, 'null/timestamp gaps start a new path segment');
+  assert.match(html, /circle class="health-point health-point-cpu/);
+  assert.match(html, /rect class="health-point health-point-ram/);
+  assert.match(html, /path class="health-point health-point-disk/);
+  assert.match(html, /Not measured/);
+  assert.match(html, /&lt;Owner Mac&gt; device health history/);
+  const table = html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0] || '';
+  assert.equal((table.match(/<tr>/g) || []).length, 3);
+  sandbox.probeHistory = hostState.deviceHealth.history;
+  assert.match(vm.runInContext("healthSeriesPath(safeHealthHistory(probeHistory), 'cpuUsedPct', 60000).path", sandbox), /^M[^L]+ M/);
+});
+
+test('multi-host capacity keeps histories isolated and legacy history optional', async () => {
+  const localState = stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]);
+  localState.deviceHealth = healthState();
+  localState.deviceHealth.history = [{ capturedAt: iso(-60_000), cpuUsedPct: 11, ramUsedPct: 22, diskAvailablePct: 33 }];
+  const peerState = stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]);
+  peerState.deviceHealth = healthState();
+  peerState.deviceHealth.history = null;
+  const combined = { hosts: [
+    { host: 'local', label: 'Local Mac', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: localState },
+    { host: 'peer', label: 'Peer Mac', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: peerState },
+  ], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const html = els.hosts.innerHTML;
+  assert.equal((html.match(/class="operational-host"/g) || []).length, 2);
+  assert.equal((html.match(/class="health-history"/g) || []).length, 1);
+  assert.equal((html.match(/History unavailable/g) || []).length, 1);
+  const localStart = html.indexOf('Capacity now for Local Mac');
+  const peerStart = html.indexOf('Capacity now for Peer Mac');
+  assert.match(html.slice(localStart, peerStart), />11%</);
+  assert.doesNotMatch(html.slice(peerStart), />11%</, 'the local sample never enters the peer history');
+  assert.ok(html.indexOf('class="multi-operational"') < html.indexOf('class="host '), 'all urgent host summaries precede lower activity stories');
+});
+
+test('maximum configured hosts render bounded histories and no overflow host', async () => {
+  const raw = Array.from({ length: MAX_REMOTE_HOSTS + 1 }, (_, i) => `peer-${i}=Peer ${i}`).join(',');
+  const parsed = parseHosts(raw, { port: 8787, host: '0.0.0.0' }, null);
+  assert.equal(parsed.hosts.length, MAX_REMOTE_HOSTS + 1, 'local plus sixteen remotes');
+  assert.equal(parsed.errors[0].reason, 'host-limit-exceeded');
+  const history = Array.from({ length: 60 }, (_, i) => ({
+    capturedAt: iso(-(59 - i) * 60_000),
+    cpuUsedPct: i, ramUsedPct: 100 - i, diskAvailablePct: 50,
+  }));
+  const hosts = parsed.hosts.map((configured) => {
+    const state = stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]);
+    state.deviceHealth = healthState();
+    state.deviceHealth.history = history;
+    return {
+      ...configured, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state,
+    };
+  });
+  const { els } = await renderWith({ hosts, generatedAt: iso(0) });
+  const html = els.hosts.innerHTML;
+  const hostCount = MAX_REMOTE_HOSTS + 1;
+  assert.equal((html.match(/class="operational-host"/g) || []).length, hostCount);
+  assert.equal((html.match(/class="health-history"/g) || []).length, hostCount);
+  const tableBodies = [...html.matchAll(/<tbody>([\s\S]*?)<\/tbody>/g)].map((match) => match[1]);
+  assert.equal(tableBodies.length, hostCount);
+  assert.equal(tableBodies.reduce((sum, body) => sum + (body.match(/<tr>/g) || []).length, 0), hostCount * 60);
+  assert.equal((html.match(/class="health-point /g) || []).length, hostCount * 3 * 60);
+  assert.doesNotMatch(html, /Peer 16/);
+});
+
 test('missing and unavailable reset states keep compact cards honest and full evidence in pacing', async () => {
   const tool = claudeTool(3 * 3600_000, 2 * 86400_000);
   tool.limits.five_hour.remainingPct = 0;
@@ -493,11 +576,11 @@ test('missing and unavailable reset states keep compact cards honest and full ev
   assert.match(els.tools.innerHTML,
     /remaining limit-value is-crit">0[\s\S]*limit reached[\s\S]*fill-crit" style="width:100%/,
     'maxed semantics and the full consumed bar are unchanged');
-  assert.match(els['claude-details'].innerHTML,
+  assert.match(els['device-health'].innerHTML,
     /5-hour limit reached[\s\S]*Live provider reading · resets in/);
-  assert.match(els['claude-details'].innerHTML,
+  assert.match(els['device-health'].innerHTML,
     /Weekly[\s\S]*Reset time not reported · pacing unavailable/);
-  assert.match(els['codex-details'].innerHTML,
+  assert.match(els['device-health'].innerHTML,
     /5-hour[\s\S]*Codex did not report a short window · pacing unavailable/);
 });
 
@@ -515,7 +598,7 @@ test('an unavailable weekly window keeps configured evidence only in pacing', as
   assert.equal(values[1], '—', 'unavailable geometry never implies a reset value');
   assert.match(els.tools.innerHTML, /Weekly[\s\S]*Unavailable[\s\S]*No current window reading/);
   assert.doesNotMatch(els.tools.innerHTML, /Weekly[\s\S]*remaining limit-value/);
-  assert.match(els['claude-details'].innerHTML,
+  assert.match(els['device-health'].innerHTML,
     /Weekly[\s\S]*Configured · [\s\S]*America\/Los_Angeles · resets in[\s\S]*usage reading unavailable/,
     'full configured evidence remains readable and associated in pacing');
 });
@@ -528,6 +611,23 @@ test('single-host diagnostics follow all four account slots instead of splitting
   assert.equal((els.tools.innerHTML.match(/class="panel limit-card/g) || []).length, 4);
   assert.doesNotMatch(els.tools.innerHTML, /stale-note/, 'no diagnostic interrupts the comparison grid');
   assert.match(els['limit-notes'].innerHTML, /Claude Code[\s\S]*Stale reading/);
+});
+
+test('multi-host diagnostics follow every operational summary and precede activity', async () => {
+  const localTool = claudeTool(3 * 3600_000, 3 * 86400_000);
+  localTool.limitsDiagnostic = { reason: 'stale-reading', capturedAt: iso(-900_000) };
+  const peerTool = claudeTool(3 * 3600_000, 3 * 86400_000);
+  const combined = { hosts: [
+    { host: 'local', label: 'Local', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([localTool]) },
+    { host: 'peer', label: 'Peer', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([peerTool]) },
+  ], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const html = els.hosts.innerHTML;
+  const operations = html.indexOf('class="multi-operational"');
+  const diagnostics = html.indexOf('class="limit-notes capacity-diagnostics multi-capacity-diagnostics"');
+  const activity = html.indexOf('class="host ');
+  assert.ok(operations >= 0 && operations < diagnostics && diagnostics < activity);
+  assert.match(html.slice(diagnostics, activity), /Claude Code[\s\S]*Stale reading/);
 });
 
 test('single-host mode renders model-specific caps and escapes model labels', async () => {
@@ -894,7 +994,8 @@ test('the multi-host footer/legend copy preserves account and machine scope', ()
   assert.match(appJs, /matching accounts are shown once before every host/);
   assert.match(appJs, /Account limits above/);
   assert.match(appJs, /the shared meters are shown once, up top/);
-  assert.match(appJs, /Limits: account-wide · Device health: per machine · Activity: per machine · Codex day buckets: UTC/);
+  assert.match(appJs, /Limits and allowances: account-wide · Pacing and device health: per machine · Activity: per machine · Codex day buckets: UTC/);
+  assert.match(appJs, /Health history: process lifetime · up to 60 samples/);
   assert.match(appJs, /is unreachable/);
   assert.match(appJs, /returned an error/);
 });

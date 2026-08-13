@@ -61,6 +61,8 @@ export function isLocalHost(host, port, cfg = config, tailnet = tailnetIPv4()) {
 //   - split off `:port` at the LAST ':' of the remaining host token, BUT only
 //     when what follows is all-digits (so an IPv6 literal's colons aren't eaten)
 //   - label default = the sanitized host string
+export const MAX_REMOTE_HOSTS = 16;
+
 export function parseHosts(raw = config.hostsRaw, cfg = config, tailnet = tailnetIPv4()) {
   const errors = [];
   const hosts = [];
@@ -125,6 +127,20 @@ export function parseHosts(raw = config.hostsRaw, cfg = config, tailnet = tailne
       if (label) {
         const existing = hosts.find((x) => x.key === key);
         if (existing) existing.label = label;
+      }
+      continue;
+    }
+
+    // Bound fan-out and downstream cache/DOM work. Parse identity first so a
+    // later duplicate or explicit local entry never masquerades as peer 17.
+    // The local host does not consume this budget and can never be displaced.
+    if (!self && hosts.length - 1 >= MAX_REMOTE_HOSTS) {
+      if (!errors.some((error) => error.reason === 'host-limit-exceeded')) {
+        errors.push({
+          entry: 'additional configured hosts',
+          reason: 'host-limit-exceeded',
+          detail: `maximum ${MAX_REMOTE_HOSTS} remote peers`,
+        });
       }
       continue;
     }
@@ -261,6 +277,35 @@ function clampPct(v) {
   return Math.min(100, Math.max(0, n));
 }
 
+const MAX_HEALTH_HISTORY = 60;
+
+function normalizeHistoryPct(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(100, Math.max(0, value)) : null;
+}
+
+export function normalizeHealthHistory(value) {
+  if (!Array.isArray(value)) return null;
+  const byTime = new Map();
+  // Bound traversal before mapping: a hostile oversized direct-call fixture
+  // cannot make normalization allocate proportional to its full input.
+  for (const sample of value.slice(-MAX_HEALTH_HISTORY)) {
+    if (!isPlainObject(sample)) continue;
+    const capturedAt = typeof sample.capturedAt === 'string'
+      ? normalizeIso(sample.capturedAt) : null;
+    if (!capturedAt) continue;
+    byTime.set(capturedAt, {
+      capturedAt,
+      cpuUsedPct: normalizeHistoryPct(sample.cpuUsedPct),
+      ramUsedPct: normalizeHistoryPct(sample.ramUsedPct),
+      diskAvailablePct: normalizeHistoryPct(sample.diskAvailablePct),
+    });
+  }
+  return [...byTime.values()]
+    .sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt))
+    .slice(-MAX_HEALTH_HISTORY);
+}
+
 const HEALTH_STATUSES = new Set(['available', 'measuring', 'unsupported', 'unavailable']);
 const HEALTH_UPDATE_STATUSES = new Set(['pending', 'ok', 'failed', 'unsupported']);
 const CPU_HEALTH_REASONS = new Set([
@@ -382,6 +427,7 @@ export function normalizeDeviceHealth(value) {
     cpu: normalizeHealthMetric(value.cpu, 'cpu'),
     ram: normalizeHealthMetric(value.ram, 'ram'),
     disk: normalizeHealthMetric(value.disk, 'disk'),
+    history: normalizeHealthHistory(value.history),
   };
 }
 

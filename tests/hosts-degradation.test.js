@@ -110,6 +110,42 @@ test('peer device health is detached, timestamp-normalized, clamped, and path-fr
   assert.equal(normalized.cpu.usedPct, 100);
 });
 
+test('peer health history is strictly number-only, canonical, deduped, sorted, and bounded', () => {
+  const raw = health();
+  raw.history = Array.from({ length: 63 }, (_, i) => ({
+    capturedAt: new Date((62 - i) * 60_000).toISOString().replace('Z', '+00:00'),
+    cpuUsedPct: i === 2 ? '40' : i + 50,
+    ramUsedPct: i === 3 ? NaN : -i,
+    diskAvailablePct: i === 4 ? false : 25,
+    ignored: '<script>',
+  }));
+  raw.history[62] = { capturedAt: new Date(0).toISOString(), cpuUsedPct: 7, ramUsedPct: null, diskAvailablePct: 8 };
+  const normalized = normalizeDeviceHealth(raw);
+  assert.equal(normalized.history.length, 60);
+  assert.deepEqual(normalized.history, normalized.history.slice().sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt)));
+  assert.deepEqual(normalized.history[0], {
+    capturedAt: new Date(0).toISOString(), cpuUsedPct: 7, ramUsedPct: null, diskAvailablePct: 8,
+  });
+  assert.ok(normalized.history.some((sample) => sample.cpuUsedPct === 100), 'finite high values clamp to 100');
+  assert.ok(normalized.history.some((sample) => sample.ramUsedPct === 0), 'finite low values clamp to 0');
+  assert.doesNotMatch(JSON.stringify(normalized.history), /script|ignored/);
+  raw.history[62].cpuUsedPct = 99;
+  assert.equal(normalized.history[0].cpuUsedPct, 7, 'normalized history is detached');
+});
+
+test('missing or malformed peer history stays optional without harming current health', () => {
+  for (const history of [undefined, null, {}, 'history']) {
+    const raw = health();
+    raw.history = history;
+    const normalized = normalizeDeviceHealth(raw);
+    assert.equal(normalized.history, null);
+    assert.equal(normalized.cpu.status, 'available');
+  }
+  const supported = health();
+  supported.history = [];
+  assert.deepEqual(normalizeDeviceHealth(supported).history, []);
+});
+
 test('hostile health values degrade only their metric and bounded reasons never pass through', () => {
   const raw = health({
     cpu: { status: 'available', usedPct: NaN, capturedAt: iso(0), attemptedAt: '<script>', updateStatus: 'future', reason: '<img>', intervalMs: -1 },

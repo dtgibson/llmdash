@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHosts, isLocalHost, sanitizeHostPort, remoteHosts } from '../src/hosts.js';
+import {
+  MAX_REMOTE_HOSTS, parseHosts, isLocalHost, sanitizeHostPort, remoteHosts,
+} from '../src/hosts.js';
 
 // parseHosts is pure over (raw, cfg, tailnet). A fixed cfg so config.port /
 // config.host don't sway the assertions. No I/O, no fetch.
@@ -48,6 +50,53 @@ test('a multi-entry list yields that many peers, in order', () => {
   const peers = hosts.filter((h) => !h.self);
   assert.deepEqual(peers.map((p) => p.label), ['Alpha', 'Bravo', 'Charlie']);
   assert.deepEqual(peers.map((p) => p.port), [8787, 9000, 8787]);
+});
+
+test('configured peers are capped at 16 without displacing the local host', () => {
+  const raw = Array.from({ length: MAX_REMOTE_HOSTS + 1000 }, (_, i) =>
+    `peer-${i}=Peer ${i}`).join(',');
+  const { hosts, errors } = parse(raw);
+  assert.equal(hosts.length, MAX_REMOTE_HOSTS + 1);
+  assert.equal(hosts[0].self, true);
+  assert.equal(remoteHosts({ hosts, errors }).length, MAX_REMOTE_HOSTS);
+  assert.equal(hosts.at(-1).label, `Peer ${MAX_REMOTE_HOSTS - 1}`);
+  assert.deepEqual(errors, [{
+    entry: 'additional configured hosts',
+    reason: 'host-limit-exceeded',
+    detail: `maximum ${MAX_REMOTE_HOSTS} remote peers`,
+  }]);
+});
+
+test('duplicates, malformed entries, and the local host do not consume or overflow the remote cap', () => {
+  const peers = Array.from({ length: MAX_REMOTE_HOSTS }, (_, i) =>
+    `peer-${i}=Peer ${i}`);
+  const raw = [
+    ...peers,
+    'peer-0=Renamed first peer',
+    '127.0.0.1=Renamed local host',
+    'bad:99999',
+  ].join(',');
+  const { hosts, errors } = parse(raw);
+  assert.equal(remoteHosts({ hosts, errors }).length, MAX_REMOTE_HOSTS);
+  assert.equal(hosts[0].label, 'Renamed local host');
+  assert.equal(hosts[1].label, 'Renamed first peer');
+  assert.deepEqual(errors, [{ entry: 'bad:99999', reason: 'bad-port', detail: '99999' }]);
+});
+
+test('the first unique remote after duplicate and local entries reports one bounded overflow', () => {
+  const peers = Array.from({ length: MAX_REMOTE_HOSTS }, (_, i) => `peer-${i}`);
+  const raw = [
+    ...peers,
+    'peer-0=Still watched',
+    'localhost=This machine',
+    'peer-overflow-a',
+    'peer-overflow-b',
+  ].join(',');
+  const { hosts, errors } = parse(raw);
+  assert.equal(remoteHosts({ hosts, errors }).length, MAX_REMOTE_HOSTS);
+  assert.equal(hosts.some((host) => host.host === 'peer-overflow-a'), false);
+  assert.equal(hosts.some((host) => host.host === 'peer-overflow-b'), false);
+  assert.equal(errors.filter((error) => error.reason === 'host-limit-exceeded').length, 1);
 });
 
 test('a present-but-invalid port ⇒ malformed error, NOT a silent coercion (QA-04)', () => {

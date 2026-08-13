@@ -86,15 +86,23 @@ export function freshnessModeLine(cfg = config) {
 // `parsed` is injectable for tests.
 export function peerDisclosureLine(parsed = parseHosts()) {
   const remotes = remoteHosts(parsed);
+  const errors = parsed.errors || [];
+  const overflow = errors.find((e) => e.reason === 'host-limit-exceeded');
+  const malformed = errors.filter((e) => e.reason !== 'host-limit-exceeded');
   if (!remotes.length) {
-    return 'Multi-host: no peers configured (LLMDASH_HOSTS unset) — this instance issues no outbound reads (single-host). Set LLMDASH_HOSTS to a comma-separated host[:port][=label] list to aggregate other tailnet machines.';
+    let line = 'Multi-host: no peers configured (LLMDASH_HOSTS unset) — this instance issues no outbound reads (single-host). Set LLMDASH_HOSTS to a comma-separated host[:port][=label] list to aggregate other tailnet machines.';
+    if (malformed.length) line += ` Ignored ${malformed.length} malformed host entr${malformed.length === 1 ? 'y' : 'ies'} — fix the format host[:port][=label].`;
+    return line;
   }
   const targets = remotes.map((r) => `${r.host}:${r.port}`).join(', ');
   const n = remotes.length;
   let line = `Multi-host: ${n} peer${n === 1 ? '' : 's'} configured — this instance issues a read-only GET /api/state to ${targets} on each ${Math.round(config.pollIntervalMs / 1000)}s poll (tailnet-only, credential-free, no discovery).`;
-  if (parsed.errors && parsed.errors.length) {
-    const bad = parsed.errors.map((e) => `"${e.entry}" (${e.reason})`).join(', ');
-    line += ` Ignored ${parsed.errors.length} malformed entr${parsed.errors.length === 1 ? 'y' : 'ies'}: ${bad} — fix the format (host[:port][=label]) and restart.`;
+  if (overflow) {
+    line += ` Host limit reached: only the first ${remotes.length} remote peers are watched; remove one before adding another.`;
+  }
+  if (malformed.length) {
+    const bad = malformed.map((e) => `"${e.entry}" (${e.reason})`).join(', ');
+    line += ` Ignored ${malformed.length} malformed entr${malformed.length === 1 ? 'y' : 'ies'}: ${bad} — fix the format (host[:port][=label]) and restart.`;
   }
   return line;
 }
@@ -122,7 +130,11 @@ export function peerHealthLines(parsed = parseHosts(), peek = _peek) {
     }
   }
   for (const e of (parsed.errors || [])) {
-    lines.push(`  malformed host entry "${e.entry}" (${e.reason}) — ignored; fix the format host[:port][=label] and restart.`);
+    if (e.reason === 'host-limit-exceeded') {
+      lines.push(`  host limit reached (${e.detail || 'too many remote peers'}) — additional entries are ignored; remove a watched host before adding another.`);
+    } else {
+      lines.push(`  malformed host entry "${e.entry}" (${e.reason}) — ignored; fix the format host[:port][=label] and restart.`);
+    }
   }
   return lines;
 }

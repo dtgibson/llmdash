@@ -135,7 +135,127 @@ function healthMetricHtml(kind, metric, pollIntervalMs) {
 
 // Shared host-scoped renderer. It formats the poller-owned cache only; no
 // browser interaction or render pass ever starts a device measurement.
+function safeHealthHistory(value) {
+  if (!Array.isArray(value)) return null;
+  const byTime = new Map();
+  for (const raw of value.slice(-60)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)
+      || typeof raw.capturedAt !== 'string') continue;
+    const capturedMs = Date.parse(raw.capturedAt);
+    if (!Number.isFinite(capturedMs)) continue;
+    const pct = (field) => typeof raw[field] === 'number' && Number.isFinite(raw[field])
+      ? Math.min(100, Math.max(0, raw[field])) : null;
+    const capturedAt = new Date(capturedMs).toISOString();
+    byTime.set(capturedAt, {
+      capturedAt,
+      cpuUsedPct: pct('cpuUsedPct'),
+      ramUsedPct: pct('ramUsedPct'),
+      diskAvailablePct: pct('diskAvailablePct'),
+    });
+  }
+  return [...byTime.values()].sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt)).slice(-60);
+}
+
+function healthTime(iso, withDate = false) {
+  try {
+    return new Intl.DateTimeFormat([], withDate
+      ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+      : { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+  } catch { return 'unknown time'; }
+}
+
+function healthSeriesPath(history, field, pollIntervalMs) {
+  if (!history.length) return { path: '', points: [] };
+  const times = history.map((sample) => Date.parse(sample.capturedAt));
+  const first = times[0], last = times[times.length - 1];
+  const span = Math.max(1, last - first);
+  let path = '', drawing = false, previousMs = null;
+  const points = [];
+  for (let i = 0; i < history.length; i += 1) {
+    const value = history[i][field];
+    const time = times[i];
+    if (value == null) { drawing = false; previousMs = time; continue; }
+    const x = history.length === 1 ? 226 : 30 + 392 * (time - first) / span;
+    const y = 8 + 84 * (100 - value) / 100;
+    const discontinuity = previousMs != null && time - previousMs > 2 * pollIntervalMs;
+    path += `${!drawing || discontinuity ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)} `;
+    points.push({ x, y });
+    drawing = true;
+    previousMs = time;
+  }
+  return { path: path.trim(), points };
+}
+
+function healthPointHtml(series, points) {
+  if (series === 'cpu') return points.map(({ x, y }) =>
+    `<circle class="health-point health-point-cpu" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="2.4"></circle>`).join('');
+  if (series === 'ram') return points.map(({ x, y }) =>
+    `<rect class="health-point health-point-ram" x="${(x - 2.2).toFixed(2)}" y="${(y - 2.2).toFixed(2)}" width="4.4" height="4.4"></rect>`).join('');
+  return points.map(({ x, y }) =>
+    `<path class="health-point health-point-disk" d="M${x.toFixed(2)} ${(y - 3).toFixed(2)} L${(x + 3).toFixed(2)} ${y.toFixed(2)} L${x.toFixed(2)} ${(y + 3).toFixed(2)} L${(x - 3).toFixed(2)} ${y.toFixed(2)} Z"></path>`).join('');
+}
+
+function healthHistoryHtml(health, hostLabel, chartIndex = 0) {
+  const label = typeof hostLabel === 'string' && hostLabel ? hostLabel : 'This machine';
+  const history = safeHealthHistory(health && health.history);
+  if (history === null) {
+    return `<div class="health-history-state"><strong>History unavailable</strong>`
+      + `<span>Not reported by this host. Current CPU, RAM, and disk evidence remains above.</span></div>`;
+  }
+  if (history.length === 0) {
+    return `<div class="health-history-state"><strong>Collecting health history</strong>`
+      + `<span>No observations yet. The existing minute poller will fill this process-lifetime view.</span></div>`;
+  }
+  const pollIntervalMs = Number.isFinite(Number(health.pollIntervalMs))
+    ? Math.max(1_000, Number(health.pollIntervalMs)) : 60_000;
+  const series = [
+    ['cpu', 'cpuUsedPct', 'CPU used'],
+    ['ram', 'ramUsedPct', 'RAM used'],
+    ['disk', 'diskAvailablePct', 'Disk available'],
+  ].map(([key, field, name]) => ({ key, field, name, ...healthSeriesPath(history, field, pollIntervalMs) }));
+  const successful = history.filter((sample) =>
+    sample.cpuUsedPct != null || sample.ramUsedPct != null || sample.diskAvailablePct != null).length;
+  const nullGapTimes = history.filter((sample) =>
+    sample.cpuUsedPct == null || sample.ramUsedPct == null || sample.diskAvailablePct == null).length;
+  let timeGaps = 0;
+  for (let i = 1; i < history.length; i += 1) {
+    if (Date.parse(history[i].capturedAt) - Date.parse(history[i - 1].capturedAt) > 2 * pollIntervalMs) timeGaps += 1;
+  }
+  const gaps = nullGapTimes + timeGaps;
+  const oldest = history[0].capturedAt, newest = history[history.length - 1].capturedAt;
+  const rangeName = pollIntervalMs === 60_000 ? 'Last hour' : 'Latest 60 samples';
+  const coverage = `${history.length} ${history.length === 1 ? 'sample' : 'samples'} · ${healthTime(oldest)}–${healthTime(newest)}`;
+  const gapCopy = successful === 0 ? 'No successful health readings in this range'
+    : history.length < 2 ? 'trend still collecting'
+      : gaps ? `${gaps} ${gaps === 1 ? 'gap' : 'gaps'} shown` : 'no gaps';
+  const id = `health-chart-${chartIndex}`;
+  const paths = series.map((item) => item.path
+    ? `<path class="health-series health-series-${item.key}" d="${item.path}"></path>${healthPointHtml(item.key, item.points)}` : '').join('');
+  const rows = history.map((sample) => {
+    const cell = (value) => value == null ? 'Not measured' : `${Math.round(value * 10) / 10}%`;
+    return `<tr><td><time datetime="${sample.capturedAt}">${esc(healthTime(sample.capturedAt, true))}</time></td>`
+      + `<td>${cell(sample.cpuUsedPct)}</td><td>${cell(sample.ramUsedPct)}</td><td>${cell(sample.diskAvailablePct)}</td></tr>`;
+  }).join('');
+  return `<figure class="health-history" aria-labelledby="${id}-title ${id}-desc">`
+    + `<div class="health-history-heading"><strong>${rangeName}</strong><span>${coverage} · ${gapCopy}</span></div>`
+    + `<svg viewBox="0 0 430 108" role="img" aria-labelledby="${id}-title ${id}-desc">`
+    + `<title id="${id}-title">${esc(label)} device health history</title>`
+    + `<desc id="${id}-desc">${esc(`${rangeName}. ${coverage}. ${gapCopy}. CPU used is a solid line with circle markers, RAM used is dashed with square markers, and disk available is dotted with diamond markers. Missing measurements are gaps, never zero.`)}</desc>`
+    + `<line class="health-grid" x1="30" y1="8" x2="422" y2="8"></line><text x="2" y="11">100</text>`
+    + `<line class="health-grid" x1="30" y1="50" x2="422" y2="50"></line><text x="9" y="53">50</text>`
+    + `<line class="health-grid" x1="30" y1="92" x2="422" y2="92"></line><text x="16" y="95">0</text>`
+    + `${paths}<text x="30" y="106">${esc(healthTime(oldest))}</text><text class="health-axis-end" x="422" y="106">${esc(healthTime(newest))}</text></svg>`
+    + `<figcaption class="health-history-footer"><span class="health-legend" aria-label="Health chart legend">`
+    + `<span><i class="legend-line health-series-cpu"></i>CPU used</span>`
+    + `<span><i class="legend-line health-series-ram"></i>RAM used</span>`
+    + `<span><i class="legend-line health-series-disk"></i>Disk available</span></span>`
+    + `<span class="health-coverage">${coverage} · ${gapCopy}</span></figcaption>`
+    + `<table class="sr-only"><caption>Exact bounded ${esc(label)} health history. Missing metrics were not measured and are not zero.</caption>`
+    + `<thead><tr><th>Time</th><th>CPU used</th><th>RAM used</th><th>Disk available</th></tr></thead><tbody>${rows}</tbody></table></figure>`;
+}
+
 function deviceHealthHtml(health, hostLabel) {
+  const chartIndex = arguments.length > 2 ? arguments[2] : 0;
   const label = typeof hostLabel === 'string' && hostLabel ? hostLabel : 'This machine';
   if (!health || health.scope !== 'device') {
     return `<section class="device-section device-not-reported" aria-label="Device health for ${esc(label)}">`
@@ -155,7 +275,8 @@ function deviceHealthHtml(health, hostLabel) {
     + `<div class="device-meta"><span class="device-scope">${esc(label)}</span><span>${sampled}</span></div></div>`
     + `<div class="health-band">${healthMetricHtml('cpu', health.cpu, pollIntervalMs)}`
     + `${healthMetricHtml('ram', health.ram, pollIntervalMs)}${healthMetricHtml('disk', health.disk, pollIntervalMs)}</div>`
-    + `<div class="device-foot">Next sample in about a minute · llmdash data volume</div></section>`;
+    + healthHistoryHtml(health, label, chartIndex)
+    + `<div class="device-foot">Process lifetime · up to 60 samples · llmdash data volume</div></section>`;
 }
 
 // The reset/billing view is fetched separately from the frozen usage/peer
@@ -363,10 +484,10 @@ function pacingLine(label, win, proj, unavailableCopy = '', reset = null, window
     + `<span class="burn-text">${text}</span>${pill}</div>`;
 }
 
-function burnHtml(tool, weeklyResetSelection = null) {
+function burnHtml(tool, weeklyResetSelection = null, rateScope = 'this machine') {
   const a = tool.activity, proj = tool.projection || {};
   const hasActivity = a && a.hasData !== false;
-  const rateHtml = hasActivity ? `<span class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr · this machine</span></span>` : '';
+  const rateHtml = hasActivity ? `<span class="burn-rate">${fmtTokensHtml(a.burnTokensPerHour)}<span class="u">tokens / hr · ${esc(rateScope)}</span></span>` : '';
   // Both pacing predictors shown at once: 5-hour and weekly.
   const shortUnavailable = tool.source === 'codex' && !tool.limits.five_hour
     ? 'Codex did not report a short window' : '';
@@ -662,7 +783,7 @@ function limitsNoteHtml(tool) {
   return `<div class="empty-note">${text}</div>`;
 }
 
-function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool), weeklyResetSelection = null) {
+function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool), weeklyResetSelection = null, includePacing = true) {
   const a = tool.activity;
   // Reading-age status pill: warn "aging", crit "stale" — text first (NFR-08),
   // and the aging band never says "stale". Fresh renders no pill at all, so
@@ -680,11 +801,11 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
     ? (tilesHtml(a) + mixHtml(a))
     : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   const summary = tool.source === 'claude-code'
-    ? 'Pacing · activity · trends'
-    : 'Pacing · activity · deeper insights · trends';
+    ? `${includePacing ? 'Pacing · ' : ''}activity · trends`
+    : `${includePacing ? 'Pacing · ' : ''}activity · deeper insights · trends`;
   const idAttr = titleId ? ` id="${titleId}"` : '';
   return `<div class="tool-group-head"><h2${idAttr}>${toolNameHtml(tool)}</h2><span class="group-summary">${summary} · ${sub}</span></div>`
-    + burnHtml(tool, weeklyResetSelection)
+    + (includePacing ? burnHtml(tool, weeklyResetSelection, activityScope) : '')
     + `<section class="subsection activity-section"><div class="subsection-head"><h3>Activity</h3>`
     + `<span class="subsection-scope"><span class="scope-tag">${esc(activityScope)}</span>local ${esc(tool.label)} session logs</span></div>`
     + activityBlock + `</section>`;
@@ -799,7 +920,29 @@ function limitsOnlyHtml(tool, scopeCopy = '', weeklyResetSelection = null) {
 // One host-local tool story with no gauges. Its account readings are always in
 // the multi-host limits overview above every host section.
 function activityOnlyHtml(tool, hostLabel, weeklyResetSelection = null) {
-  return `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, hostLabel, null, weeklyResetSelection)}</section>`;
+  return `<section class="tool tool-group ${toolToneClass(tool)}">${toolCoreHtml(tool, hostLabel, null, weeklyResetSelection, false)}</section>`;
+}
+
+function operationalHostHtml(host, localResetSelection = null, chartIndex = 0) {
+  const tools = (host && host.state && Array.isArray(host.state.tools)) ? host.state.tools.slice() : [];
+  tools.sort((a, b) => ['claude-code', 'codex'].indexOf(a.source) - ['claude-code', 'codex'].indexOf(b.source));
+  const label = host && typeof host.label === 'string' && host.label ? host.label : 'This machine';
+  const evidenceAt = tools.map((tool) => tool && tool.dataAt).filter(Boolean).sort().pop()
+    || (host && host.fetchedAt) || null;
+  const evidenceAge = evidenceAt ? fmtAge(evidenceAt) : null;
+  const pacing = tools.length ? tools.map((tool) => {
+    const selection = host.self && tool.source === 'claude-code' ? localResetSelection : null;
+    return `<div class="host-pacing-tool ${toolToneClass(tool)}"><div class="host-pacing-name">${toolNameHtml(tool)}</div>`
+    + burnHtml(tool, selection, host.self ? 'this machine' : label) + `</div>`;
+  }).join('') : `<div class="health-history-state"><strong>Pacing unavailable</strong><span>No local tool activity is reported by this host.</span></div>`;
+  return `<section class="operational-host" aria-label="Capacity now for ${esc(label)}">`
+    + `<div class="operational-head"><div><div class="section-kicker">Operational host</div><h2>${esc(label)}</h2></div>`
+    + `<div class="operational-meta"><span class="device-scope">${host.self ? 'This machine' : 'Tailnet host'}</span>`
+    + `<span>${evidenceAge ? esc(evidenceAge) : 'No readings yet'}</span></div></div>`
+    + `<div class="operational-grid"><section class="host-pacing" aria-label="Pacing for ${esc(label)}">`
+    + `<div class="operational-subhead"><strong>Pacing</strong><span>local burn + account resets</span></div>${pacing}`
+    + `<p class="pacing-honesty">Pacing is a projection, not added quota. Shared account limits remain shown once above.</p></section>`
+    + deviceHealthHtml(host.state && host.state.deviceHealth, label, chartIndex) + `</div></section>`;
 }
 
 function memberHostKey(host) {
@@ -887,9 +1030,10 @@ function accountBundles(hosts, groups) {
 // Every unique reachable account identity renders here before any per-machine
 // activity. Same-account reset identities collapse to one lane; genuinely
 // different accounts stay distinct and name their host membership.
-function accountOverviewHtml(hosts, groups, localResetSelection = null) {
+function accountOverviewView(hosts, groups, localResetSelection = null) {
   const bundles = accountBundles(hosts, groups);
-  if (!bundles.length) return '';
+  if (!bundles.length) return { overview: '', diagnostics: '' };
+  const diagnostics = [];
   const accountHtml = bundles.map((bundle, index) => {
     const records = ['claude-code', 'codex'].map((source) => bundle.records[source]).filter(Boolean);
     const labels = bundle.members.map((member) => member.host.label);
@@ -908,18 +1052,22 @@ function accountOverviewHtml(hosts, groups, localResetSelection = null) {
       supplementaryToolForMembers(record.members, record.representative));
     const accountId = `account-${index + 1}`;
     const accountLabel = bundles.length === 1 ? 'Account' : `Account ${index + 1}`;
+    const notes = limitNotesHtml(entries);
+    if (notes) {
+      diagnostics.push(`<section class="account-diagnostic" aria-label="${accountLabel} diagnostics">${notes}</section>`);
+    }
     return `<article class="account-block" aria-labelledby="${accountId}">`
       + `<div class="account-identity"><h2 class="account-number" id="${accountId}">${accountLabel}</h2>`
       + `<span class="account-members"><strong>Shown once</strong> · ${membership}</span></div>`
       + `<div class="limit-tools">${lanes}</div>`
-      + supplementaryLimitsHtml(supplementaryTools, accountId)
-      + `<div class="limit-notes">${limitNotesHtml(entries)}</div></article>`;
+      + supplementaryLimitsHtml(supplementaryTools, accountId) + `</article>`;
   }).join('');
-  return `<section class="limits-overview multi-limits" aria-labelledby="multi-limits-title">`
-    + `<div class="limits-heading"><div><div class="section-kicker">Account limits</div>`
-    + `<h1 id="multi-limits-title">Claude Code and Codex</h1></div>`
+  const overview = `<section class="limits-overview multi-limits" aria-labelledby="multi-limits-title">`
+    + `<div class="limits-heading"><div><div class="section-kicker">Capacity now</div>`
+    + `<h1 id="multi-limits-title">Headroom, allowances, and machines</h1></div>`
     + `<p class="scope-copy"><strong>Account-wide</strong> · matching account readings are shown once; different accounts remain labeled.</p></div>`
     + accountHtml + `</section>`;
+  return { overview, diagnostics: diagnostics.join('') };
 }
 
 // hostDiagnostic reason → offline callout copy. Own-key (hasOwnProperty) lookup;
@@ -997,7 +1145,7 @@ function hostGroupHtml(host, ctx) {
 function reachableHostBody(host, ctx) {
   const tools = (host.state && Array.isArray(host.state.tools)) ? host.state.tools.slice() : [];
   tools.sort((a, b) => ['claude-code', 'codex'].indexOf(a.source) - ['claude-code', 'codex'].indexOf(b.source));
-  const parts = [deviceHealthHtml(host.state && host.state.deviceHealth, host.label)];
+  const parts = [];
   for (const tool of tools) {
     const key = accountKey(tool);
     const shared = key != null && ctx.sharedKeys[tool.source] && ctx.sharedKeys[tool.source].has(key);
@@ -1053,13 +1201,13 @@ function renderHosts(combined) {
       claudeDetails.innerHTML = claude
         ? (localOnly
           ? `<div class="tool-group-head"><h2>${toolNameHtml(claude)}</h2><span class="group-summary">Trends · this machine</span></div>`
-          : toolCoreHtml(claude, 'this machine', null, dashboardResetSelection)) : '';
+          : toolCoreHtml(claude, 'this machine', null, dashboardResetSelection, false)) : '';
     }
     if (codexDetails) {
       codexDetails.innerHTML = codex
         ? (localOnly
           ? `<div class="tool-group-head"><h2>${toolNameHtml(codex)}</h2><span class="group-summary">Deeper insights · trends · this machine</span></div>`
-          : toolCoreHtml(codex, 'this machine', null)) : '';
+          : toolCoreHtml(codex, 'this machine', null, null, false)) : '';
     }
     if (detailsHeading) detailsHeading.hidden = !claude && !codex;
     if (toolGroups) toolGroups.hidden = !claude && !codex;
@@ -1076,7 +1224,7 @@ function renderHosts(combined) {
     if (singleLimits) singleLimits.hidden = false;
     if (deviceHealthEl) {
       deviceHealthEl.hidden = false;
-      deviceHealthEl.innerHTML = deviceHealthHtml(st.deviceHealth, hosts[0].label);
+      deviceHealthEl.innerHTML = operationalHostHtml(hosts[0], dashboardResetSelection, 0);
     }
     const limitEntries = (st.tools || []).map((tool) => ({ tool }));
     const lanes = limitEntries.map(({ tool }) => limitLaneHtml(tool, '',
@@ -1136,14 +1284,20 @@ function renderHosts(combined) {
       return t ? fmtAge(t) : (h.fetchedAt ? fmtAge(h.fetchedAt) : null);
     },
   };
-  const overview = accountOverviewHtml(hosts, groups, dashboardResetSelection);
+  const accountView = accountOverviewView(hosts, groups, dashboardResetSelection);
   const orderedHosts = hosts.slice().sort((a, b) => {
     if (Boolean(a.reachable) !== Boolean(b.reachable)) return a.reachable ? -1 : 1;
     if (Boolean(a.self) !== Boolean(b.self)) return a.self ? -1 : 1;
     return 0;
   });
+  const operations = orderedHosts.filter((host) => host.reachable && host.state)
+    .map((host, index) => operationalHostHtml(host, dashboardResetSelection, index)).join('');
   const cards = orderedHosts.map((h) => hostGroupHtml(h, ctx)).join('');
-  hostsEl.innerHTML = overview + cards + LEGEND_HTML;
+  hostsEl.innerHTML = accountView.overview
+    + (operations ? `<section class="multi-operational" aria-label="Operational capacity by host">${operations}</section>` : '')
+    + (accountView.diagnostics
+      ? `<section class="limit-notes capacity-diagnostics multi-capacity-diagnostics" aria-label="Account diagnostics">${accountView.diagnostics}</section>` : '')
+    + cards + LEGEND_HTML;
 
   // Preserve local Codex insights and both local trend groups in multi-host
   // mode without mixing them into a peer's activity. They follow the host-first
@@ -1171,12 +1325,12 @@ function setFooterMode(multi) {
   const spans = f.querySelectorAll('span');
   if (spans.length < 2) return;
   if (multi) {
-    spans[0].textContent = 'Limits: account-wide · Device health: per machine · Activity: per machine · Codex day buckets: UTC';
+    spans[0].textContent = 'Limits and allowances: account-wide · Pacing and device health: per machine · Activity: per machine · Codex day buckets: UTC';
     const n = state && Array.isArray(state.hosts) ? state.hosts.length : 0;
-    spans[1].textContent = `${n} hosts over Tailscale`;
+    spans[1].textContent = `Health history: process lifetime · up to 60 samples · ${n} hosts over Tailscale`;
   } else {
-    spans[0].textContent = 'Limits: account-wide · Device health: this machine · Activity: local session logs · Codex day buckets: UTC';
-    spans[1].textContent = 'served over Tailscale';
+    spans[0].textContent = 'Limits and allowances: account-wide · Pacing and device health: this machine · Activity: local session logs · Codex day buckets: UTC';
+    spans[1].textContent = 'Health history: process lifetime · up to 60 samples · served over Tailscale';
   }
 }
 

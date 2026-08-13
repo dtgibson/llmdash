@@ -74,11 +74,15 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - **Multi-host view** — one llmdash can place every unique reachable account's
   Claude/Codex limits in the leading comparison, collapse matching accounts once,
   and then group each tailnet machine's local activity by tool while keeping
-  offline hosts explicit and using only each peer's existing `/api/state`.
-- **Device health snapshot** — each reachable machine shows a minute-sampled,
-  host-scoped CPU, RAM, and llmdash data-volume snapshot near the top, with honest
-  measuring, unsupported, aging, stale, and failed-update evidence instead of a
-  combined verdict or realtime monitoring.
+  offline hosts explicit and using only each peer's existing `/api/state`. Polling,
+  cache, and rendered-host work are bounded to 16 configured remote peers, with
+  the always-present local machine added outside that limit.
+- **Capacity now + device-health history** — the first read places canonical
+  account quota/allowances before host-scoped pacing and current CPU-used,
+  RAM-used, and disk-available evidence. Each process retains only its newest 60
+  health attempts in memory and renders an accessible host-scoped SVG with honest
+  null/time gaps; older peers can omit history while retaining their current
+  snapshot. Nothing is persisted or combined across machines.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain

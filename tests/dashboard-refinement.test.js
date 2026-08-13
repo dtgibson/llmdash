@@ -26,7 +26,7 @@ test('dashboard hierarchy keeps gauges elevated and supporting layers quiet', ()
   assert.match(appJs, /'◆'.*'▲'/, 'Claude and Codex keep the approved identity marks');
 });
 
-test('semantic order is primary limits, other global limits, evidence, then local tool stories', () => {
+test('semantic order is complete Capacity now, diagnostics, then local tool stories', () => {
   const limits = indexHtml.indexOf('id="single-limits"');
   const identity = indexHtml.indexOf('id="account-identity"');
   const tools = indexHtml.indexOf('id="tools"');
@@ -39,10 +39,10 @@ test('semantic order is primary limits, other global limits, evidence, then loca
   const insights = indexHtml.indexOf('id="codex-insights"');
   const codexTrends = indexHtml.indexOf('id="codex-trends-title"');
   assert.ok(limits >= 0 && limits < identity && identity < tools && tools < supplementary
-    && supplementary < notes && notes < deviceHealth && deviceHealth < range && range < claude && claude < codex
+    && supplementary < deviceHealth && deviceHealth < notes && notes < range && range < claude && claude < codex
     && codex < insights && insights < codexTrends);
-  assert.match(appJs, /<div class="limit-tools">\$\{lanes\}<\/div>`\s*\+ supplementaryLimitsHtml\([\s\S]*?\)\s*\+ `<div class="limit-notes">/,
-    'multi-host supplementary limits and diagnostics follow the complete primary grid');
+  assert.match(appJs, /accountView\.overview[\s\S]*multi-operational[\s\S]*accountView\.diagnostics[\s\S]*\+ cards/,
+    'multi-host account facts and all operational summaries precede diagnostics and activity');
   assert.match(indexHtml, /aria-labelledby="claude-details-title"[\s\S]*id="claude-details-title"/);
   assert.match(indexHtml, /aria-labelledby="codex-details-title"[\s\S]*id="codex-details-title"/);
   assert.doesNotMatch(styles, /\border\s*:/, 'CSS never visually reorders supporting content ahead of limits');
@@ -90,6 +90,35 @@ test('range controls, narrow reflow, themes, and reduced motion stay explicit', 
   assert.match(styles, /transition-duration: 0\.01ms !important/);
 });
 
+test('named phone and desktop geometry stays within the supported viewport', () => {
+  const geometry = (viewport) => {
+    const shell = Math.min(860, viewport - (viewport <= 620 ? 22 : 32));
+    const limitsInner = shell - 2 * (viewport <= 620 ? 11 : 20);
+    const lane = viewport <= 620 ? limitsInner : (limitsInner - 18) / 2;
+    const card = (lane - (viewport <= 620 ? 8 : 10)) / 2;
+    return { viewport, shell, limitsInner, lane, card };
+  };
+  assert.deepEqual(geometry(320), {
+    viewport: 320, shell: 298, limitsInner: 276, lane: 276, card: 134,
+  });
+  assert.deepEqual(geometry(892), {
+    viewport: 892, shell: 860, limitsInner: 820, lane: 401, card: 195.5,
+  });
+  for (const box of [geometry(320), geometry(892)]) {
+    assert.ok(box.shell <= box.viewport && box.limitsInner <= box.shell
+      && box.lane <= box.limitsInner && box.card <= box.lane);
+  }
+  assert.match(styles, /\* \{ box-sizing: border-box; \}/);
+  assert.match(styles, /\.page-shell \{ width: min\(860px, calc\(100% - 32px\)\)/);
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.page-shell \{ width: min\(100% - 22px, 860px\)/);
+  assert.match(styles, /\.limit-tools \{[^}]*repeat\(2, minmax\(0, 1fr\)\)[^}]*min-width: 0/s);
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.limit-tools \{ grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.operational-grid \{[^}]*minmax\(0, 1\.35fr\)[^}]*min-width: 0/s);
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.operational-grid \{ grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.health-history svg \{[^}]*width: 100%[^}]*height: auto/s);
+  assert.doesNotMatch(styles, /\.health-history svg \{[^}]*min-width:/s);
+});
+
 test('device health is one responsive, reduced-motion-aware host-scoped band', () => {
   const healthSource = appJs.slice(appJs.indexOf('function deviceMetricAge'),
     appJs.indexOf('// The reset/billing view'));
@@ -100,4 +129,18 @@ test('device health is one responsive, reduced-motion-aware host-scoped band', (
   assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.health-band\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(styles, /\.health-bar-fill\s*\{[^}]*transition: width 220ms cubic-bezier\(\.2, \.8, \.2, 1\)/s);
   assert.doesNotMatch(healthSource, /healthy|overloaded|\bsafe\b/i);
+});
+
+test('Capacity now moves pacing beside bounded accessible host health history', () => {
+  assert.match(indexHtml, /section-kicker">Capacity now<[\s\S]*Headroom, allowances, and machines/);
+  assert.match(appJs, /function operationalHostHtml\(host, localResetSelection = null, chartIndex = 0\)/);
+  assert.match(appJs, /function healthHistoryHtml\(health, hostLabel, chartIndex = 0\)/);
+  assert.match(appJs, /slice\(-60\)/, 'renderer defensively bounds history');
+  assert.match(appJs, /CPU used is a solid line with circle markers[\s\S]*RAM used is dashed with square markers[\s\S]*disk available is dotted with diamond markers/i);
+  assert.match(appJs, /Null cells say|Not measured|Missing metrics were not measured/);
+  assert.match(appJs, /Process lifetime · up to 60 samples/);
+  assert.match(styles, /\.operational-grid\s*\{[^}]*grid-template-columns: minmax\(240px, \.8fr\) minmax\(0, 1\.35fr\)/s);
+  assert.match(styles, /\.health-series-ram\s*\{[^}]*stroke-dasharray/s);
+  assert.match(styles, /\.health-series-disk\s*\{[^}]*stroke-dasharray/s);
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.operational-grid\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/);
 });

@@ -26,12 +26,18 @@ Codex totals reconcile to cumulative charts, while partial scans, unknown exact
 model rates, and missing subscription periods remain visibly partial or
 unavailable instead of turning into zero.
 
-## Device health snapshot
+## Capacity now and device-health history
 
-Near the top, llmdash shows a compact per-machine snapshot of CPU usage, RAM
-usage, and space available on the filesystem that contains `LLMDASH_DATA_DIR`.
-In a multi-host view, every reachable host keeps its own snapshot; the numbers
-are never combined across machines.
+The leading **Capacity now** read puts primary account quota, current resets and
+other global allowances, per-machine pacing, and device health together before
+supporting activity, diagnostics, cost, and long-range trends. Allowances still
+have one canonical account location; pacing and health stay attached to the
+machine that reported them.
+
+Each reachable machine shows a compact current snapshot plus up to 60 recent
+collection attempts: CPU used, RAM used, and disk available. At the default
+minute cadence this covers about the latest hour. Multi-host histories are never
+combined or compared as one machine.
 
 - **CPU** is aggregate non-idle time across all logical CPUs between two poll
   observations. The first observation says **Measuring**; the next reports the
@@ -45,13 +51,14 @@ are never combined across machines.
   **llmdash data volume**—the filesystem containing `LLMDASH_DATA_DIR`. It does
   not expose that path, mount, or device name in the browser.
 
-Collection rides the existing poller, once per minute by default. Changing
+Collection and history append ride the existing poller, once per minute by default. Changing
 `LLMDASH_POLL_MS` changes both the collection cadence and the documented
 freshness window; it does not create a separate health timer. A failed update
-keeps the last valid value and its original sample age visible. This is glance
-context, not realtime monitoring: there is no health history, trend, alert,
-notification, overall verdict, or remediation control, and device samples are
-not written to SQLite.
+keeps the last valid current value and its original sample age visible, while
+that failed attempt creates a gap for the failed metric in the chart. Gaps are
+never plotted as zero or bridged through. History is bounded, process-lifetime
+memory only: it clears on restart, has no backfill, is not written to SQLite,
+and adds no alert, notification, overall verdict, or remediation control.
 
 ## Why
 Claude Code's limit meters live inside the tool and are easy to lose track of.
@@ -225,7 +232,14 @@ Each entry is `host[:port][=label]`:
 - `=label` — optional display name; defaults to the host string. Labels may
   contain spaces (that's why the list is comma-separated).
 
-The **local host is always included** and shown first, marked `you` — you never
+Up to **16 remote peers** can be configured. The first 16 unique remote entries
+are watched; duplicates and entries that resolve to the local machine do not
+consume that limit. Additional unique remotes are ignored with a named
+startup/health diagnostic, which bounds polling, cached host state, and per-host
+chart DOM.
+
+The **local host is always included** in addition to those 16 and shown first,
+marked `you` — you never
 list it (though listing `127.0.0.1`/`localhost`/your own tailnet IP is harmless;
 it collapses into the one local entry and is read in-process, never re-fetched).
 
@@ -238,9 +252,10 @@ it collapses into the one local entry and is read in-process, never re-fetched).
   its own meters in its own card.
 - **Per-machine activity, per host.** Tokens, sessions, cache rate, and estimated
   value are genuinely per-machine, so each host card leads with its own activity.
-- **Device health, per host.** CPU, RAM, and data-volume space stay inside each
-  reachable machine's section. An older peer that does not report health remains
-  reachable and is labeled “not reported by this host.”
+- **Device health, per host.** CPU used, RAM used, disk available, and the
+  process-lifetime 60-sample history stay inside each reachable machine's
+  section. An older peer that omits history remains reachable, keeps its current
+  snapshot, and is labeled “History unavailable · not reported by this host.”
 - **An offline machine is named, not faked.** A host that's asleep or not running
   llmdash shows a plain callout ("… is unreachable — no response within 3s …")
   naming the host and the fix — never a stale meter, never fabricated zeros. The

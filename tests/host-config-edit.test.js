@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { addHost, removeHost } from '../src/host-config.js';
+import { MAX_REMOTE_HOSTS } from '../src/hosts.js';
 import { runAdd, runRemove, runCli, asStr } from '../scripts/menubar/host-config-action.mjs';
 
 // FR-15/16, QA-15/16/23 — the Add/Remove edit round-trip driven with INJECTED
@@ -63,6 +64,19 @@ test('addHost: a duplicate host:port is deduped, honestly reported, not re-appen
   // Still exactly one desktop:9000 line.
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.includes('desktop:9000'));
   assert.equal(lines.length, 1);
+  cleanup(dir);
+});
+
+test('addHost: the seventeenth remote is refused without changing the file', () => {
+  const { dir, file } = scratch();
+  const entries = Array.from({ length: MAX_REMOTE_HOSTS }, (_, i) => `peer-${i}=Peer ${i}`);
+  fs.writeFileSync(file, entries.join('\n') + '\n');
+  const before = fs.readFileSync(file, 'utf8');
+  const result = addHost(file, 'peer-overflow=Overflow', { hostsRaw: '', cfg, tailnet: null });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'limit');
+  assert.match(result.detail, /at most 16 remote peers/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
   cleanup(dir);
 });
 
