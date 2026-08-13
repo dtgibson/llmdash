@@ -164,6 +164,7 @@ export function normalizePeerState(payload) {
     tools,
     headroom: normalizeHeadroom(payload.headroom),
     generatedAt: normalizeIso(payload.generatedAt),
+    deviceHealth: normalizeDeviceHealth(payload.deviceHealth),
   };
 }
 
@@ -258,6 +259,130 @@ function clampPct(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   return Math.min(100, Math.max(0, n));
+}
+
+const HEALTH_STATUSES = new Set(['available', 'measuring', 'unsupported', 'unavailable']);
+const HEALTH_UPDATE_STATUSES = new Set(['pending', 'ok', 'failed', 'unsupported']);
+const CPU_HEALTH_REASONS = new Set([
+  'baseline-required', 'counter-unavailable', 'counter-invalid', 'counter-reset',
+]);
+const RAM_HEALTH_REASONS = new Set([
+  'unsupported-platform', 'probe-timeout', 'probe-failed', 'output-too-large',
+  'parse-failed', 'invalid-values',
+]);
+const DISK_HEALTH_REASONS = new Set(['statfs-timeout', 'statfs-failed', 'invalid-values']);
+
+function normalizeHealthReason(value, allowed) {
+  return value === null || value === undefined ? null
+    : allowed.has(value) ? value : null;
+}
+
+function unavailableHealthMetric(kind, attemptedAt, updateStatus = 'failed', reason = null) {
+  const common = {
+    status: 'unavailable',
+    capturedAt: null,
+    attemptedAt,
+    updateStatus,
+    reason,
+  };
+  if (kind === 'cpu') return { ...common, usedPct: null, intervalMs: null };
+  if (kind === 'ram') return { ...common, usedPct: null };
+  return {
+    ...common,
+    availableBytes: null,
+    totalBytes: null,
+    availablePct: null,
+    target: 'data-volume',
+  };
+}
+
+function normalizeHealthMetric(value, kind) {
+  const allowedReasons = kind === 'cpu' ? CPU_HEALTH_REASONS
+    : kind === 'ram' ? RAM_HEALTH_REASONS : DISK_HEALTH_REASONS;
+  if (!isPlainObject(value)) return unavailableHealthMetric(kind, null);
+
+  const status = HEALTH_STATUSES.has(value.status) ? value.status : 'unavailable';
+  const updateStatus = HEALTH_UPDATE_STATUSES.has(value.updateStatus)
+    ? value.updateStatus : 'failed';
+  const attemptedAt = normalizeIso(value.attemptedAt);
+  const reason = normalizeHealthReason(value.reason, allowedReasons);
+
+  if (kind === 'cpu' || kind === 'ram') {
+    // Device-health percentages are a closed JSON-number field. Do not let
+    // Number() turn null, false, empty strings, or arrays into a fabricated 0%.
+    const usedPct = typeof value.usedPct === 'number' && Number.isFinite(value.usedPct)
+      ? clampPct(value.usedPct) : null;
+    const capturedAt = normalizeIso(value.capturedAt);
+    if (status === 'available' && usedPct != null && capturedAt) {
+      const metric = {
+        status,
+        usedPct,
+        capturedAt,
+        attemptedAt,
+        updateStatus,
+        reason,
+      };
+      if (kind === 'cpu') {
+        const interval = Number(value.intervalMs);
+        metric.intervalMs = Number.isInteger(interval) && interval > 0 && interval <= 86_400_000
+          ? interval : null;
+      }
+      return metric;
+    }
+    if (kind === 'cpu' && status === 'measuring') {
+      return {
+        status: 'measuring', usedPct: null, capturedAt: null, attemptedAt,
+        updateStatus, reason, intervalMs: null,
+      };
+    }
+    if (kind === 'ram' && status === 'unsupported') {
+      return {
+        status: 'unsupported', usedPct: null, capturedAt: null, attemptedAt,
+        updateStatus: 'unsupported', reason: reason === 'unsupported-platform'
+          ? reason : 'unsupported-platform',
+      };
+    }
+    return unavailableHealthMetric(kind, attemptedAt,
+      status === 'available' ? 'failed' : updateStatus, reason);
+  }
+
+  const availableBytes = value.availableBytes;
+  const totalBytes = value.totalBytes;
+  const capturedAt = normalizeIso(value.capturedAt);
+  const validBytes = typeof availableBytes === 'number' && Number.isSafeInteger(availableBytes)
+    && availableBytes >= 0 && typeof totalBytes === 'number'
+    && Number.isSafeInteger(totalBytes) && totalBytes > 0 && availableBytes <= totalBytes;
+  if (status === 'available' && validBytes && capturedAt) {
+    return {
+      status,
+      availableBytes,
+      totalBytes,
+      availablePct: 100 * availableBytes / totalBytes,
+      target: 'data-volume',
+      capturedAt,
+      attemptedAt,
+      updateStatus,
+      reason,
+    };
+  }
+  return unavailableHealthMetric(kind, attemptedAt,
+    status === 'available' ? 'failed' : updateStatus, reason);
+}
+
+// Optional peer field. Invalid or absent top-level health means “not reported”
+// and never changes an otherwise reachable host into an offline one.
+export function normalizeDeviceHealth(value) {
+  if (!isPlainObject(value) || value.scope !== 'device') return null;
+  const pollIntervalMs = Number(value.pollIntervalMs);
+  if (!Number.isInteger(pollIntervalMs)
+    || pollIntervalMs < 1_000 || pollIntervalMs > 86_400_000) return null;
+  return {
+    scope: 'device',
+    pollIntervalMs,
+    cpu: normalizeHealthMetric(value.cpu, 'cpu'),
+    ram: normalizeHealthMetric(value.ram, 'ram'),
+    disk: normalizeHealthMetric(value.disk, 'disk'),
+  };
 }
 
 function normalizeWindow(w) {

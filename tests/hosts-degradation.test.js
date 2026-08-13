@@ -5,10 +5,19 @@ import {
   normalizeIso,
   normalizeResetCredits,
   normalizeAccountLimits,
+  normalizeDeviceHealth,
 } from '../src/hosts.js';
 import { setHost, getCombined, _reset } from '../src/host-cache.js';
 
 const iso = (msFromNow) => new Date(Date.now() + msFromNow).toISOString();
+
+const health = (overrides = {}) => ({
+  scope: 'device', pollIntervalMs: 60_000,
+  cpu: { status: 'available', usedPct: 37.4, capturedAt: iso(-60_000), attemptedAt: iso(-60_000), updateStatus: 'ok', reason: null, intervalMs: 60_003 },
+  ram: { status: 'available', usedPct: 68.2, capturedAt: iso(-60_000), attemptedAt: iso(-60_000), updateStatus: 'ok', reason: null },
+  disk: { status: 'available', availableBytes: 250 * (1024 ** 3), totalBytes: 1024 ** 4, availablePct: 99, target: '/private/path', capturedAt: iso(-60_000), attemptedAt: iso(-60_000), updateStatus: 'ok', reason: null },
+  ...overrides,
+});
 
 // ── normalizePeerState — the ingest defense (FR-07 / NFR-03) ─────────────────
 
@@ -74,6 +83,83 @@ test('a top-level non-object or a payload with no tools array → null (offline,
   assert.equal(normalizePeerState('a string'), null);
   assert.equal(normalizePeerState({ nope: 1 }), null);
   assert.equal(normalizePeerState({ tools: 'not an array' }), null);
+});
+
+test('legacy or invalid device health stays null without invalidating a reachable peer', () => {
+  assert.equal(normalizeDeviceHealth(undefined), null);
+  assert.equal(normalizeDeviceHealth({ scope: 'host', pollIntervalMs: 60_000 }), null);
+  assert.equal(normalizeDeviceHealth({ scope: 'device', pollIntervalMs: Infinity }), null);
+  const legacy = normalizePeerState({ tools: [], generatedAt: iso(0) });
+  assert.equal(legacy.deviceHealth, null);
+  assert.deepEqual(legacy.tools, []);
+});
+
+test('peer device health is detached, timestamp-normalized, clamped, and path-free', () => {
+  const raw = health();
+  raw.cpu.usedPct = 150;
+  raw.ram.usedPct = -5;
+  raw.cpu.capturedAt = raw.cpu.capturedAt.replace('Z', '+00:00');
+  const normalized = normalizeDeviceHealth(raw);
+  assert.equal(normalized.cpu.usedPct, 100);
+  assert.equal(normalized.ram.usedPct, 0);
+  assert.match(normalized.cpu.capturedAt, /\.\d{3}Z$/);
+  assert.equal(normalized.disk.availablePct, 24.4140625);
+  assert.equal(normalized.disk.target, 'data-volume');
+  assert.ok(!JSON.stringify(normalized).includes('/private/path'));
+  raw.cpu.usedPct = 1;
+  assert.equal(normalized.cpu.usedPct, 100);
+});
+
+test('hostile health values degrade only their metric and bounded reasons never pass through', () => {
+  const raw = health({
+    cpu: { status: 'available', usedPct: NaN, capturedAt: iso(0), attemptedAt: '<script>', updateStatus: 'future', reason: '<img>', intervalMs: -1 },
+    ram: { status: 'unsupported', usedPct: null, capturedAt: null, attemptedAt: iso(0), updateStatus: 'unsupported', reason: 'future-enum' },
+    disk: { status: 'available', availableBytes: 11, totalBytes: 10, availablePct: 100, target: '<script>', capturedAt: iso(0), attemptedAt: iso(0), updateStatus: 'ok', reason: 'unknown' },
+  });
+  const normalized = normalizeDeviceHealth(raw);
+  assert.equal(normalized.cpu.status, 'unavailable');
+  assert.equal(normalized.cpu.capturedAt, null);
+  assert.equal(normalized.cpu.reason, null);
+  assert.equal(normalized.ram.status, 'unsupported');
+  assert.equal(normalized.ram.reason, 'unsupported-platform');
+  assert.equal(normalized.disk.status, 'unavailable');
+  assert.equal(normalized.disk.target, 'data-volume');
+  assert.doesNotMatch(JSON.stringify(normalized), /script|img|future-enum|unknown/);
+});
+
+test('non-number peer CPU and RAM percentages never fabricate zero readings', () => {
+  const nonNumbers = [null, false, '', [], {}];
+  for (const metricName of ['cpu', 'ram']) {
+    for (const usedPct of nonNumbers) {
+      const raw = health();
+      raw[metricName].usedPct = usedPct;
+      const state = normalizePeerState({
+        tools: [{ source: 'codex', limits: {} }],
+        deviceHealth: raw,
+        generatedAt: iso(0),
+      });
+      const affected = state.deviceHealth[metricName];
+      const siblingName = metricName === 'cpu' ? 'ram' : 'cpu';
+
+      assert.equal(affected.status, 'unavailable', `${metricName} ${JSON.stringify(usedPct)}`);
+      assert.equal(affected.usedPct, null, `${metricName} ${JSON.stringify(usedPct)}`);
+      assert.equal(affected.capturedAt, null, `${metricName} ${JSON.stringify(usedPct)}`);
+      assert.equal(state.deviceHealth[siblingName].status, 'available');
+      assert.equal(state.tools[0].source, 'codex', 'the reachable peer state survives');
+    }
+  }
+});
+
+test('valid last-good peer health survives a failed latest attempt', () => {
+  const raw = health();
+  raw.cpu.updateStatus = 'failed';
+  raw.cpu.reason = 'counter-reset';
+  raw.cpu.attemptedAt = iso(0);
+  const normalized = normalizeDeviceHealth(raw);
+  assert.equal(normalized.cpu.status, 'available');
+  assert.equal(normalized.cpu.updateStatus, 'failed');
+  assert.equal(normalized.cpu.reason, 'counter-reset');
+  assert.notEqual(normalized.cpu.capturedAt, normalized.cpu.attemptedAt);
 });
 
 test('a tool with no source is dropped (can\'t be rendered honestly), others survive', () => {

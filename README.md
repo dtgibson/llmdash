@@ -26,6 +26,33 @@ Codex totals reconcile to cumulative charts, while partial scans, unknown exact
 model rates, and missing subscription periods remain visibly partial or
 unavailable instead of turning into zero.
 
+## Device health snapshot
+
+Near the top, llmdash shows a compact per-machine snapshot of CPU usage, RAM
+usage, and space available on the filesystem that contains `LLMDASH_DATA_DIR`.
+In a multi-host view, every reachable host keeps its own snapshot; the numbers
+are never combined across machines.
+
+- **CPU** is aggregate non-idle time across all logical CPUs between two poll
+  observations. The first observation says **Measuring**; the next reports the
+  actual sampling interval (normally about 60 seconds). A counter reset or CPU
+  count change re-establishes the baseline instead of inventing a reading.
+- **RAM** on macOS counts active pages after subtracting purgeable pages, plus
+  wired pages and physical pages occupied by compressed memory, divided by
+  total physical memory. On other platforms this metric says **Unsupported**;
+  CPU and disk continue to work independently.
+- **Disk available** uses space available to the llmdash service account on the
+  **llmdash data volume**—the filesystem containing `LLMDASH_DATA_DIR`. It does
+  not expose that path, mount, or device name in the browser.
+
+Collection rides the existing poller, once per minute by default. Changing
+`LLMDASH_POLL_MS` changes both the collection cadence and the documented
+freshness window; it does not create a separate health timer. A failed update
+keeps the last valid value and its original sample age visible. This is glance
+context, not realtime monitoring: there is no health history, trend, alert,
+notification, overall verdict, or remediation control, and device samples are
+not written to SQLite.
+
 ## Why
 Claude Code's limit meters live inside the tool and are easy to lose track of.
 This puts the real, authoritative numbers one glance away, from any device on
@@ -211,6 +238,9 @@ it collapses into the one local entry and is read in-process, never re-fetched).
   its own meters in its own card.
 - **Per-machine activity, per host.** Tokens, sessions, cache rate, and estimated
   value are genuinely per-machine, so each host card leads with its own activity.
+- **Device health, per host.** CPU, RAM, and data-volume space stay inside each
+  reachable machine's section. An older peer that does not report health remains
+  reachable and is labeled “not reported by this host.”
 - **An offline machine is named, not faked.** A host that's asleep or not running
   llmdash shows a plain callout ("… is unreachable — no response within 3s …")
   naming the host and the fix — never a stale meter, never fabricated zeros. The
@@ -592,7 +622,9 @@ All optional, via environment variables:
   reachable on your LAN and tailnet, but not the public internet behind NAT. To
   restrict strictly to the tailnet, set this to your Tailscale IP, e.g.
   `LLMDASH_HOST=100.x.y.z`.)
-- `LLMDASH_POLL_MS` (default `60000`)
+- `LLMDASH_POLL_MS` (default `60000` = 1 minute) — existing poll cadence for
+  limits, peers, and device-health snapshots; device health is current through
+  two intervals, aging after two through five, and stale after five
 - `LLMDASH_CLAUDE_MAX_AGE_MS` (default `300000` = 5 minutes) — Claude reading
   age at which the dashboard flags it "aging" and auto-refresh may act;
   "stale" is always 2× this value. Clamped: non-numeric or ≤ 0 falls back to

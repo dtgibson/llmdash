@@ -10,6 +10,7 @@ import { setHost, retainHosts, seedOrder } from './host-cache.js';
 import { readHostsConfig } from './host-config.js';
 import { refreshCostAnalysis } from './cost-analysis.js';
 import { refreshAccountConfig } from './account-config.js';
+import { refreshDeviceHealth } from './device-health.js';
 
 function snapshot(live) {
   if (!live) return 0;
@@ -119,6 +120,11 @@ export async function pollOnce() {
   try { snapshot(await readCodexLimits()); } catch (e) { console.error('codex poll:', e.message); }
   clearStatsCache();
   try { computeActivity(); } catch {}
+
+  // Device health is sampled exactly once on this existing poll cadence. Wait
+  // for the bounded refresh so the local host published below carries one
+  // atomic CPU/RAM/disk snapshot from this tick.
+  try { await refreshDeviceHealth({ nowMs }); } catch (e) { console.error('device health:', e.message); }
 
   // Multi-host: local reading in-process, then the bounded peer fan-out. Peer
   // polling runs ONLY here (never on the HTTP request path). An empty peer list

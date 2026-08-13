@@ -41,6 +41,7 @@ async function renderWith(combined, resetBillingView = null, {
     headroom: makeEl('headroom'), tools: makeEl('tools'), hosts: makeEl('hosts'),
     age: makeEl('age'), freshness: makeEl('freshness'), trends: makeEl('trends'),
     'single-limits': makeEl('single-limits'), 'details-heading': makeEl('details-heading'),
+    'device-health': makeEl('device-health'),
     'limit-notes': makeEl('limit-notes'),
     'tool-groups': makeEl('tool-groups'),
     'claude-tool-group': makeEl('claude-tool-group'), 'codex-tool-group': makeEl('codex-tool-group'),
@@ -172,6 +173,12 @@ const withResetCredits = (tool, snapshot) => {
   return tool;
 };
 const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
+const healthState = (capturedAt = iso(-60_000)) => ({
+  scope: 'device', pollIntervalMs: 60_000,
+  cpu: { status: 'available', usedPct: 42, capturedAt, attemptedAt: capturedAt, updateStatus: 'ok', reason: null, intervalMs: 60_000 },
+  ram: { status: 'unsupported', usedPct: null, capturedAt: null, attemptedAt: capturedAt, updateStatus: 'unsupported', reason: 'unsupported-platform' },
+  disk: { status: 'available', availableBytes: 250 * (1024 ** 3), totalBytes: 1024 ** 4, availablePct: 24.4140625, target: 'data-volume', capturedAt, attemptedAt: capturedAt, updateStatus: 'ok', reason: null },
+});
 
 function configuredResetView(nextResetAt) {
   return {
@@ -424,7 +431,48 @@ test('single-host mode renders both tools limits-first with NO host chrome (QA-1
     'full provider-reading provenance stays in Codex pacing');
   assert.equal(els.hosts.innerHTML, '', 'no host chrome in single-host mode');
   assert.doesNotMatch(els.hosts.innerHTML, /acct|host-head/, 'no banner, no host header');
+  assert.match(els['device-health'].innerHTML, /Device health/);
   assert.match(footer._spans[0].textContent, /Activity: local session logs/, 'single-host footer');
+});
+
+test('single-host device health renders after limits with fixed metric order and visible states', async () => {
+  const hostState = stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]);
+  hostState.deviceHealth = healthState();
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: hostState,
+  }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const h = els['device-health'].innerHTML;
+  assert.ok(h.indexOf('>CPU<') < h.indexOf('>RAM<') && h.indexOf('>RAM<') < h.indexOf('>Disk available<'));
+  assert.match(h, /42<span class="health-unit">%/);
+  assert.match(h, /250<span class="health-unit">GiB/);
+  assert.match(h, /unsupported/i);
+  assert.match(h, /minute-sampled snapshot/);
+});
+
+test('device-health freshness boundaries and failed last-good evidence remain visible', async () => {
+  const now = Date.now();
+  const clock = controlledClock(now);
+  const hostState = stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]);
+  hostState.deviceHealth = healthState(new Date(now - 2 * 60_000).toISOString());
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: hostState,
+  }], generatedAt: iso(0) };
+  const rendered = await renderWith(combined, null, { DateImpl: clock.DateImpl });
+  assert.match(rendered.els['device-health'].innerHTML, />current</);
+  clock.set(now + 1);
+  rendered.intervals.find((entry) => entry.ms === 1_000).fn();
+  assert.match(rendered.els['device-health'].innerHTML, />aging</);
+  clock.set(now + 3 * 60_000 + 1);
+  rendered.intervals.find((entry) => entry.ms === 1_000).fn();
+  assert.match(rendered.els['device-health'].innerHTML, />stale</);
+  hostState.deviceHealth.cpu.updateStatus = 'failed';
+  hostState.deviceHealth.cpu.reason = 'counter-reset';
+  rendered.intervals.find((entry) => entry.ms === 1_000).fn();
+  assert.match(rendered.els['device-health'].innerHTML, /update failed · stale/);
+  assert.match(rendered.els['device-health'].innerHTML, /Last update failed · value sampled/);
 });
 
 test('missing and unavailable reset states keep compact cards honest and full evidence in pacing', async () => {
@@ -760,6 +808,8 @@ test('multi-host same-account: ONE limits overview, activity per host, no duplic
   // The local host is first and marked "you".
   assert.match(h, /host-self/);
   assert.match(h, /class="host-you">you/);
+  assert.equal((h.match(/class="device-section device-not-reported"/g) || []).length, 2,
+    'legacy reachable hosts keep a health position without becoming offline');
   assert.match(footer._spans[0].textContent, /Activity: per machine/, 'multi-host footer');
   assert.match(footer._spans[1].textContent, /2 hosts over Tailscale/);
 });
@@ -844,7 +894,7 @@ test('the multi-host footer/legend copy preserves account and machine scope', ()
   assert.match(appJs, /matching accounts are shown once before every host/);
   assert.match(appJs, /Account limits above/);
   assert.match(appJs, /the shared meters are shown once, up top/);
-  assert.match(appJs, /Limits: account-wide · Activity: per machine · Codex day buckets: UTC/);
+  assert.match(appJs, /Limits: account-wide · Device health: per machine · Activity: per machine · Codex day buckets: UTC/);
   assert.match(appJs, /is unreachable/);
   assert.match(appJs, /returned an error/);
 });

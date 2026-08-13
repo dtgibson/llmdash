@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { getDb, getLatestPerWindow } from './db.js';
 import { readClaudeLimits } from './claude-limits.js';
 import { getRefreshState } from './claude-refresh.js';
+import { getDeviceHealthSnapshot } from './device-health.js';
 import {
   cachedCodexLimits,
   codexLimitsDiagnostic,
@@ -214,7 +215,12 @@ export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
       : { reason: 'no-reading' };
   }
   const tools = [claude, codex];
-  return { tools, headroom: computeHeadroom(tools), generatedAt: new Date(nowMs).toISOString() };
+  return {
+    tools,
+    headroom: computeHeadroom(tools),
+    generatedAt: new Date(nowMs).toISOString(),
+    deviceHealth: getDeviceHealthSnapshot(),
+  };
 }
 
 const server = http.createServer((req, res) => {

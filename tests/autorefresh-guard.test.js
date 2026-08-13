@@ -27,12 +27,18 @@ test('package.json still declares zero runtime dependencies; pty comes from the 
   for (const f of runtimeSurfaces) assert.doesNotMatch(read(f), /node-pty/, f);
 });
 
-test('spawn surface budget: child_process only in the codex reader and the claude refresher', () => {
+test('spawn surface budget: child_process only in reviewed bounded collectors', () => {
   for (const f of runtimeSurfaces) {
     if (f === path.join('src', 'codex-limits.js')) continue;
     if (f === path.join('src', 'claude-refresh.js')) continue;
+    if (f === path.join('src', 'device-health.js')) continue;
     assert.doesNotMatch(read(f), /child_process/, f);
   }
+  const health = read('src', 'device-health.js');
+  assert.match(health, /execFileImpl\('\/usr\/bin\/vm_stat', \[\],/);
+  assert.match(health, /timeout: PROBE_TIMEOUT_MS/);
+  assert.match(health, /maxBuffer: PROBE_MAX_BYTES/);
+  assert.doesNotMatch(health, /\bexec\s*\(/);
 });
 
 test('the runner script is a fixed constant — config enters as positional argv, never interpolated (NFR-06, QA-35)', () => {

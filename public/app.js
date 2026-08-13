@@ -50,6 +50,114 @@ function ageBand(f) {
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+function deviceMetricAge(metric, pollIntervalMs) {
+  if (!metric || !metric.capturedAt) return null;
+  const capturedMs = Date.parse(metric.capturedAt);
+  const interval = Number(pollIntervalMs);
+  if (!Number.isFinite(capturedMs) || !Number.isFinite(interval) || interval < 1_000) return null;
+  const ageMs = Math.max(0, Date.now() - capturedMs);
+  return {
+    ageMs,
+    state: ageMs > 5 * interval ? 'stale' : ageMs > 2 * interval ? 'aging' : 'current',
+  };
+}
+
+function healthAgeCopy(iso) {
+  const age = fmtAge(iso);
+  return age ? age.replace(/^updated /, '') : 'at an unknown time';
+}
+
+function healthTone(kind, pct) {
+  if (kind === 'disk') return statusClass(pct);
+  return pct <= 50 ? 'good' : pct <= 80 ? 'warn' : 'crit';
+}
+
+function healthCapacity(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const gib = value / (1024 ** 3);
+  if (gib >= 1) return `${gib >= 100 ? Math.round(gib) : gib.toFixed(1).replace(/\.0$/, '')}<span class="health-unit">GiB</span>`;
+  return `${Math.round(value / (1024 ** 2))}<span class="health-unit">MiB</span>`;
+}
+
+function healthMetricHtml(kind, metric, pollIntervalMs) {
+  const labels = { cpu: 'CPU', ram: 'RAM', disk: 'Disk available' };
+  const label = labels[kind];
+  const status = metric && metric.status;
+  if (status === 'available') {
+    const pct = kind === 'disk' ? Number(metric.availablePct) : Number(metric.usedPct);
+    const age = deviceMetricAge(metric, pollIntervalMs);
+    if (!Number.isFinite(pct) || !age) return healthMetricHtml(kind, null, pollIntervalMs);
+    const boundedPct = Math.min(100, Math.max(0, pct));
+    const failed = metric.updateStatus === 'failed';
+    const stateLabel = failed ? `update failed · ${age.state}` : age.state;
+    const stateClass = failed ? 'crit' : age.state === 'current' ? 'good' : age.state === 'aging' ? 'warn' : 'crit';
+    let valueHtml, note;
+    if (kind === 'disk') {
+      valueHtml = healthCapacity(metric.availableBytes);
+      if (valueHtml == null) return healthMetricHtml(kind, null, pollIntervalMs);
+      note = `${Math.round(boundedPct)}% available · data volume`;
+    } else {
+      valueHtml = `${Math.round(boundedPct)}<span class="health-unit">%</span>`;
+      if (kind === 'cpu') {
+        const seconds = Number.isFinite(Number(metric.intervalMs))
+          ? Math.max(1, Math.round(Number(metric.intervalMs) / 1000)) : Math.max(1, Math.round(pollIntervalMs / 1000));
+        note = `Non-idle over the last ${seconds}s`;
+      } else note = 'Active, wired, and compressed';
+    }
+    if (failed) note = `Last update failed · value sampled ${healthAgeCopy(metric.capturedAt)}`;
+    const tone = failed ? 'crit' : healthTone(kind, boundedPct);
+    const aria = `${label}, ${kind === 'disk' ? `${Math.round(Number(metric.availableBytes) / (1024 ** 2))} MiB available, ${Math.round(boundedPct)} percent available` : `${Math.round(boundedPct)} percent used`}, ${stateLabel}. ${note}`;
+    return `<div class="health-metric" aria-label="${esc(aria)}">`
+      + `<div class="health-metric-head"><span class="health-label">${label}</span>`
+      + `<span class="health-state is-${stateClass}">${stateLabel}</span></div>`
+      + `<div class="health-value">${valueHtml}</div><div class="health-note">${note}</div>`
+      + `<div class="health-bar" aria-hidden="true"><div class="health-bar-fill fill-${tone}" style="width:${boundedPct}%"></div></div></div>`;
+  }
+
+  let stateLabel = 'unavailable';
+  let figure = 'Unavailable';
+  let note = 'The latest sample could not be read.';
+  if (status === 'measuring') {
+    stateLabel = 'measuring'; figure = 'Measuring…';
+    note = 'A second minute sample establishes usage.';
+  } else if (status === 'unsupported') {
+    stateLabel = 'unsupported'; figure = 'Unsupported';
+    note = 'This metric is not supported on this platform.';
+  } else if (metric && metric.updateStatus === 'failed') {
+    stateLabel = 'unavailable · update failed';
+  }
+  return `<div class="health-metric health-metric-empty" aria-label="${esc(`${label}, ${stateLabel}. ${note}`)}">`
+    + `<div class="health-metric-head"><span class="health-label">${label}</span>`
+    + `<span class="health-state is-${status === 'measuring' ? 'warn' : status === 'unsupported' ? 'faint' : 'crit'}">${stateLabel}</span></div>`
+    + `<div class="health-value health-value-empty">${figure}</div><div class="health-note">${note}</div></div>`;
+}
+
+// Shared host-scoped renderer. It formats the poller-owned cache only; no
+// browser interaction or render pass ever starts a device measurement.
+function deviceHealthHtml(health, hostLabel) {
+  const label = typeof hostLabel === 'string' && hostLabel ? hostLabel : 'This machine';
+  if (!health || health.scope !== 'device') {
+    return `<section class="device-section device-not-reported" aria-label="Device health for ${esc(label)}">`
+      + `<div class="device-head"><div><div class="section-kicker">Device health</div>`
+      + `<h2>Device health unavailable</h2></div><span class="device-scope">${esc(label)}</span></div>`
+      + `<div class="health-unavailable"><strong>Not reported by this host</strong>`
+      + `<span>Its account limits and activity remain available.</span></div></section>`;
+  }
+  const pollIntervalMs = Number(health.pollIntervalMs);
+  const captures = ['cpu', 'ram', 'disk'].map((key) => health[key] && health[key].capturedAt)
+    .filter((value) => Number.isFinite(Date.parse(value))).sort();
+  const latest = captures.length ? captures[captures.length - 1] : null;
+  const sampled = latest ? `Latest sample ${healthAgeCopy(latest)}` : 'Waiting for a complete sample';
+  return `<section class="device-section" aria-label="Device health for ${esc(label)}">`
+    + `<div class="device-head"><div><div class="section-kicker">Device health</div><h2>Device health</h2>`
+    + `<p>A minute-sampled snapshot — quiet context, not realtime monitoring.</p></div>`
+    + `<div class="device-meta"><span class="device-scope">${esc(label)}</span><span>${sampled}</span></div></div>`
+    + `<div class="health-band">${healthMetricHtml('cpu', health.cpu, pollIntervalMs)}`
+    + `${healthMetricHtml('ram', health.ram, pollIntervalMs)}${healthMetricHtml('disk', health.disk, pollIntervalMs)}</div>`
+    + `<div class="device-foot">Next sample in about a minute · llmdash data volume</div></section>`;
+}
+
 // The reset/billing view is fetched separately from the frozen usage/peer
 // contracts. Keep only its bounded reset selection, and never copy it into a
 // provider window: accountKey(), SQLite, peers, and freshness continue to see
@@ -889,7 +997,7 @@ function hostGroupHtml(host, ctx) {
 function reachableHostBody(host, ctx) {
   const tools = (host.state && Array.isArray(host.state.tools)) ? host.state.tools.slice() : [];
   tools.sort((a, b) => ['claude-code', 'codex'].indexOf(a.source) - ['claude-code', 'codex'].indexOf(b.source));
-  const parts = [];
+  const parts = [deviceHealthHtml(host.state && host.state.deviceHealth, host.label)];
   for (const tool of tools) {
     const key = accountKey(tool);
     const shared = key != null && ctx.sharedKeys[tool.source] && ctx.sharedKeys[tool.source].has(key);
@@ -933,6 +1041,7 @@ function renderHosts(combined) {
   const limitNotes = document.getElementById('limit-notes');
   const accountIdentity = document.getElementById('account-identity');
   const supplementaryEl = document.getElementById('supplementary-limits');
+  const deviceHealthEl = document.getElementById('device-health');
 
   const renderStaticGroups = (tools, localOnly = false) => {
     const bySource = new Map((tools || []).map((tool) => [tool.source, tool]));
@@ -965,6 +1074,10 @@ function renderHosts(combined) {
     const st = hosts[0].state;
     renderHeadroom(st.headroom);
     if (singleLimits) singleLimits.hidden = false;
+    if (deviceHealthEl) {
+      deviceHealthEl.hidden = false;
+      deviceHealthEl.innerHTML = deviceHealthHtml(st.deviceHealth, hosts[0].label);
+    }
     const limitEntries = (st.tools || []).map((tool) => ({ tool }));
     const lanes = limitEntries.map(({ tool }) => limitLaneHtml(tool, '',
       tool.source === 'claude-code' ? dashboardResetSelection : null)).join('');
@@ -1001,6 +1114,10 @@ function renderHosts(combined) {
   // local tool stories. Offline stations are dimmed and sorted last.
   toolsEl.innerHTML = '';
   if (singleLimits) singleLimits.hidden = true;
+  if (deviceHealthEl) {
+    deviceHealthEl.hidden = true;
+    deviceHealthEl.innerHTML = '';
+  }
   if (accountIdentity) accountIdentity.innerHTML = '';
   if (supplementaryEl) supplementaryEl.innerHTML = '';
   if (limitNotes) limitNotes.innerHTML = '';
@@ -1054,11 +1171,11 @@ function setFooterMode(multi) {
   const spans = f.querySelectorAll('span');
   if (spans.length < 2) return;
   if (multi) {
-    spans[0].textContent = 'Limits: account-wide · Activity: per machine · Codex day buckets: UTC';
+    spans[0].textContent = 'Limits: account-wide · Device health: per machine · Activity: per machine · Codex day buckets: UTC';
     const n = state && Array.isArray(state.hosts) ? state.hosts.length : 0;
     spans[1].textContent = `${n} hosts over Tailscale`;
   } else {
-    spans[0].textContent = 'Limits: account-wide · Activity: local session logs · Codex day buckets: UTC';
+    spans[0].textContent = 'Limits: account-wide · Device health: this machine · Activity: local session logs · Codex day buckets: UTC';
     spans[1].textContent = 'served over Tailscale';
   }
 }

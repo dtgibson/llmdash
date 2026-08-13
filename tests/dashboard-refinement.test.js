@@ -31,6 +31,7 @@ test('semantic order is primary limits, other global limits, evidence, then loca
   const identity = indexHtml.indexOf('id="account-identity"');
   const tools = indexHtml.indexOf('id="tools"');
   const supplementary = indexHtml.indexOf('id="supplementary-limits"');
+  const deviceHealth = indexHtml.indexOf('id="device-health"');
   const range = indexHtml.indexOf('id="details-heading"');
   const claude = indexHtml.indexOf('id="claude-tool-group"');
   const codex = indexHtml.indexOf('id="codex-tool-group"');
@@ -38,7 +39,7 @@ test('semantic order is primary limits, other global limits, evidence, then loca
   const insights = indexHtml.indexOf('id="codex-insights"');
   const codexTrends = indexHtml.indexOf('id="codex-trends-title"');
   assert.ok(limits >= 0 && limits < identity && identity < tools && tools < supplementary
-    && supplementary < notes && notes < range && range < claude && claude < codex
+    && supplementary < notes && notes < deviceHealth && deviceHealth < range && range < claude && claude < codex
     && codex < insights && insights < codexTrends);
   assert.match(appJs, /<div class="limit-tools">\$\{lanes\}<\/div>`\s*\+ supplementaryLimitsHtml\([\s\S]*?\)\s*\+ `<div class="limit-notes">/,
     'multi-host supplementary limits and diagnostics follow the complete primary grid');
@@ -87,4 +88,16 @@ test('range controls, narrow reflow, themes, and reduced motion stay explicit', 
   assert.match(styles, /@media \(prefers-color-scheme: dark\)/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(styles, /transition-duration: 0\.01ms !important/);
+});
+
+test('device health is one responsive, reduced-motion-aware host-scoped band', () => {
+  const healthSource = appJs.slice(appJs.indexOf('function deviceMetricAge'),
+    appJs.indexOf('// The reset/billing view'));
+  assert.match(appJs, /function deviceHealthHtml\(health, hostLabel\)/);
+  assert.ok(appJs.indexOf("healthMetricHtml('cpu'") < appJs.indexOf("healthMetricHtml('ram'")
+    && appJs.indexOf("healthMetricHtml('ram'") < appJs.indexOf("healthMetricHtml('disk'"));
+  assert.match(styles, /\.health-band\s*\{[^}]*repeat\(3, minmax\(0, 1fr\)\)/s);
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.health-band\s*\{\s*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.health-bar-fill\s*\{[^}]*transition: width 220ms cubic-bezier\(\.2, \.8, \.2, 1\)/s);
+  assert.doesNotMatch(healthSource, /healthy|overloaded|\bsafe\b/i);
 });

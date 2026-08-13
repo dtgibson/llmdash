@@ -6,10 +6,8 @@ import path from 'node:path';
 import http from 'node:http';
 
 // THE GUARD (FR-16 / QA-16). Multi-host must not touch the single-host
-// /api/state contract: not one field renamed, removed, or changed in meaning,
-// and the handler's response shape byte-identical to a pre-feature golden. The
-// badge and the local view consume /api/state unchanged. This test is the
-// structural proof; if it fails, multi-host has leaked into /api/state.
+// /api/state contract: no existing field is renamed, removed, or changed in
+// meaning. Device health is the one intentional additive top-level field.
 //
 // A deterministic sandbox with a known statusline reading so buildState() emits
 // the full populated shape (not just the empty-diagnostic path).
@@ -43,19 +41,18 @@ fs.writeFileSync(config.rateLimitsFile, JSON.stringify({
   capturedAt: new Date(FIXED).toISOString(),
 }));
 
-// The frozen contract: the exact top-level keys, per-tool keys, window keys, and
-// meanings /api/state has shipped. Locking the KEY SET (not the volatile values)
-// is the byte-identical-shape guard; a new key here would be a contract change.
+// The cumulative contract: exact top-level keys, per-tool keys, and window keys.
 const TOOL_KEYS = ['source', 'label', 'plan', 'haveLimits', 'limits', 'modelLimits', 'accountLimits', 'projection', 'activity', 'dataAt', 'freshness', 'limitsDiagnostic'];
-const STATE_KEYS = ['tools', 'headroom', 'generatedAt'];
+const STATE_KEYS = ['tools', 'headroom', 'generatedAt', 'deviceHealth'];
 const WINDOW_KEYS = ['usedPct', 'remainingPct', 'resetsAt', 'capturedAt'];
 
-test('buildState top-level shape is unchanged (tools, headroom, generatedAt — nothing added)', () => {
+test('buildState preserves existing state and adds the device-health snapshot', () => {
   const s = buildState(FIXED);
   assert.deepEqual(Object.keys(s).sort(), [...STATE_KEYS].sort(),
-    'a new top-level /api/state key would break the badge/local contract');
+    'the cumulative /api/state field set changed unexpectedly');
   assert.ok(Array.isArray(s.tools));
   assert.equal(typeof s.generatedAt, 'string');
+  assert.equal(s.deviceHealth.scope, 'device');
 });
 
 test('each tool object carries exactly its shipped fields (no multi-host field leaked in)', () => {

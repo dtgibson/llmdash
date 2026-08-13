@@ -8,7 +8,7 @@
 //   { host, label, port, self, reachable,
 //     hostDiagnostic: null | { reason, cause, detail? },
 //     fetchedAt,        // ISO — when this entry was last refreshed/attempted
-//     state: null | { tools:[…], headroom, generatedAt }   // the /api/state shape
+//     state: null | { tools:[…], headroom, generatedAt, deviceHealth } // /api/state
 //   }
 
 const cache = new Map(); // key (sanitizedHost:port | local:port) → HostReading
