@@ -75,6 +75,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   Claude/Codex limits in the leading comparison, collapse matching accounts once,
   and then group each tailnet machine's local activity by tool while keeping
   offline hosts explicit and using only each peer's existing `/api/state`.
+- **Device health snapshot** — each reachable machine shows a minute-sampled,
+  host-scoped CPU, RAM, and llmdash data-volume snapshot near the top, with honest
+  measuring, unsupported, aging, stale, and failed-update evidence instead of a
+  combined verdict or realtime monitoring.
 
 ## How It Works
 - Vanilla Node (`node:http` + `node:sqlite`), zero npm dependencies, plain

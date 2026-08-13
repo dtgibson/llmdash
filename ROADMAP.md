@@ -8,14 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-29 features shipped.
+30 features shipped.
 
-- **Last shipped:** Codex resets and global limits — the leading account view now
-  shows every provider-reported global cap plus the available Codex reset count and
-  each explicit expiration, once per account.
-- **Previously:** Complete-uninstall hardening — teardown proves the service is
-  absent before removing anything, preserves every SQLite sidecar, and reports its
-  result with all recovery locations.
+- **Last shipped:** Device health snapshot — each reachable machine now shows a
+  minute-sampled CPU, RAM, and available llmdash data-volume snapshot near the top
+  without combining hosts or implying realtime monitoring.
+- **Previously:** Codex resets and global limits — the leading account view shows
+  every provider-reported global cap plus the available Codex reset count and each
+  explicit expiration, once per account.
 
 ---
 

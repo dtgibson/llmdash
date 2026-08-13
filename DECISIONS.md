@@ -1,5 +1,23 @@
 # Decisions — llmdash
 
+## Device health snapshot — host-scoped current evidence, not monitoring — 2026-08-12
+
+**Decision:** Device condition is a host-scoped current fact: each reachable
+machine reports its own minute-sampled CPU, RAM, and available llmdash data-volume
+space through the existing host story. Samples remain in memory, never combine
+across machines, and present retained evidence and named degradation without a
+health verdict, alert, trend, or remediation control.
+**Rationale:** The owner needs to distinguish sustained machine pressure from AI
+provider or tool latency at a glance, but realtime telemetry and historical
+resource storage would add noise, privacy/retention obligations, and a second
+monitoring product. The data volume is the relevant disk target because its
+exhaustion threatens llmdash's irreplaceable no-backfill history.
+**Implications:** Future machine-condition facts belong inside each host's state,
+must keep observation time separate from failed update attempts, and must not be
+promoted into account-wide aggregates or persistent trends without a new explicit
+product decision. Older peers remain reachable when they omit the optional fact,
+and unsupported or failed metrics degrade independently rather than becoming zero.
+
 ## Quota-card metadata hierarchy — 2026-08-11 (improve)
 
 **Decision:** Primary account-window cards render only remaining quota, usage
