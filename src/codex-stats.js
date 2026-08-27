@@ -339,7 +339,15 @@ let cache = { activity: emptyActivity(), insights: new Map(), generatedAt: null 
 export function refreshCodexAnalytics(nowMs = Date.now(), scanFn = scanCodexRollouts) {
   let scan;
   const sinceMs = nowMs - CODEX_INSIGHT_RANGES['30d'];
-  try { scan = scanFn(sinceMs, { pruneBeforeMs: sinceMs }); }
+  try {
+    scan = scanFn(sinceMs, {
+      pruneBeforeMs: sinceMs,
+      // A cold corpus may span several bounded refreshes. Publish the newest
+      // readable aggregate immediately and let the parse cache converge on
+      // subsequent poller ticks instead of failing all-or-nothing.
+      partialOnBudget: true,
+    });
+  }
   catch { return false; }
   const usage = Array.isArray(scan?.usage) ? scan.usage : [];
   const insights = new Map();

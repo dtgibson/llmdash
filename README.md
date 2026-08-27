@@ -682,15 +682,16 @@ API-equivalent values use the tracked, effective-dated
 [`config/api-rates.json`](config/api-rates.json). Its exact model IDs and token
 channels were reviewed against the official
 [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing)
-and [OpenAI pricing](https://developers.openai.com/api/docs/pricing) pages on
+and [OpenAI model pricing](https://developers.openai.com/api/docs/models/gpt-5.6-sol) pages on
 the card's `asOf` date. Effective starts are pinned to the official model
 launches for [Haiku 4.5](https://www.anthropic.com/news/claude-haiku-4-5),
 [Opus 4.8](https://www.anthropic.com/news/claude-opus-4-8),
+[Opus 5](https://platform.claude.com/docs/en/models/opus-5/overview),
 [Fable 5](https://www.anthropic.com/news/claude-fable-5-mythos-5),
 [Sonnet 5](https://www.anthropic.com/news/claude-sonnet-5), and
 [GPT-5.3-Codex](https://openai.com/index/introducing-gpt-5-3-codex/),
 [GPT-5.5](https://openai.com/index/introducing-gpt-5-5/), and
-[GPT-5.6 Sol](https://openai.com/index/previewing-gpt-5-6-sol/), so a
+[GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol), so a
 current price is never projected before that exact model existed. There is no family/default fallback: an unlisted model
 is disclosed as unpriced until a reviewed exact entry is added. The dashboard
 does not scrape prices or make a pricing request at runtime.
@@ -698,7 +699,11 @@ does not scrape prices or make a pricing request at runtime.
 Codex rate entries may also contain ordered `inputTokenTiers`. The reviewed
 GPT-5.5 and GPT-5.6 Sol entries apply OpenAI's full-request pricing above
 272,000 input tokens: 2x input pricing (including cached input) and 1.5x output
-pricing. Exactly 272,000 input tokens remains in the base tier.
+pricing. Exactly 272,000 input tokens remains in the base tier. GPT-5.6 and its
+GPT-5.6 Sol target use the reviewed $4 / $20 promotion only from the review
+instant through November 21, 2026; the card deliberately has no post-promotion
+rate yet. Claude rates keep 5-minute and 1-hour cache writes separate because
+the local usage records preserve that distinction.
 
 For legacy or exceptional historical fixed periods only, you may still create
 `$LLMDASH_DATA_DIR/subscriptions.json` (by default

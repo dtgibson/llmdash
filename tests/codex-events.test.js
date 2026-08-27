@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   clearCodexEventCache,
+  codexEventCacheStats,
   scanCodexRollouts,
   scanCodexSession,
   usageRecordsFromScan,
@@ -304,6 +305,245 @@ test('rollout scanner parses full files before range filtering and reuses path/m
     scanCodexRollouts(future, { sessionsDir: directory, fs: countedFs, pruneBeforeMs: future });
     scanCodexRollouts(since, { sessionsDir: directory, fs: countedFs });
     assert.equal(reads, 2, 'the broad refresh can explicitly prune entries outside its retention bound');
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('large rollout I/O is descriptor-streamed instead of whole-file allocated', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-stream-'));
+  const rollout = path.join(directory, 'rollout-streamed.jsonl');
+  const padding = JSON.stringify({
+    timestamp: at(0), type: 'response_item', payload: { type: 'message', content: 'x'.repeat(32 * 1024) },
+  });
+  fs.writeFileSync(rollout, `${Array.from({ length: 80 }, () => padding).join('\n')}\n${token(at(2), { input_tokens: 4, output_tokens: 1 })}\n`);
+  let reads = 0;
+  const streamedFs = new Proxy(fs, {
+    get(target, property) {
+      if (property === 'readFileSync') return () => { throw new Error('whole-file read forbidden'); };
+      if (property === 'readSync') return (...args) => { reads++; return fs.readSync(...args); };
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  try {
+    const scan = scanCodexRollouts(Date.parse(at(0)), { sessionsDir: directory, fs: streamedFs });
+    assert.equal(scan.usage.length, 1);
+    assert.ok(reads > 2, 'the descriptor is consumed in bounded chunks');
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('oversized streamed usage lines are explicit omissions rather than non-object rows', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-oversized-'));
+  const rollout = path.join(directory, 'rollout-oversized.jsonl');
+  const oversizedUsage = line(at(1), 'event_msg', {
+    type: 'token_count',
+    info: { last_token_usage: { input_tokens: 99, output_tokens: 1 } },
+    padding: 'x'.repeat(1_048_576),
+  });
+  fs.writeFileSync(rollout, `${oversizedUsage}\n${token(at(2), { input_tokens: 4, output_tokens: 1 })}\n`);
+  try {
+    const scan = scanCodexRollouts(Date.parse(at(0)), {
+      sessionsDir: directory,
+      usageOnly: true,
+      partialOnBudget: true,
+    });
+    assert.equal(scan.usage.length, 1);
+    assert.equal(scan.scanIncomplete, 'record_unsupported');
+    assert.equal(scan.parseDiagnostics.oversizedLines, 1);
+    assert.equal(scan.parseDiagnostics.nonObjectLines, 0);
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('oversized streamed response rows are definite non-usage and do not weaken coverage', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-oversized-response-'));
+  const rollout = path.join(directory, 'rollout-oversized-response.jsonl');
+  const oversizedResponse = JSON.stringify({
+    timestamp: at(1), ordinal: 1, type: 'response_item',
+    payload: { type: 'custom_tool_call_output', output: 'x'.repeat(1_048_576) },
+  });
+  const oversizedCompletedItem = JSON.stringify({
+    timestamp: at(2), ordinal: 2, type: 'event_msg',
+    payload: { type: 'item_completed', item: { output: 'x'.repeat(1_048_576) } },
+  });
+  fs.writeFileSync(rollout, `${oversizedResponse}\n${oversizedCompletedItem}\n${token(at(3), { input_tokens: 4, output_tokens: 1 })}\n`);
+  try {
+    const scan = scanCodexRollouts(Date.parse(at(0)), {
+      sessionsDir: directory,
+      usageOnly: true,
+      partialOnBudget: true,
+    });
+    assert.equal(scan.usage.length, 1);
+    assert.equal(scan.scanIncomplete, undefined);
+    assert.equal(scan.parseDiagnostics.oversizedLines, 0);
+    assert.equal(scan.parseDiagnostics.nonObjectLines, 0);
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a rollout that grows during descriptor streaming retains its last complete parse and converges', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-growing-'));
+  const rollout = path.join(directory, 'rollout-growing.jsonl');
+  const first = `${token(at(1), { input_tokens: 4, output_tokens: 1 })}\n`;
+  const second = `${token(at(2), { input_tokens: 5, output_tokens: 1 })}\n`;
+  const third = `${token(at(3), { input_tokens: 6, output_tokens: 1 })}\n`;
+  fs.writeFileSync(rollout, first);
+  let growOnRead = false;
+  let grew = false;
+  const changingFs = new Proxy(fs, {
+    get(target, property) {
+      if (property === 'readSync') {
+        return (...args) => {
+          const count = fs.readSync(...args);
+          if (growOnRead && !grew && count > 0) {
+            grew = true;
+            fs.appendFileSync(rollout, third);
+          }
+          return count;
+        };
+      }
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const options = { sessionsDir: directory, fs: changingFs, pruneBeforeMs: Date.parse(at(0)) };
+  try {
+    const initial = scanCodexRollouts(Date.parse(at(0)), options);
+    assert.equal(initial.scanIncomplete, undefined);
+    assert.deepEqual(initial.usage.map((row) => row.tsMs), [Date.parse(at(1))]);
+
+    fs.appendFileSync(rollout, second);
+    growOnRead = true;
+    const retained = scanCodexRollouts(Date.parse(at(0)), options);
+    assert.equal(grew, true);
+    assert.equal(retained.scanIncomplete, 'source_unreadable');
+    assert.deepEqual(retained.usage.map((row) => row.tsMs), [Date.parse(at(1))],
+      'descriptor growth cannot replace the last complete cache entry');
+
+    growOnRead = false;
+    const converged = scanCodexRollouts(Date.parse(at(0)), options);
+    assert.equal(converged.scanIncomplete, undefined);
+    assert.deepEqual(converged.usage.map((row) => row.tsMs), [
+      Date.parse(at(1)), Date.parse(at(2)), Date.parse(at(3)),
+    ]);
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a deadline reached while draining a newline-free append retains the last complete parse', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-drain-deadline-'));
+  const rollout = path.join(directory, 'rollout-drain-deadline.jsonl');
+  const initialLine = `${token(at(1), { input_tokens: 4, output_tokens: 1 })}\n`;
+  fs.writeFileSync(rollout, initialLine);
+  const since = Date.parse(at(0));
+  try {
+    const initial = scanCodexRollouts(since, {
+      sessionsDir: directory, usageOnly: true, partialOnBudget: true, pruneBeforeMs: since,
+    });
+    assert.equal(initial.usage.length, 1);
+
+    fs.appendFileSync(rollout, JSON.stringify({
+      timestamp: at(2), type: 'response_item',
+      payload: { type: 'message', content: 'x'.repeat(256 * 1024) },
+    }));
+    let reads = 0;
+    const deadlineFs = new Proxy(fs, {
+      get(target, property) {
+        if (property === 'readSync') return (...args) => { reads++; return fs.readSync(...args); };
+        const value = target[property];
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const retained = scanCodexRollouts(since, {
+      sessionsDir: directory, fs: deadlineFs, usageOnly: true, partialOnBudget: true,
+      pruneBeforeMs: since, limits: { maxWallMs: 10 },
+      nowFn: () => reads >= 2 ? 20 : 0,
+    });
+    assert.equal(retained.scanIncomplete, 'scan_budget_time');
+    assert.deepEqual(retained.usage.map((row) => row.tsMs), [Date.parse(at(1))]);
+    assert.ok(reads <= 2, 'the drain stops before another descriptor read');
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('partial cold scans publish newest data and converge through the parse cache', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-converge-'));
+  const older = path.join(directory, 'rollout-older.jsonl');
+  const newer = path.join(directory, 'rollout-newer.jsonl');
+  const olderContent = `${token(at(1), { input_tokens: 4, output_tokens: 1 })}\n`;
+  const newerContent = `${token(at(2), { input_tokens: 5, output_tokens: 1 })}\n`;
+  fs.writeFileSync(older, olderContent);
+  fs.writeFileSync(newer, newerContent);
+  fs.utimesSync(older, new Date(Date.now() - 10_000), new Date(Date.now() - 10_000));
+  const byteBudget = Math.max(Buffer.byteLength(olderContent), Buffer.byteLength(newerContent));
+  const options = {
+    sessionsDir: directory, partialOnBudget: true,
+    limits: { maxChangedBytesPerScan: byteBudget },
+  };
+  try {
+    const first = scanCodexRollouts(Date.parse(at(0)), options);
+    assert.equal(first.scanIncomplete, 'scan_budget_total_bytes');
+    assert.deepEqual(first.usage.map((row) => row.tsMs), [Date.parse(at(2))]);
+    const second = scanCodexRollouts(Date.parse(at(0)), options);
+    assert.equal(second.scanIncomplete, undefined);
+    assert.deepEqual(second.usage.map((row) => row.tsMs), [Date.parse(at(1)), Date.parse(at(2))]);
+  } finally {
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Codex parsed cache enforces record bounds before insertion and evicts deterministically', () => {
+  clearCodexEventCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-cache-bounds-'));
+  const since = Date.parse(at(0));
+  const limits = { maxCacheFiles: 2, maxCacheRecords: 2, maxResultRecords: 10 };
+  try {
+    for (let index = 1; index <= 3; index++) {
+      const file = path.join(directory, `rollout-${index}.jsonl`);
+      fs.writeFileSync(file, `${token(at(index), { input_tokens: index, output_tokens: 1 })}\n`);
+      fs.utimesSync(file, new Date(Date.now() - (4 - index) * 1000), new Date(Date.now() - (4 - index) * 1000));
+    }
+    const bounded = scanCodexRollouts(since, {
+      sessionsDir: directory, usageOnly: true, partialOnBudget: true, limits,
+    });
+    assert.equal(bounded.usage.length, 3, 'cache eviction does not truncate the current result');
+    assert.deepEqual(codexEventCacheStats().usage, { files: 2, records: 2 });
+
+    clearCodexEventCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+    fs.mkdirSync(directory);
+    fs.writeFileSync(path.join(directory, 'rollout-over-budget.jsonl'), [
+      token(at(1), { input_tokens: 1, output_tokens: 1 }),
+      token(at(2), { input_tokens: 2, output_tokens: 1 }),
+      token(at(3), { input_tokens: 3, output_tokens: 1 }),
+    ].join('\n'));
+    const rejected = scanCodexRollouts(since, {
+      sessionsDir: directory, usageOnly: true, partialOnBudget: true,
+      limits: { maxCacheRecords: 2, maxResultRecords: 10 },
+    });
+    assert.equal(rejected.scanIncomplete, 'scan_budget_records');
+    assert.deepEqual(codexEventCacheStats().usage, { files: 0, records: 0 },
+      'an oversized parsed value never transiently enters the cache');
   } finally {
     clearCodexEventCache();
     fs.rmSync(directory, { recursive: true, force: true });

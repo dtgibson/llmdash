@@ -166,7 +166,7 @@ export function computeHeadroom(tools) {
 // mechanism state maintained by the poller (src/claude-refresh.js).
 export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
   const claude = toolWrap('claude-code', 'Claude Code', 'Max',
-    readClaudeLimits(), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
+    readClaudeLimits(nowMs), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
   const codex = toolWrap('codex', 'Codex', codexPlanLabel(),
     cachedCodexLimits(), computeCodexActivity(nowMs), nowMs, codexResetCredits(nowMs));
   // Reading-age freshness (claude only; codex is not retrofitted). The client

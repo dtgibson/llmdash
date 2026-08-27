@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
-import { isBoundedFileError, readBoundedRegularFile } from './bounded-file.js';
+import {
+  boundedFileOversizedLinePrefix,
+  isBoundedFileError,
+  readBoundedRegularFileLines,
+} from './bounded-file.js';
 
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -21,6 +25,11 @@ const DEFAULT_SCAN_LIMITS = Object.freeze({
   maxWallMs: 60_000,
 });
 const TOOL_CATEGORIES = Object.freeze(['Shell', 'File edits', 'Search', 'MCP', 'Subagents', 'Other']);
+const OVERSIZED_NON_USAGE_HEADERS = new Set([
+  'response_item:message',
+  'response_item:custom_tool_call_output',
+  'event_msg:item_completed',
+]);
 const EMPTY_CAPABILITIES = Object.freeze({
   toolEvents: false,
   compactionEvents: false,
@@ -32,7 +41,12 @@ const EMPTY_CAPABILITIES = Object.freeze({
 
 const parsedFileCache = new Map();
 const usageParsedFileCache = new Map();
-const OPTION_CEILINGS = Object.freeze({ maxEventsPerFile: 2_000_000, maxWallMs: 300_000 });
+const OPTION_CEILINGS = Object.freeze({
+  maxEventsPerFile: 2_000_000,
+  maxResultRecords: 1_250_000,
+  maxCacheRecords: 1_100_000,
+  maxWallMs: 300_000,
+});
 
 function scanLimits(overrides) {
   const source = object(overrides) || {};
@@ -186,6 +200,36 @@ function tokenPayload(event, outerType, payload) {
   return null;
 }
 
+function hasTokenUsageEvidence(event, outerType, payload) {
+  let candidates = [];
+  if (outerType === 'event_msg' && payload?.type === 'token_count') candidates = [payload];
+  else if (outerType === 'token_count') candidates = [payload, event];
+  else if (object(event.token_count)) candidates = [event.token_count];
+  for (const token of candidates) {
+    const info = object(token?.info) || token;
+    for (const [source, key] of [
+      [info, 'last_token_usage'], [token, 'last_token_usage'], [token, 'usage'],
+    ]) {
+      if (object(source) && Object.hasOwn(source, key) && source[key] != null) return true;
+    }
+    const direct = object(info);
+    if (direct && ['input_tokens', 'prompt_tokens', 'input', 'output_tokens', 'completion_tokens', 'output']
+      .some((key) => Object.hasOwn(direct, key))) return true;
+  }
+  return false;
+}
+
+function definiteNonUsageOversizedPrefix(prefix) {
+  if (typeof prefix !== 'string') return false;
+  // Current rollout message/tool-output rows can be large, but token accounting
+  // is emitted as event_msg/token_count. Match only generated top-level header
+  // orders and a narrow non-usage type allowlist; an unfamiliar prefix stays
+  // unsupported. Newer rollouts insert a numeric ordinal after the timestamp.
+  const current = prefix.match(/^\s*\{\s*"timestamp"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*(?:"ordinal"\s*:\s*\d+\s*,\s*)?"type"\s*:\s*"([a-z_]+)"\s*,\s*"payload"\s*:\s*\{\s*"type"\s*:\s*"([a-z_]+)"/);
+  if (current) return OVERSIZED_NON_USAGE_HEADERS.has(`${current[1]}:${current[2]}`);
+  return /^\s*\{\s*"type"\s*:\s*"response_item"\s*,\s*"payload"\s*:\s*\{\s*"type"\s*:\s*"(?:message|custom_tool_call_output)"/.test(prefix);
+}
+
 function fingerprintOf(usage, cumulative, contextWindow) {
   const tuple = (u) => u ? [u.input, u.cached, u.output, u.reasoning, u.total] : null;
   return JSON.stringify([tuple(usage), tuple(cumulative), contextWindow]);
@@ -195,11 +239,23 @@ function blankResult() {
   return {
     usage: [], completions: [], compactions: [], tools: [],
     capabilities: { ...EMPTY_CAPABILITIES },
+    parseDiagnostics: {
+      oversizedLines: 0,
+      malformedLines: 0,
+      nonObjectLines: 0,
+      invalidTokenRecords: 0,
+      invalidTimestampRecords: 0,
+      missingModelRecords: 0,
+    },
   };
 }
 
 function *inputLines(input) {
   if (Array.isArray(input)) {
+    yield *input;
+    return;
+  }
+  if (input && typeof input !== 'string' && typeof input[Symbol.iterator] === 'function') {
     yield *input;
     return;
   }
@@ -251,6 +307,11 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   let lastFallbackFingerprint = null;
   let eventsSeen = 0;
   let acceptedRecords = 0;
+  const unsupported = (reason, key) => {
+    if (!usageOnly) return;
+    result.parseIncomplete ||= reason;
+    result.parseDiagnostics[key] = safeAdd(result.parseDiagnostics[key] || 0, 1);
+  };
   const acceptRecord = (target, record) => {
     if (++acceptedRecords > limits.maxResultRecords) throw scanBudgetError('scan_budget_records');
     target.push(record);
@@ -293,7 +354,20 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   for (const line of inputLines(input)) {
     if (nowFn() > deadlineMs) throw scanBudgetError('scan_budget_time');
     let event;
-    if (typeof line === 'string') {
+    const oversizedPrefix = boundedFileOversizedLinePrefix(line);
+    if (oversizedPrefix !== null) {
+      eventsSeen++;
+      if (eventsSeen > limits.maxEventsPerFile) throw scanBudgetError('scan_budget_lines');
+      if (sharedBudget) {
+        sharedBudget.count = safeInteger(sharedBudget.count) ?? 0;
+        sharedBudget.count++;
+        if (sharedBudget.count > limits.maxEventsPerScan) throw scanBudgetError('scan_budget_lines');
+      }
+      if (!definiteNonUsageOversizedPrefix(oversizedPrefix)) {
+        unsupported('record_unsupported', 'oversizedLines');
+      }
+      continue;
+    } else if (typeof line === 'string') {
       if (!line.trim()) continue;
       eventsSeen++;
       if (eventsSeen > limits.maxEventsPerFile) throw scanBudgetError('scan_budget_lines');
@@ -303,11 +377,11 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
         if (sharedBudget.count > limits.maxEventsPerScan) throw scanBudgetError('scan_budget_lines');
       }
       if (line.length > MAX_JSONL_LINE_CHARS) {
-        if (usageOnly) result.parseIncomplete ||= 'record_unsupported';
+        unsupported('record_unsupported', 'oversizedLines');
         continue;
       }
       try { event = JSON.parse(line); } catch {
-        if (usageOnly) result.parseIncomplete ||= 'record_unsupported';
+        unsupported('record_unsupported', 'malformedLines');
         continue;
       }
     } else {
@@ -322,7 +396,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
     }
     event = object(event);
     if (!event) {
-      if (usageOnly) result.parseIncomplete ||= 'record_unsupported';
+      if (usageOnly) result.parseDiagnostics.nonObjectLines = safeAdd(result.parseDiagnostics.nonObjectLines, 1);
       continue;
     }
     const outerType = typeof event.type === 'string' ? event.type : '';
@@ -376,7 +450,9 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
     const tokenCandidate = (outerType === 'event_msg' && innerType === 'token_count')
       || outerType === 'token_count' || object(event.token_count) !== null;
     const tokenData = tokenPayload(event, outerType, rawPayload);
-    if (usageOnly && tokenCandidate && !tokenData) result.parseIncomplete ||= 'record_unsupported';
+    if (tokenCandidate && !tokenData && hasTokenUsageEvidence(event, outerType, rawPayload)) {
+      unsupported('record_unsupported', 'invalidTokenRecords');
+    }
     if (tokenData) {
       const explicitTurn = turnFor(payload.turn_id ?? tokenData.token.turn_id ?? event.turn_id);
       const turnKey = explicitTurn || activeTurn;
@@ -386,7 +462,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       if (tokenData.usage.reasoningSupported) result.capabilities.reasoning = true;
       const tsMs = timestampMs(event, payload);
       if (tsMs === null) {
-        if (usageOnly) result.parseIncomplete ||= 'timestamp_invalid';
+        unsupported('timestamp_invalid', 'invalidTimestampRecords');
         continue;
       }
       const fingerprint = fingerprintOf(tokenData.usage, tokenData.cumulative, contextWindow);
@@ -502,7 +578,8 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
     }
   }
   if (usageOnly && result.usage.some((record) => record.model === null)) {
-    result.parseIncomplete ||= 'record_unsupported';
+    result.parseDiagnostics.missingModelRecords = result.usage
+      .filter((record) => record.model === null).length;
   }
   result.capabilities.latency = result.completions.some((record) => record.durationMs !== null || record.firstTokenMs !== null);
   result.compactions = usageOnly ? [] : (sawCanonicalCompaction ? canonicalCompactions : fallbackCompactions);
@@ -513,10 +590,19 @@ function mergeCapabilities(target, source) {
   for (const key of Object.keys(EMPTY_CAPABILITIES)) target[key] ||= source?.[key] === true;
 }
 
+function mergeParseDiagnostics(target, source) {
+  for (const key of Object.keys(target)) target[key] = safeAdd(target[key], source?.[key] || 0);
+}
+
 function recordOrder(a, b) {
   return a.tsMs - b.tsMs
     || String(a.sessionKey).localeCompare(String(b.sessionKey))
     || String(a.turnKey ?? '').localeCompare(String(b.turnKey ?? ''));
+}
+
+function parsedRecordCount(parsed) {
+  return ['usage', 'completions', 'compactions', 'tools']
+    .reduce((count, key) => count + (parsed?.value?.[key]?.length || 0), 0);
 }
 
 // Files are parsed in full before the lower timestamp bound is applied, so
@@ -646,7 +732,48 @@ export function scanCodexRollouts(sinceMs, options = {}) {
     }
   }
 
-  if (options.usageOnly === true) {
+
+  // Keep the cache inside its file/record budgets at every insertion. A newly
+  // parsed value is complete before it can replace the prior last-good entry;
+  // deterministic oldest-first eviction happens before the map is mutated.
+  let cacheRecords = [...nextCache.values()].reduce((count, parsed) => count + parsedRecordCount(parsed), 0);
+  const removeCached = (cachedPath) => {
+    const cached = nextCache.get(cachedPath);
+    if (!cached) return;
+    nextCache.delete(cachedPath);
+    cacheRecords -= parsedRecordCount(cached);
+  };
+  const pendingScanPaths = new Set();
+  const evictionOrder = (exceptPath = null, protectPending = false) => [...nextCache.entries()]
+    .filter(([cachedPath]) => cachedPath !== exceptPath
+      && (!protectPending || !pendingScanPaths.has(cachedPath)))
+    .sort((a, b) => a[1].mtimeMs - b[1].mtimeMs || a[0].localeCompare(b[0]));
+  for (const [cachedPath] of evictionOrder()) {
+    if (nextCache.size <= limits.maxCacheFiles && cacheRecords <= limits.maxCacheRecords) break;
+    removeCached(cachedPath);
+  }
+  const storeParsed = (filePath, parsed) => {
+    const parsedRecords = parsedRecordCount(parsed);
+    if (parsedRecords > limits.maxCacheRecords) return false;
+    const replaced = nextCache.get(filePath);
+    let projectedFiles = nextCache.size + (replaced ? 0 : 1);
+    let projectedRecords = cacheRecords - parsedRecordCount(replaced) + parsedRecords;
+    const evictions = [];
+    for (const [cachedPath, cached] of evictionOrder(filePath, true)) {
+      if (projectedFiles <= limits.maxCacheFiles && projectedRecords <= limits.maxCacheRecords) break;
+      evictions.push(cachedPath);
+      projectedFiles--;
+      projectedRecords -= parsedRecordCount(cached);
+    }
+    if (projectedFiles > limits.maxCacheFiles || projectedRecords > limits.maxCacheRecords) return false;
+    for (const cachedPath of evictions) removeCached(cachedPath);
+    removeCached(filePath);
+    nextCache.set(filePath, parsed);
+    cacheRecords += parsedRecords;
+    return true;
+  };
+
+  if (options.usageOnly === true || options.partialOnBudget === true) {
     // When a cold 90-day tree exceeds the read budget, prefer the newest files
     // so a bounded partial result still represents the range users are looking
     // at instead of exhausting the allowance on its oldest edge.
@@ -676,6 +803,7 @@ export function scanCodexRollouts(sinceMs, options = {}) {
     if (changedBytes > limits.maxChangedBytesPerScan) throw scanBudgetError('scan_budget_total_bytes');
     scanFiles.push({ filePath, stat });
   }
+  for (const { filePath } of scanFiles) pendingScanPaths.add(filePath);
 
   const result = blankResult();
   if (preflightIncomplete) result.scanIncomplete = preflightIncomplete;
@@ -685,17 +813,22 @@ export function scanCodexRollouts(sinceMs, options = {}) {
   const appendRecord = (key, record) => {
     resultRecords++;
     if (resultRecords > limits.maxResultRecords) throw scanBudgetError('scan_budget_records');
-    result[key].push({ ...record });
+    result[key].push(record);
   };
   filesLoop: for (const { filePath, stat } of scanFiles) {
+    pendingScanPaths.delete(filePath);
     checkTime();
     try {
       let parsed = nextCache.get(filePath);
       if (!parsed || parsed.mtimeMs !== stat.mtimeMs || parsed.size !== stat.size) {
-      let content;
+      let lines;
       try {
-        ({ content } = readBoundedRegularFile(filePath, {
-          fsImpl: io, maxBytes: limits.maxFileBytes, expectedStat: stat,
+        ({ lines } = readBoundedRegularFileLines(filePath, {
+          fsImpl: io,
+          maxBytes: limits.maxFileBytes,
+          maxLineBytes: MAX_JSONL_LINE_CHARS,
+          expectedStat: stat,
+          check: checkTime,
         }));
       } catch (error) {
         if (isBoundedFileError(error, 'BOUNDED_FILE_TOO_LARGE')) {
@@ -716,36 +849,54 @@ export function scanCodexRollouts(sinceMs, options = {}) {
       parsed = {
         mtimeMs: stat.mtimeMs,
         size: stat.size,
-        value: scanCodexSession(content, path.basename(filePath), {
-          limits, eventBudget, usageOnly: options.usageOnly === true, nowFn,
+        value: scanCodexSession(lines, path.basename(filePath), {
+          limits: { ...limits, maxResultRecords: Math.min(limits.maxResultRecords, limits.maxCacheRecords) },
+          eventBudget, usageOnly: options.usageOnly === true, nowFn,
         }),
       };
-        nextCache.set(filePath, parsed);
+        storeParsed(filePath, parsed);
       }
       result.scanIncomplete ||= parsed.value.parseIncomplete;
       mergeCapabilities(result.capabilities, parsed.value.capabilities);
+      mergeParseDiagnostics(result.parseDiagnostics, parsed.value.parseDiagnostics);
       for (const key of ['usage', 'completions', 'compactions', 'tools']) {
         for (const record of parsed.value[key]) if (record.tsMs >= lowerBound) appendRecord(key, record);
       }
     } catch (error) {
       if (options.partialOnBudget === true && error?.code === 'CODEX_SCAN_BUDGET') {
         result.scanIncomplete ||= error.reason || 'scan_budget_records';
+        const retained = nextCache.get(filePath);
+        if (retained) {
+          mergeCapabilities(result.capabilities, retained.value.capabilities);
+          mergeParseDiagnostics(result.parseDiagnostics, retained.value.parseDiagnostics);
+          for (const key of ['usage', 'completions', 'compactions', 'tools']) {
+            for (const record of retained.value[key]) if (record.tsMs >= lowerBound) appendRecord(key, record);
+          }
+        }
         break filesLoop;
+      }
+      if (isBoundedFileError(error, 'BOUNDED_FILE_CHANGED', 'BOUNDED_FILE_INVALID', 'BOUNDED_FILE_TOO_LARGE')) {
+        result.scanIncomplete ||= error.code === 'BOUNDED_FILE_TOO_LARGE'
+          ? 'scan_budget_file_bytes' : 'source_unreadable';
+        // The active rollout can append while its descriptor is being read.
+        // Retain the prior complete parse when one exists; a cold changing file
+        // is skipped independently and retried from fresh stat evidence on the
+        // next bounded pass.
+        const retained = nextCache.get(filePath);
+        if (retained) {
+          mergeCapabilities(result.capabilities, retained.value.capabilities);
+          mergeParseDiagnostics(result.parseDiagnostics, retained.value.parseDiagnostics);
+          for (const key of ['usage', 'completions', 'compactions', 'tools']) {
+            for (const record of retained.value[key]) if (record.tsMs >= lowerBound) appendRecord(key, record);
+          }
+        }
+        continue;
       }
       throw error;
     }
   }
   for (const key of ['usage', 'completions', 'compactions', 'tools']) result[key].sort(recordOrder);
 
-  const cachedRecordCount = (parsed) => ['usage', 'completions', 'compactions', 'tools']
-    .reduce((count, key) => count + parsed.value[key].length, 0);
-  let cacheRecords = [...nextCache.values()].reduce((count, parsed) => count + cachedRecordCount(parsed), 0);
-  const evictionOrder = [...nextCache.entries()].sort((a, b) => a[1].mtimeMs - b[1].mtimeMs || a[0].localeCompare(b[0]));
-  for (const [cachedPath, parsed] of evictionOrder) {
-    if (nextCache.size <= limits.maxCacheFiles && cacheRecords <= limits.maxCacheRecords) break;
-    nextCache.delete(cachedPath);
-    cacheRecords -= cachedRecordCount(parsed);
-  }
   activeCache.clear();
   for (const [cachedPath, parsed] of nextCache) activeCache.set(cachedPath, parsed);
   return result;
@@ -765,6 +916,14 @@ export function readCodexUsageRecords(sinceMs, options) {
 export function clearCodexEventCache() {
   parsedFileCache.clear();
   usageParsedFileCache.clear();
+}
+
+export function codexEventCacheStats() {
+  const summarize = (cache) => Object.freeze({
+    files: cache.size,
+    records: [...cache.values()].reduce((count, parsed) => count + parsedRecordCount(parsed), 0),
+  });
+  return Object.freeze({ normal: summarize(parsedFileCache), usage: summarize(usageParsedFileCache) });
 }
 
 export { TOOL_CATEGORIES };

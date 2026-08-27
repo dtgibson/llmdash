@@ -188,9 +188,12 @@ test('the aggregate contract drops raw IDs, content, paths, and tool payloads', 
 test('refresh scans once for all ranges; getters are pure cache reads and a failure preserves good data', () => {
   clearCodexStatsCache();
   let calls = 0;
-  const scan = () => { calls++; return fixture(); };
+  let options;
+  const scan = (_sinceMs, value) => { calls++; options = value; return fixture(); };
   assert.equal(refreshCodexAnalytics(NOW, scan), true);
   assert.equal(calls, 1);
+  assert.equal(options.partialOnBudget, true);
+  assert.equal(options.pruneBeforeMs, NOW - 30 * 24 * 3600_000);
   assert.equal(getCodexInsights('24h').range, '24h');
   assert.equal(getCodexInsights('7d').summary.turns.count, 2);
   assert.equal(getCodexInsights('30d').range, '30d');

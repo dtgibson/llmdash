@@ -13,6 +13,7 @@ const SOURCE_KEYS = new Set(['id', 'label', 'publishedAt']);
 const RATE_KEYS = new Set(['tool', 'model', 'effectiveFrom', 'effectiveTo', 'sourceId', 'usdPerMillionTokens', 'inputTokenTiers']);
 const INPUT_TOKEN_TIER_KEYS = new Set(['aboveInputTokens', 'usdPerMillionTokens']);
 const CLAUDE_CHANNELS = new Set(['input', 'output', 'cacheWrite', 'cacheRead']);
+const CLAUDE_DETAILED_CACHE_CHANNELS = new Set(['input', 'output', 'cacheWrite5m', 'cacheWrite1h', 'cacheRead']);
 const CODEX_CHANNELS = new Set(['input', 'output', 'cacheRead']);
 const RATE_RE = /^(?:0|[1-9][0-9]{0,5})(?:\.[0-9]{1,6})?$/;
 const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
@@ -85,7 +86,10 @@ function validateRate(raw, sources, index) {
   const fromMs = utcInstant(row.effectiveFrom);
   const toMs = row.effectiveTo === null ? Infinity : utcInstant(row.effectiveTo);
   if (fromMs === null || toMs === null || fromMs >= toMs) return null;
-  const allowed = row.tool === 'claude' ? CLAUDE_CHANNELS : CODEX_CHANNELS;
+  const allowed = row.tool === 'claude'
+    ? (exactKeys(row.usdPerMillionTokens, CLAUDE_DETAILED_CACHE_CHANNELS)
+        ? CLAUDE_DETAILED_CACHE_CHANNELS : CLAUDE_CHANNELS)
+    : CODEX_CHANNELS;
   const rates = parseChannelRates(row.usdPerMillionTokens, allowed);
   if (!rates) return null;
   const rawTiers = row.inputTokenTiers === undefined ? [] : row.inputTokenTiers;

@@ -16,6 +16,7 @@ const fixture = (n) => fs.readFileSync(path.join(here, 'fixtures', `usage-pane-$
 const {
   parseUsagePane, resetTextToEpoch, buildReadingPayload, writeReadingIfNewer,
 } = await import('../src/claude-refresh.js');
+const { MODEL_LIMIT_RESETLESS_TTL_MS } = await import('../src/claude-limits.js');
 
 // The moment the spike captured both panes — all epoch expectations anchor here.
 const CAPTURE_MS = Date.parse('2026-07-02T06:42:00Z');
@@ -304,6 +305,36 @@ test('expired preserved model caps are dropped on the next newer write', () => {
   }, cfg), true);
 
   const cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+  assert.equal(cur.model_limits, undefined);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('reset-less Fable evidence survives account-only writes and expires only at its bounded TTL', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-refresh-resetless-model-'));
+  const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  const capturedAtMs = Date.parse('2026-07-02T06:00:00.000Z');
+  fs.writeFileSync(cfg.rateLimitsFile, JSON.stringify({
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: null }, seven_day: { used_percentage: 1, resets_at: null } },
+    capturedAt: new Date(capturedAtMs).toISOString(),
+    model_limits: [{
+      source: 'claude-model:fable', provider: 'claude-code', model: 'fable', label: 'Fable',
+      window: 'seven_day', used_percentage: 49, resets_at: null,
+      captured_at: new Date(capturedAtMs).toISOString(),
+    }],
+  }));
+  const accountOnly = (atMs, pct) => ({
+    rate_limits: { five_hour: { used_percentage: pct, resets_at: null }, seven_day: { used_percentage: 2, resets_at: null } },
+    capturedAt: new Date(atMs).toISOString(),
+  });
+
+  assert.equal(writeReadingIfNewer(accountOnly(capturedAtMs + 86400_000, 20), cfg), true);
+  assert.equal(writeReadingIfNewer(accountOnly(capturedAtMs + MODEL_LIMIT_RESETLESS_TTL_MS - 1, 30), cfg), true);
+  let cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+  assert.equal(cur.model_limits.length, 1);
+  assert.equal(cur.model_limits[0].captured_at, new Date(capturedAtMs).toISOString());
+
+  assert.equal(writeReadingIfNewer(accountOnly(capturedAtMs + MODEL_LIMIT_RESETLESS_TTL_MS, 40), cfg), true);
+  cur = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
   assert.equal(cur.model_limits, undefined);
   fs.rmSync(tmp, { recursive: true, force: true });
 });

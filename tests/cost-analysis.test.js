@@ -137,6 +137,101 @@ test('missing rates exclude records from both API totals and disclose shared cov
   assert.equal(scope.usageCoverage.recognizedRecords, 2);
   assert.equal(scope.usageCoverage.comparableRecords, 1);
   assert.equal(scope.usageCoverage.recordRatio, 0.5);
+  assert.deepEqual(scope.usageCoverage.omissions, [{
+    tool: 'claude', model: 'claude-unknown', reason: 'unknown_model', records: 1, tokens: 4,
+  }]);
+});
+
+test('Claude cache-write duration channels are priced separately or omitted precisely', () => {
+  const detailedRate = {
+    tool: 'claude', model: 'claude-opus-5', effectiveFrom: '2026-01-01T00:00:00.000Z',
+    effectiveTo: null, sourceId: 'official',
+    usdPerMillionTokens: {
+      input: '5', output: '25', cacheWrite5m: '6.25', cacheWrite1h: '10', cacheRead: '0.5',
+    },
+  };
+  const complete = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger([{
+      tool: 'claude', tsMs: NOW - 1, model: 'claude-opus-5',
+      input: 1_000_000, output: 1_000_000, cacheWrite: 7_000_000,
+      cacheWrite5m: 3_000_000, cacheWrite1h: 4_000_000, cacheRead: 5_000_000,
+    }]),
+    subscriptions: subscriptions(), rateCard: rateCard([detailedRate]),
+  });
+  assert.equal(complete.scopes.claude.summary.observedCache.amountMicros, 91_250_000);
+  assert.deepEqual(complete.scopes.claude.usageCoverage.omissions, []);
+
+  const unknownDuration = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger([{
+      tool: 'claude', tsMs: NOW - 1, model: 'claude-opus-5',
+      input: 1, output: 2, cacheWrite: 3, cacheWrite5m: null, cacheWrite1h: null, cacheRead: 4,
+    }]),
+    subscriptions: subscriptions(), rateCard: rateCard([detailedRate]),
+  });
+  assert.deepEqual(unknownDuration.scopes.claude.usageCoverage.omissions, [{
+    tool: 'claude', model: 'claude-opus-5', reason: 'cache_write_ttl_unknown', records: 1, tokens: 10,
+  }]);
+
+  const zeroWrite = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger([{
+      tool: 'claude', tsMs: NOW - 1, model: 'claude-opus-5',
+      input: 1_000_000, output: 1_000_000, cacheWrite: 0,
+      cacheWrite5m: null, cacheWrite1h: null, cacheRead: 1_000_000,
+    }]),
+    subscriptions: subscriptions(), rateCard: rateCard([detailedRate]),
+  });
+  assert.equal(zeroWrite.scopes.claude.summary.observedCache.status, 'complete');
+  assert.equal(zeroWrite.scopes.claude.summary.observedCache.amountMicros, 30_500_000);
+  assert.deepEqual(zeroWrite.scopes.claude.usageCoverage.omissions, []);
+});
+
+test('high-cardinality pricing omissions aggregate into a bounded deterministic overflow row', () => {
+  const records = Array.from({ length: 100 }, (_, index) => ({
+    tool: 'claude', tsMs: NOW - index - 1, model: `unknown-${String(index).padStart(3, '0')}`,
+    input: 1, output: 0, cacheWrite: 0, cacheRead: 0,
+  }));
+  const payload = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger(records), subscriptions: subscriptions(), rateCard: rateCard([]),
+  });
+  const omissions = payload.scopes.claude.usageCoverage.omissions;
+  assert.equal(omissions.length, 57, '56 detailed groups plus one overflow aggregate are retained');
+  assert.equal(omissions.reduce((total, row) => total + row.records, 0), 100);
+  assert.equal(omissions.reduce((total, row) => total + row.tokens, 0), 100);
+  assert.deepEqual(omissions.find((row) => row.model === '(additional models)'), {
+    tool: 'claude', model: '(additional models)', reason: 'unknown_model', records: 44, tokens: 44,
+  });
+});
+
+test('combined high-cardinality omissions stay bounded and reconcile both tools exactly', () => {
+  const records = ['claude', 'codex'].flatMap((tool) => Array.from({ length: 100 }, (_, index) => ({
+    tool, tsMs: NOW - index - 1, model: `${tool}-unknown-${String(index).padStart(3, '0')}`,
+    input: 1, output: 0, cacheWrite: 0, cacheRead: 0,
+  })));
+  const payload = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger(records), subscriptions: subscriptions(), rateCard: rateCard([]),
+  });
+  for (const name of ['claude', 'codex', 'combined']) {
+    const coverage = payload.scopes[name].usageCoverage;
+    assert.equal(coverage.denominatorKnown, true);
+    assert.ok(coverage.omissions.length <= 64);
+    assert.equal(coverage.omissions.reduce((total, row) => total + row.records, 0),
+      coverage.recognizedRecords - coverage.comparableRecords, `${name} omitted records reconcile`);
+    assert.equal(coverage.omissions.reduce((total, row) => total + row.tokens, 0),
+      coverage.recognizedTokens - coverage.comparableTokens, `${name} omitted tokens reconcile`);
+  }
+  const combined = payload.scopes.combined.usageCoverage;
+  assert.equal(combined.recognizedRecords, 200);
+  assert.equal(combined.comparableRecords, 0);
+  assert.equal(combined.omissions.length, 50, '48 fair detail rows plus two exact tool/reason overflows');
+  assert.deepEqual(combined.omissions.filter((row) => row.model === '(additional models)'), [
+    { tool: 'claude', model: '(additional models)', reason: 'unknown_model', records: 76, tokens: 76 },
+    { tool: 'codex', model: '(additional models)', reason: 'unknown_model', records: 76, tokens: 76 },
+  ]);
 });
 
 test('empty readable sources are complete zero while missing evidence is unavailable', () => {

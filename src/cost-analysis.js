@@ -7,6 +7,14 @@ import { refreshAccountConfig } from './account-config.js';
 const RANGE_DAYS = Object.freeze({ '7d': 7, '30d': 30, '90d': 90 });
 const PICOS_PER_MICRO = 1_000_000n;
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_OMISSION_ROWS = 64;
+const MAX_OMISSION_DETAIL_ROWS = 56;
+const OMISSION_OVERFLOW_MODEL = '(additional models)';
+const OMISSION_REASONS = Object.freeze([
+  'cache_write_ttl_unknown', 'rate_card_invalid', 'rate_card_unreadable', 'rate_invalid_entry',
+  'rate_missing', 'rate_overlap', 'token_record_invalid', 'unknown_model',
+]);
+const MAX_COMBINED_OVERFLOW_ROWS = 2 * OMISSION_REASONS.length;
 const formatters = new Map();
 
 function formatter(timeZone) {
@@ -76,6 +84,10 @@ function sortedReasons(...groups) {
 }
 
 function safeCountAdd(a, b) { return Math.min(Number.MAX_SAFE_INTEGER, a + b); }
+
+function omissionOrder(a, b) {
+  return a.tool.localeCompare(b.tool) || a.model.localeCompare(b.model) || a.reason.localeCompare(b.reason);
+}
 
 export function roundPicosToMicros(value) {
   if (typeof value !== 'bigint') return null;
@@ -210,8 +222,7 @@ function subscriptionForTool(tool, range, subscriptions) {
 }
 
 function apiForTool(tool, range, ledger, card) {
-  const records = ledger.records.filter((record) => record.tool === tool
-    && record.tsMs >= range.start && record.tsMs < range.end);
+  const records = Array.isArray(ledger.records) ? ledger.records : [];
   const scan = ledger.scanReport?.[tool] || { complete: false, denominatorKnown: false, reasons: ['source_missing'], deduplicatedRecords: 0, fallbackIdentityRecords: 0 };
   let recognizedRecords = 0;
   let comparableRecords = 0;
@@ -224,25 +235,74 @@ function apiForTool(tool, range, ledger, card) {
   const reasons = new Set(scan.reasons || []);
   const usedSourceIds = new Set();
   const usedRates = new Map();
+  const omissions = new Map();
+  const omissionOverflow = new Map();
+  const noteOmission = (reason, record, tokenCount) => {
+    if (!OMISSION_REASONS.includes(reason)) throw new Error('Cost omission reason invariant violated');
+    const model = typeof record?.model === 'string' && /^[\x20-\x7e]{1,96}$/.test(record.model)
+      ? record.model : 'unknown';
+    const key = `${tool}\u0000${model}\u0000${reason}`;
+    let row = omissions.get(key);
+    if (!row && omissions.size < MAX_OMISSION_DETAIL_ROWS) {
+      row = { tool, model, reason, records: 0, tokens: 0 };
+      omissions.set(key, row);
+    }
+    if (!row) {
+      row = omissionOverflow.get(reason);
+      if (!row) {
+        row = { tool, model: OMISSION_OVERFLOW_MODEL, reason, records: 0, tokens: 0 };
+        omissionOverflow.set(reason, row);
+      }
+    }
+    row.records = safeCountAdd(row.records, 1);
+    row.tokens = safeCountAdd(row.tokens, tokenCount);
+  };
   for (const record of records) {
+    if (record.tool !== tool || record.tsMs < range.start || record.tsMs >= range.end) continue;
     const tokenCount = tool === 'claude'
       ? safeCountAdd(safeCountAdd(record.input, record.output), safeCountAdd(record.cacheWrite, record.cacheRead))
       : safeCountAdd(record.input, record.output);
     recognizedRecords = safeCountAdd(recognizedRecords, 1);
     recognizedTokens = safeCountAdd(recognizedTokens, tokenCount);
-    if (tool === 'codex' && record.cacheRead > record.input) { reasons.add('token_record_invalid'); continue; }
+    if (tool === 'codex' && record.cacheRead > record.input) {
+      reasons.add('token_record_invalid');
+      noteOmission('token_record_invalid', record, tokenCount);
+      continue;
+    }
     if (tokenCount === 0) {
       comparableRecords = safeCountAdd(comparableRecords, 1);
       continue;
     }
     const rate = findRate(card, tool, record.model, record.tsMs);
-    if (!rate) { reasons.add(rateIssueReason(card, tool, record.model, record.tsMs)); continue; }
+    if (!rate) {
+      const reason = rateIssueReason(card, tool, record.model, record.tsMs);
+      reasons.add(reason);
+      noteOmission(reason, record, tokenCount);
+      continue;
+    }
     const appliedRates = ratesForInput(rate, record.input);
-    if (!appliedRates) { reasons.add('rate_invalid_entry'); continue; }
+    if (!appliedRates) {
+      reasons.add('rate_invalid_entry');
+      noteOmission('rate_invalid_entry', record, tokenCount);
+      continue;
+    }
+    const detailedClaudeCache = tool === 'claude' && appliedRates.cacheWrite === undefined;
+    if (detailedClaudeCache && record.cacheWrite > 0
+      && (record.cacheWrite5m === null || record.cacheWrite1h === null)) {
+      reasons.add('cache_write_ttl_unknown');
+      noteOmission('cache_write_ttl_unknown', record, tokenCount);
+      continue;
+    }
+    const cacheWrite5m = record.cacheWrite5m ?? 0;
+    const cacheWrite1h = record.cacheWrite1h ?? 0;
     const priced = tool === 'claude'
       ? {
           observed: BigInt(record.input) * appliedRates.input + BigInt(record.output) * appliedRates.output
-            + BigInt(record.cacheWrite) * appliedRates.cacheWrite + BigInt(record.cacheRead) * appliedRates.cacheRead,
+            + (appliedRates.cacheWrite === undefined
+              ? BigInt(cacheWrite5m) * appliedRates.cacheWrite5m
+                + BigInt(cacheWrite1h) * appliedRates.cacheWrite1h
+              : BigInt(record.cacheWrite) * appliedRates.cacheWrite)
+            + BigInt(record.cacheRead) * appliedRates.cacheRead,
           noCache: (BigInt(record.input) + BigInt(record.cacheWrite) + BigInt(record.cacheRead)) * appliedRates.input
             + BigInt(record.output) * appliedRates.output,
         }
@@ -283,6 +343,8 @@ function apiForTool(tool, range, ledger, card) {
       deduplicatedRecords: Number(scan.deduplicatedRecords) || 0,
       fallbackIdentityRecords: Number(scan.fallbackIdentityRecords) || 0,
       reasons: finalReasons,
+      omissions: [...omissions.values(), ...omissionOverflow.values()]
+        .sort(omissionOrder),
     },
     usedSourceIds, usedRates,
   };
@@ -404,6 +466,59 @@ function sumKnownPicos(...values) {
   return known.length ? known.reduce((total, value) => total + value, 0n) : null;
 }
 
+function combineOmissions(...groups) {
+  // Each tool scope is already capped at 64 rows and reconciles its tail into
+  // fixed-model overflow rows. Re-aggregate those bounded rows instead of
+  // slicing their concatenation, otherwise the combined scope can lose exact
+  // counts when both tools have high-cardinality omissions.
+  const sources = groups.map((group) => (Array.isArray(group) ? group : [])
+    .slice(0, MAX_OMISSION_ROWS).sort(omissionOrder));
+  // The omission producer has eight closed reason categories for each of two
+  // tools, so reserving 16 exact overflow rows keeps the combined accumulator
+  // bounded without a post-hoc slice that can discard counts.
+  const detailLimit = MAX_OMISSION_ROWS - MAX_COMBINED_OVERFLOW_ROWS;
+  const detailSources = sources.map((rows) => rows
+    .filter((row) => row.model !== OMISSION_OVERFLOW_MODEL));
+  const selected = new Set();
+  const fairShare = sources.length ? Math.floor(detailLimit / sources.length) : 0;
+  for (const rows of detailSources) {
+    for (const row of rows.slice(0, fairShare)) selected.add(row);
+  }
+  let remaining = detailLimit - selected.size;
+  for (const rows of detailSources) {
+    if (remaining <= 0) break;
+    for (const row of rows.slice(fairShare)) {
+      if (remaining-- <= 0) break;
+      selected.add(row);
+    }
+  }
+
+  const details = [];
+  const overflow = new Map();
+  for (const rows of sources) {
+    for (const row of rows) {
+      if (selected.has(row)) {
+        details.push({ ...row });
+        continue;
+      }
+      const key = `${row.tool}\u0000${row.reason}`;
+      let aggregate = overflow.get(key);
+      if (!aggregate) {
+        if (overflow.size >= MAX_COMBINED_OVERFLOW_ROWS) {
+          throw new Error('Cost omission reason invariant violated');
+        }
+        aggregate = {
+          tool: row.tool, model: OMISSION_OVERFLOW_MODEL, reason: row.reason, records: 0, tokens: 0,
+        };
+        overflow.set(key, aggregate);
+      }
+      aggregate.records = safeCountAdd(aggregate.records, row.records);
+      aggregate.tokens = safeCountAdd(aggregate.tokens, row.tokens);
+    }
+  }
+  return [...details, ...overflow.values()].sort(omissionOrder);
+}
+
 function combineCoverage(left, right) {
   const denominatorKnown = left.denominatorKnown && right.denominatorKnown;
   const recognizedRecords = safeCountAdd(left.recognizedRecords, right.recognizedRecords);
@@ -419,6 +534,7 @@ function combineCoverage(left, right) {
     deduplicatedRecords: safeCountAdd(left.deduplicatedRecords, right.deduplicatedRecords),
     fallbackIdentityRecords: safeCountAdd(left.fallbackIdentityRecords, right.fallbackIdentityRecords),
     reasons: sortedReasons(left.reasons, right.reasons),
+    omissions: combineOmissions(left.omissions, right.omissions),
   };
 }
 
@@ -532,6 +648,7 @@ function coldScope() {
       status: 'unavailable', denominatorKnown: false, recognizedRecords: 0, comparableRecords: 0,
       recognizedTokens: 0, comparableTokens: 0, recordRatio: null, tokenRatio: null,
       deduplicatedRecords: 0, fallbackIdentityRecords: 0, reasons: ['cache_cold'],
+      omissions: [],
     },
     subscriptionCoverage: { status: 'unavailable', coveredMs: 0, requiredMs: 0, ratio: null, gapCount: 0, gaps: [] },
     daily: [], cumulative: [],

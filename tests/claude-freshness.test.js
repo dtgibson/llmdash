@@ -156,13 +156,28 @@ test('local provider model caps are bounded and formatting controls are stripped
     resets_at: iso(NOW + 86400_000),
   }));
   writeReading({ ageMs: 60_000, modelLimits });
-  const limits = readClaudeLimits().modelLimits;
+  const limits = readClaudeLimits(NOW).modelLimits;
   assert.equal(limits.length, 128);
   assert.ok(limits.every((limit) => [...limit.label].length <= 96));
   assert.ok(limits.every((limit) => limit.model.length <= 96));
   assert.ok(limits.every((limit) => limit.source.length <= 110));
   assert.doesNotMatch(limits[0].label, /[\u0000\u202e]/u);
   assert.doesNotMatch(JSON.stringify(claudeState().modelLimits), /[\u0000\u202e]/u);
+});
+
+test('reset-less model caps keep independent evidence age and expire after one weekly window', () => {
+  const capturedAt = iso(NOW - 60_000);
+  writeReading({
+    capturedAt,
+    modelLimits: [{
+      source: 'claude-model:fable', model: 'fable', label: 'Fable',
+      window: 'seven_day', used_percentage: 49, resets_at: null,
+      captured_at: capturedAt,
+    }],
+  });
+  assert.equal(readClaudeLimits(NOW).modelLimits.length, 1);
+  assert.equal(readClaudeLimits(NOW + 6 * 86400_000).modelLimits[0].resetsAt, null);
+  assert.equal(readClaudeLimits(NOW + 7 * 86400_000).modelLimits.length, 0);
 });
 
 // --- Knob parsing (clamp convention for externally-sourced values) ----------

@@ -3,7 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { config } from '../config.js';
-import { readClaudeLimits } from './claude-limits.js';
+import {
+  MODEL_LIMIT_CLOCK_SKEW_MS,
+  MODEL_LIMIT_RESETLESS_TTL_MS,
+  readClaudeLimits,
+} from './claude-limits.js';
 import { resolveCommand } from './health.js';
 
 // Claude limit auto-refresh (the [R2-scrape] mechanism, spike-validated):
@@ -800,16 +804,22 @@ function rowsFromModelLimitPayload(payload) {
   return [];
 }
 
+function activeModelLimitAt(row, fallbackCapturedAt, atMs) {
+  const resetMs = resetValueToMs(row?.resets_at ?? row?.resetsAt);
+  if (Number.isFinite(resetMs)) return resetMs > atMs;
+  const capturedMs = Date.parse(row?.captured_at ?? row?.capturedAt ?? fallbackCapturedAt);
+  return Number.isFinite(capturedMs)
+    && capturedMs <= atMs + MODEL_LIMIT_CLOCK_SKEW_MS
+    && atMs - capturedMs < MODEL_LIMIT_RESETLESS_TTL_MS;
+}
+
 function mergeActiveModelLimits(payload, current, newTs) {
   const merged = new Map();
   const add = (row, fallbackCapturedAt, requireUnexpired) => {
     if (!row || typeof row !== 'object') return;
     const key = modelLimitKey(row);
     if (!key) return;
-    if (requireUnexpired) {
-      const resetMs = resetValueToMs(row.resets_at ?? row.resetsAt);
-      if (!Number.isFinite(resetMs) || resetMs <= newTs) return;
-    }
+    if (requireUnexpired && !activeModelLimitAt(row, fallbackCapturedAt, newTs)) return;
     const next = { ...row };
     if (next.captured_at == null && next.capturedAt == null && fallbackCapturedAt) {
       next.captured_at = fallbackCapturedAt;

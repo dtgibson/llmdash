@@ -77,6 +77,26 @@ test('Codex requires cached input and forbids Claude cache-write channel', () =>
   assert.equal(parsed.rates[0].model, 'gpt-5.3-codex');
 });
 
+test('Claude rates may preserve distinct 5-minute and 1-hour cache-write prices', () => {
+  const detailed = rate({
+    model: 'claude-opus-5',
+    usdPerMillionTokens: {
+      input: '5', output: '25', cacheWrite5m: '6.25', cacheWrite1h: '10', cacheRead: '0.5',
+    },
+  });
+  const parsed = parseRateCard(card([detailed]));
+  assert.equal(parsed.rates.length, 1);
+  assert.equal(parsed.rates[0].rates.cacheWrite5m, 6_250_000n);
+  assert.equal(parsed.rates[0].rates.cacheWrite1h, 10_000_000n);
+  const mixed = rate({
+    model: 'claude-invalid-mixed-cache',
+    usdPerMillionTokens: {
+      input: '5', output: '25', cacheWrite: '6.25', cacheWrite1h: '10', cacheRead: '0.5',
+    },
+  });
+  assert.equal(parseRateCard(card([mixed])).rates.length, 0);
+});
+
 test('Codex input-token tiers are exact, bounded, ordered, and exclusive at the threshold', () => {
   const tiered = rate({
     tool: 'codex', model: 'gpt-5.6-sol',
@@ -171,22 +191,31 @@ test('tracked rate card validates and includes reviewed provider provenance', ()
     'anthropic-fable-5-launch-2026-06-09',
     'anthropic-haiku-4-5-launch-2025-10-15',
     'anthropic-opus-4-8-launch-2026-05-28',
+    'anthropic-opus-5-launch-2026-07-24',
     'anthropic-sonnet-5-launch-2026-06-30',
     'openai-gpt-5-3-codex-launch-2026-02-05',
     'openai-gpt-5-5-launch-2026-04-23',
     'openai-gpt-5-6-sol-preview-2026-06-26',
+    'openai-gpt-5-6-sol-promo-2026-08-27',
   ]);
-  assert.ok(findRate(parsed, 'claude', 'claude-fable-5', Date.now()));
-  assert.ok(findRate(parsed, 'codex', 'gpt-5.3-codex', Date.now()));
-  assert.ok(findRate(parsed, 'codex', 'gpt-5.5', Date.now()));
-  const currentCodex = findRate(parsed, 'codex', 'gpt-5.6-sol', Date.now());
+  const current = Date.parse('2026-08-27T12:00:00.000Z');
+  assert.ok(findRate(parsed, 'claude', 'claude-fable-5', current));
+  assert.ok(findRate(parsed, 'claude', 'claude-opus-5', current));
+  assert.ok(findRate(parsed, 'codex', 'gpt-5.3-codex', current));
+  assert.ok(findRate(parsed, 'codex', 'gpt-5.5', current));
+  const currentCodex = findRate(parsed, 'codex', 'gpt-5.6-sol', current);
   assert.ok(currentCodex);
-  assert.equal(ratesForInput(currentCodex, 272000).input, 5_000_000n);
-  assert.equal(ratesForInput(currentCodex, 272001).output, 45_000_000n);
+  assert.equal(ratesForInput(currentCodex, 272000).input, 4_000_000n);
+  assert.equal(ratesForInput(currentCodex, 272001).output, 30_000_000n);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.6', current).rates.cacheRead, 400_000n);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.6', Date.parse('2026-08-26T23:59:59.999Z')), null);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.6', Date.parse('2026-11-22T00:00:00.000Z')), null);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.6-sol', Date.parse('2026-08-26T23:59:59.999Z')).rates.input, 5_000_000n);
   assert.equal(findRate(parsed, 'claude', 'claude-fable-5', Date.parse('2026-06-08T23:59:59.999Z')), null);
+  assert.equal(findRate(parsed, 'claude', 'claude-opus-5', Date.parse('2026-07-23T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'claude', 'claude-sonnet-5', Date.parse('2026-06-29T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.3-codex', Date.parse('2026-02-04T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.5', Date.parse('2026-04-22T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.6-sol', Date.parse('2026-06-25T23:59:59.999Z')), null);
-  assert.equal(findRate(parsed, 'codex', 'gpt-5.5-codex', Date.now()), null);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.5-codex', current), null);
 });

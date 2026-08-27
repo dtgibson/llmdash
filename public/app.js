@@ -1968,6 +1968,7 @@ const COST_REASON_COPY = Object.freeze({
   rate_overlap: 'Overlapping API rates were excluded.',
   unknown_model: 'Usage from a model without an exact reviewed rate was excluded.',
   rate_missing: 'A required token-channel rate was unavailable.',
+  cache_write_ttl_unknown: 'Claude cache-write duration evidence was unavailable, so affected records were not flattened to one price.',
   timestamp_invalid: 'Usage with an invalid timestamp was excluded.',
   token_record_invalid: 'Usage with an invalid token tuple was excluded.',
   source_missing: 'A local usage root is not present.',
@@ -2136,8 +2137,20 @@ function costChartsHtml(data) {
 function coverageCopy(scope, toolLabel) {
   const coverage = scope && scope.usageCoverage;
   if (!coverage) return 'Usage coverage unavailable.';
-  const included = `${Number(coverage.comparableRecords || 0).toLocaleString()} of ${Number(coverage.recognizedRecords || 0).toLocaleString()} recognized records were comparable`;
-  return coverage.denominatorKnown ? `${included}.` : `${Number(coverage.comparableRecords || 0).toLocaleString()} ${toolLabel} records were comparable; additional usage may be omitted.`;
+  const records = `${Number(coverage.comparableRecords || 0).toLocaleString()} of ${Number(coverage.recognizedRecords || 0).toLocaleString()} recognized records`;
+  const tokens = `${Number(coverage.comparableTokens || 0).toLocaleString()} of ${Number(coverage.recognizedTokens || 0).toLocaleString()} recognized tokens`;
+  const included = `${records} and ${tokens} were comparable`;
+  return coverage.denominatorKnown ? `${included}.` : `${included}; additional ${toolLabel} usage may be omitted.`;
+}
+
+function costOmissionCopy(row) {
+  if (!row || (row.tool !== 'claude' && row.tool !== 'codex')
+    || typeof row.model !== 'string' || !Object.hasOwn(COST_REASON_COPY, row.reason)) return null;
+  const records = Number.isSafeInteger(row.records) && row.records >= 0 ? row.records : null;
+  const tokens = Number.isSafeInteger(row.tokens) && row.tokens >= 0 ? row.tokens : null;
+  if (records === null || tokens === null) return null;
+  const tool = row.tool === 'claude' ? 'Claude' : 'Codex';
+  return `${tool} ${row.model}: ${records.toLocaleString()} record${records === 1 ? '' : 's'} / ${tokens.toLocaleString()} tokens omitted. ${COST_REASON_COPY[row.reason]}`;
 }
 
 function costDiagnosticsHtml(data) {
@@ -2146,10 +2159,16 @@ function costDiagnosticsHtml(data) {
     data.scopes?.combined?.summary?.observedCache?.reasons,
     data.refresh?.reasons,
   );
-  if (!reasons.length) return '';
+  const omissions = (Array.isArray(data.scopes?.combined?.usageCoverage?.omissions)
+    ? data.scopes.combined.usageCoverage.omissions : [])
+    .slice(0, 64).map(costOmissionCopy).filter(Boolean);
+  const detailedReasons = new Set((data.scopes?.combined?.usageCoverage?.omissions || [])
+    .map((row) => row && row.reason).filter((reason) => typeof reason === 'string'));
+  const notes = omissions.concat(reasons.filter((reason) => !detailedReasons.has(reason)).map((reason) =>
+    Object.hasOwn(COST_REASON_COPY, reason) ? COST_REASON_COPY[reason] : 'Some evidence could not be included.'));
+  if (!notes.length) return '';
   return `<div class="cost-diagnostics" role="note"><strong>Evidence notes</strong><ul>`
-    + reasons.slice(0, 6).map((reason) => `<li>${esc(Object.hasOwn(COST_REASON_COPY, reason)
-      ? COST_REASON_COPY[reason] : 'Some evidence could not be included.')}</li>`).join('') + `</ul></div>`;
+    + notes.slice(0, 8).map((note) => `<li>${esc(note)}</li>`).join('') + `</ul></div>`;
 }
 
 function sortedClientReasons(...groups) {

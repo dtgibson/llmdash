@@ -113,7 +113,11 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   combines optional owner-confirmed subscription periods with reviewed
   effective-dated rates using fixed-point arithmetic, and atomically caches 7d,
   30d, and 90d views for its read-only endpoint; requests never scan logs, and
-  cost history is not added to peer or menu contracts.
+  cost history is not added to peer or menu contracts. Large Codex rollouts are
+  descriptor-validated and streamed line by line; a cold cache publishes bounded
+  newest-first evidence and converges across later poller passes without replacing
+  the last complete parse of a file that grows mid-read. Claude pricing preserves
+  the observed 5-minute and 1-hour cache-write channels separately.
 - Reset and recurring-plan configuration lives in a strict versioned
   `account-config.json`; the focused `/settings` page writes it atomically through
   one trusted-authority, same-origin, CSRF- and ETag-protected route, while legacy

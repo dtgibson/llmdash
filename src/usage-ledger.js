@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { isBoundedFileError, readBoundedRegularFile } from './bounded-file.js';
-import { clearCodexEventCache, scanCodexRollouts, usageRecordsFromScan } from './codex-events.js';
+import { clearCodexEventCache, scanCodexRollouts } from './codex-events.js';
 
 const MIB = 1024 * 1024;
 const LIMITS = Object.freeze({
@@ -10,14 +10,94 @@ const LIMITS = Object.freeze({
   maxDirectories: 512,
   maxEntries: 20_000,
   maxFiles: 10_000,
+  // Codex rollouts are streamed line-by-line, so the per-file safety ceiling
+  // no longer has to be an allocation ceiling. This still bounds a single
+  // descriptor read while covering the observed ~200 MB rollout.
   maxFileBytes: 128 * MIB,
+  maxCodexFileBytes: 256 * MIB,
   maxReadBytes: 512 * MIB,
   maxLines: 2_000_000,
-  maxRecords: 1_000_000,
+  // Today's 90-day corpus is ~1.13M normalized records. Keep modest growth
+  // headroom while bounding the combined ledger, parser caches, result views,
+  // and temporary reference arrays well below Node's default old-space limit.
+  maxRecords: 1_250_000,
+  maxClaudeCacheFiles: 10_000,
+  // A fresh 90-day corpus check retained 127,630 records at a conservative
+  // 63.8 MB estimate; 96 MiB leaves growth room without making cache size
+  // depend on whichever transcript happens to be scanned first.
+  maxClaudeCacheRecords: 175_000,
+  maxClaudeCacheEstimatedBytes: 96 * MIB,
+  maxCodexCacheRecords: 1_100_000,
   maxLineBytes: MIB,
   maxWallMs: 10_000,
 });
 const claudeFileCache = new Map();
+let claudeCacheRecords = 0;
+let claudeCacheEstimatedBytes = 0;
+
+function boundedPositive(value, fallback) {
+  return Number.isSafeInteger(value) && value > 0 ? Math.min(value, fallback) : fallback;
+}
+
+function claudeCacheLimits(overrides) {
+  return {
+    maxFiles: boundedPositive(overrides?.maxFiles, LIMITS.maxClaudeCacheFiles),
+    maxRecords: boundedPositive(overrides?.maxRecords, LIMITS.maxClaudeCacheRecords),
+    maxEstimatedBytes: boundedPositive(overrides?.maxEstimatedBytes, LIMITS.maxClaudeCacheEstimatedBytes),
+  };
+}
+
+function estimatedClaudeRecordBytes(record) {
+  // Conservative shallow-object/string estimate. Numbers and object/array
+  // slots are included in the fixed term; retained strings are counted at two
+  // bytes per character, matching V8's worst common representation here.
+  return 384 + 2 * (String(record.model || '').length + String(record.stableKey || '').length);
+}
+
+function cachedClaudeRecordCount(parsed) { return parsed?.records?.length || 0; }
+function cachedClaudeEstimatedBytes(parsed) { return parsed?.estimatedBytes || 0; }
+
+function deleteClaudeCacheEntry(file) {
+  const parsed = claudeFileCache.get(file);
+  if (!parsed) return;
+  claudeFileCache.delete(file);
+  claudeCacheRecords -= cachedClaudeRecordCount(parsed);
+  claudeCacheEstimatedBytes -= cachedClaudeEstimatedBytes(parsed);
+}
+
+function claudeCacheEvictionOrder(exceptFile = null) {
+  return [...claudeFileCache.entries()]
+    .filter(([file]) => file !== exceptFile)
+    .sort((a, b) => a[1].mtimeMs - b[1].mtimeMs || a[0].localeCompare(b[0]));
+}
+
+function cacheClaudeParse(file, parsed, limits) {
+  const recordCount = cachedClaudeRecordCount(parsed);
+  const estimatedBytes = cachedClaudeEstimatedBytes(parsed);
+  if (recordCount > limits.maxRecords || estimatedBytes > limits.maxEstimatedBytes) return false;
+
+  const replaced = claudeFileCache.get(file);
+  let projectedFiles = claudeFileCache.size + (replaced ? 0 : 1);
+  let projectedRecords = claudeCacheRecords - cachedClaudeRecordCount(replaced) + recordCount;
+  let projectedBytes = claudeCacheEstimatedBytes - cachedClaudeEstimatedBytes(replaced) + estimatedBytes;
+  const evictions = [];
+  for (const [candidate, cached] of claudeCacheEvictionOrder(file)) {
+    if (projectedFiles <= limits.maxFiles && projectedRecords <= limits.maxRecords
+      && projectedBytes <= limits.maxEstimatedBytes) break;
+    evictions.push(candidate);
+    projectedFiles--;
+    projectedRecords -= cachedClaudeRecordCount(cached);
+    projectedBytes -= cachedClaudeEstimatedBytes(cached);
+  }
+  if (projectedFiles > limits.maxFiles || projectedRecords > limits.maxRecords
+    || projectedBytes > limits.maxEstimatedBytes) return false;
+  for (const candidate of evictions) deleteClaudeCacheEntry(candidate);
+  deleteClaudeCacheEntry(file);
+  claudeFileCache.set(file, parsed);
+  claudeCacheRecords += recordCount;
+  claudeCacheEstimatedBytes += estimatedBytes;
+  return true;
+}
 
 function safeToken(value) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -28,7 +108,7 @@ function safeModel(value) {
 }
 
 function tupleKey(record) {
-  return `${record.tsMs}\u0000${record.model}\u0000${record.input}\u0000${record.output}\u0000${record.cacheWrite}\u0000${record.cacheRead}`;
+  return `${record.tsMs}\u0000${record.model}\u0000${record.input}\u0000${record.output}\u0000${record.cacheWrite}\u0000${record.cacheWrite5m}\u0000${record.cacheWrite1h}\u0000${record.cacheRead}`;
 }
 
 function normalizedClaude(raw) {
@@ -41,14 +121,119 @@ function normalizedClaude(raw) {
   const cacheWrite = safeToken(usage.cache_creation_input_tokens ?? 0);
   const cacheRead = safeToken(usage.cache_read_input_tokens ?? 0);
   if ([input, output, cacheWrite, cacheRead].some((value) => value === null)) return null;
+  const cacheDetail = usage.cache_creation && typeof usage.cache_creation === 'object'
+    && !Array.isArray(usage.cache_creation) ? usage.cache_creation : null;
+  const detail5m = cacheDetail ? safeToken(cacheDetail.ephemeral_5m_input_tokens) : null;
+  const detail1h = cacheDetail ? safeToken(cacheDetail.ephemeral_1h_input_tokens) : null;
+  const detailedCacheWrites = detail5m !== null && detail1h !== null
+    && safeToken(detail5m + detail1h) === cacheWrite;
+  const exactDetail5m = cacheWrite === 0 ? 0 : (detailedCacheWrites ? detail5m : null);
+  const exactDetail1h = cacheWrite === 0 ? 0 : (detailedCacheWrites ? detail1h : null);
   const stableId = safeModel(raw.uuid ?? raw.event_uuid ?? raw.eventId);
   const messageId = safeModel(raw.message?.id);
   const requestId = safeModel(raw.requestId ?? raw.request_id ?? raw.message?.request_id);
   return {
-    tool: 'claude', tsMs, model, input, output, cacheWrite, cacheRead,
+    tool: 'claude', tsMs, model, input, output, cacheWrite,
+    cacheWrite5m: exactDetail5m,
+    cacheWrite1h: exactDetail1h,
+    cacheRead,
     stableKey: stableId ? `event:${stableId}`
-      : messageId && requestId ? `pair:${messageId}:${requestId}:${tupleKey({ tsMs, model, input, output, cacheWrite, cacheRead })}` : null,
+      : messageId && requestId ? `pair:${messageId}:${requestId}:${tupleKey({
+          tsMs, model, input, output, cacheWrite,
+          cacheWrite5m: exactDetail5m,
+          cacheWrite1h: exactDetail1h,
+          cacheRead,
+        })}` : null,
   };
+}
+
+function skipWhitespace(source, index) {
+  while (index < source.length && /\s/.test(source[index])) index++;
+  return index;
+}
+
+function jsonStringAt(source, index) {
+  index = skipWhitespace(source, index);
+  if (source[index] !== '"') return null;
+  const start = index++;
+  while (index < source.length) {
+    if (source[index] === '\\') { index += 2; continue; }
+    if (source[index] === '"') {
+      const end = index + 1;
+      try { return { value: JSON.parse(source.slice(start, end)), end }; } catch { return null; }
+    }
+    if (source.charCodeAt(index) < 0x20) return null;
+    index++;
+  }
+  return null;
+}
+
+function scalarAt(source, index) {
+  index = skipWhitespace(source, index);
+  const string = jsonStringAt(source, index);
+  if (string) return string;
+  const match = /^(?:null|true|false|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(source.slice(index));
+  if (!match) return null;
+  try { return { value: JSON.parse(match[0]), end: index + match[0].length }; } catch { return null; }
+}
+
+function propertyAt(source, index) {
+  const key = jsonStringAt(source, index);
+  if (!key) return null;
+  index = skipWhitespace(source, key.end);
+  if (source[index] !== ':') return null;
+  return { key: key.value, valueIndex: skipWhitespace(source, index + 1) };
+}
+
+function commaAt(source, index) {
+  index = skipWhitespace(source, index);
+  return source[index] === ',' ? skipWhitespace(source, index + 1) : null;
+}
+
+function explicitClaudeUserHeader(line) {
+  // Claude's generated oversized user/tool-result rows begin with one of two
+  // exact top-level property sequences. Prove that grammar from the start of
+  // the bounded prefix; never search for discriminator fragments in nested
+  // metadata where an assistant usage row could spoof them.
+  const prefix = line.slice(0, 64 * 1024);
+  let index = skipWhitespace(prefix, 0);
+  if (prefix[index++] !== '{') return false;
+  const readScalarProperty = (expectedKey, predicate = () => true) => {
+    const property = propertyAt(prefix, index);
+    if (!property || property.key !== expectedKey) return false;
+    const value = scalarAt(prefix, property.valueIndex);
+    if (!value || !predicate(value.value)) return false;
+    const next = commaAt(prefix, value.end);
+    if (next === null) return false;
+    index = next;
+    return true;
+  };
+  if (!readScalarProperty('parentUuid')) return false;
+  if (!readScalarProperty('isSidechain', (value) => typeof value === 'boolean')) return false;
+  if (!readScalarProperty('promptId')) return false;
+
+  let property = propertyAt(prefix, index);
+  if (property?.key === 'agentId') {
+    const agent = scalarAt(prefix, property.valueIndex);
+    const next = agent && commaAt(prefix, agent.end);
+    if (!agent || next === null) return false;
+    index = next;
+    property = propertyAt(prefix, index);
+  }
+  if (!property || property.key !== 'type') return false;
+  const type = scalarAt(prefix, property.valueIndex);
+  if (!type || type.value !== 'user') return false;
+  index = commaAt(prefix, type.end);
+  if (index === null) return false;
+
+  property = propertyAt(prefix, index);
+  if (!property || property.key !== 'message') return false;
+  index = skipWhitespace(prefix, property.valueIndex);
+  if (prefix[index++] !== '{') return false;
+  const role = propertyAt(prefix, index);
+  if (!role || role.key !== 'role') return false;
+  const roleValue = scalarAt(prefix, role.valueIndex);
+  return roleValue?.value === 'user' && commaAt(prefix, roleValue.end) !== null;
 }
 
 function budgetReason(error) {
@@ -154,7 +339,7 @@ function parseClaudeFile(file, stat, fsImpl, shared) {
     if (!line.trim()) continue;
     if (++shared.lines > LIMITS.maxLines) throw budgetError('scan_budget_lines');
     if (Buffer.byteLength(line, 'utf8') > LIMITS.maxLineBytes) {
-      unsupported();
+      if (!explicitClaudeUserHeader(line)) unsupported();
       continue;
     }
     let raw;
@@ -174,9 +359,10 @@ function parseClaudeFile(file, stat, fsImpl, shared) {
   const parsed = {
     device: stat.dev, inode: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs,
     records, denominatorKnown, reasons: [...reasons],
+    estimatedBytes: 512 + records.reduce((total, record) => total + estimatedClaudeRecordBytes(record), 0),
   };
   replayDiagnostics(parsed);
-  claudeFileCache.set(file, parsed);
+  cacheClaudeParse(file, parsed, shared.cacheLimits);
   return records;
 }
 
@@ -184,6 +370,7 @@ export function scanClaudeUsage(sinceMs, {
   root = config.projectsDir,
   fsImpl = fs,
   nowFn = Date.now,
+  cacheLimits = null,
 } = {}) {
   const report = {
     complete: true, denominatorKnown: true, reasons: [], deduplicatedRecords: 0,
@@ -210,6 +397,7 @@ export function scanClaudeUsage(sinceMs, {
   const shared = {
     readBytes: 0, lines: 0, denominatorKnown: discovery.denominatorKnown,
     reasons: discovery.reasons, started: discovery.started, nowFn,
+    cacheLimits: claudeCacheLimits(cacheLimits),
   };
   const records = [];
   try {
@@ -238,7 +426,7 @@ export function scanClaudeUsage(sinceMs, {
     deduped.push(publicRecord);
   }
   for (const cachedPath of claudeFileCache.keys()) {
-    if (!discovery.discovered.has(cachedPath)) claudeFileCache.delete(cachedPath);
+    if (!discovery.discovered.has(cachedPath)) deleteClaudeCacheEntry(cachedPath);
   }
   deduped.sort((a, b) => a.tsMs - b.tsMs || a.model.localeCompare(b.model));
   report.denominatorKnown = shared.denominatorKnown;
@@ -253,6 +441,7 @@ export function scanCodexUsage(sinceMs, {
   sessionsDir = config.codexSessionsDir,
   fsImpl = fs,
   nowFn = Date.now,
+  maxRecords = LIMITS.maxRecords,
 } = {}) {
   const report = {
     complete: true, denominatorKnown: true, reasons: [], deduplicatedRecords: 0,
@@ -265,6 +454,7 @@ export function scanCodexUsage(sinceMs, {
     return { records: [], report: { ...report, complete: false, denominatorKnown: false, reasons: [error?.code === 'ENOENT' ? 'source_missing' : 'source_unreadable'] } };
   }
   try {
+    const resultRecordLimit = boundedPositive(maxRecords, LIMITS.maxRecords);
     const scan = scanCodexRollouts(sinceMs, {
       fs: fsImpl,
       sessionsDir,
@@ -275,19 +465,24 @@ export function scanCodexUsage(sinceMs, {
         maxDepth: LIMITS.maxDepth,
         maxEntries: LIMITS.maxEntries,
         maxFiles: LIMITS.maxFiles,
-        maxFileBytes: LIMITS.maxFileBytes,
+        maxFileBytes: LIMITS.maxCodexFileBytes,
         maxChangedBytesPerScan: LIMITS.maxReadBytes,
         maxEventsPerFile: LIMITS.maxLines,
         maxEventsPerScan: LIMITS.maxLines,
-        maxResultRecords: LIMITS.maxRecords,
+        maxResultRecords: resultRecordLimit,
+        maxCacheRecords: Math.min(resultRecordLimit, LIMITS.maxCodexCacheRecords),
         maxWallMs: LIMITS.maxWallMs,
       },
       nowFn,
     });
-    const records = usageRecordsFromScan(scan).map((record) => ({
+    const records = scan.usage.map((record) => ({
       tool: 'codex',
       tsMs: record.tsMs,
-      model: record.model,
+      // Older rollout formats can carry a valid token tuple without a model
+      // field. Keep those records in the known denominator under an explicit
+      // sentinel; exact-rate lookup will name them as unpriceable rather than
+      // pretending the usage itself was unreadable.
+      model: record.model || 'unknown',
       input: record.input,
       output: record.output,
       cacheRead: record.cached,
@@ -301,6 +496,7 @@ export function scanCodexUsage(sinceMs, {
       report.denominatorKnown = false;
       report.reasons.push(scan.scanIncomplete);
     }
+    report.scanDiagnostics = { ...scan.parseDiagnostics };
     if (report.fallbackIdentityRecords) {
       report.complete = false;
       report.reasons.push('dedupe_fallback');
@@ -322,7 +518,16 @@ export function buildUsageLedger(nowMs = Date.now(), options = {}) {
   const sinceMs = Number.isFinite(options.sinceMs) && options.sinceMs <= nowMs
     ? options.sinceMs : nowMs - 91 * 86_400_000;
   const claude = scanClaudeUsage(sinceMs, options.claude);
-  const codex = scanCodexUsage(sinceMs, options.codex);
+  const remainingRecords = LIMITS.maxRecords - claude.records.length;
+  const codex = remainingRecords > 0
+    ? scanCodexUsage(sinceMs, { ...options.codex, maxRecords: remainingRecords })
+    : {
+        records: [],
+        report: {
+          complete: false, denominatorKnown: false, reasons: ['scan_budget_records'],
+          deduplicatedRecords: 0, fallbackIdentityRecords: 0,
+        },
+      };
   return {
     generatedAt: new Date(nowMs).toISOString(),
     sinceMs,
@@ -334,7 +539,19 @@ export function buildUsageLedger(nowMs = Date.now(), options = {}) {
 
 export function clearUsageLedgerCaches() {
   claudeFileCache.clear();
+  claudeCacheRecords = 0;
+  claudeCacheEstimatedBytes = 0;
   clearCodexEventCache();
+}
+
+export function usageLedgerCacheStats() {
+  return Object.freeze({
+    claude: Object.freeze({
+      files: claudeFileCache.size,
+      records: claudeCacheRecords,
+      estimatedBytes: claudeCacheEstimatedBytes,
+    }),
+  });
 }
 
 export const usageLedgerLimits = LIMITS;

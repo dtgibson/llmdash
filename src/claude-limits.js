@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { config } from '../config.js';
 
+export const MODEL_LIMIT_RESETLESS_TTL_MS = 7 * 24 * 60 * 60_000;
+export const MODEL_LIMIT_CLOCK_SKEW_MS = 5 * 60_000;
+
 // Normalize a reset value (epoch seconds, epoch ms, or ISO string) to ISO-8601.
 export function toIso(v) {
   if (v == null) return null;
@@ -57,9 +60,17 @@ function normalizeModelLimit(raw, capturedAt) {
   };
 }
 
+function activeModelLimit(limit, nowMs) {
+  const resetMs = Date.parse(limit.resetsAt || '');
+  if (Number.isFinite(resetMs)) return resetMs > nowMs;
+  const capturedMs = Date.parse(limit.capturedAt || '');
+  return Number.isFinite(capturedMs) && capturedMs <= nowMs + MODEL_LIMIT_CLOCK_SKEW_MS
+    && nowMs - capturedMs < MODEL_LIMIT_RESETLESS_TTL_MS;
+}
+
 // Read the latest rate-limit reading captured by the Claude Code statusline
 // script (the sanctioned path). Returns null if nothing has been captured yet.
-export function readClaudeLimits() {
+export function readClaudeLimits(nowMs = Date.now()) {
   let raw;
   try {
     raw = fs.readFileSync(config.rateLimitsFile, 'utf8');
@@ -98,7 +109,8 @@ export function readClaudeLimits() {
   const modelLimits = (Array.isArray(parsed.model_limits) ? parsed.model_limits : Array.isArray(parsed.modelLimits) ? parsed.modelLimits : [])
     .slice(0, 128)
     .map((m) => normalizeModelLimit(m, capturedAt))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((limit) => activeModelLimit(limit, Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now()));
   if (Object.keys(windows).length === 0 && modelLimits.length === 0) return null;
   return { source: 'claude-code', capturedAt, windows, modelLimits };
 }

@@ -166,6 +166,9 @@ test('zero, sub-cent, unavailable, partial, and fixed diagnostics stay distinct'
   data.scopes.combined.summary.cacheEffect = effect(-9_999, 'partial', ['unknown_model']);
   data.scopes.combined.usageCoverage.denominatorKnown = false;
   data.scopes.combined.usageCoverage.comparableRecords = 3;
+  data.scopes.combined.usageCoverage.omissions = [{
+    tool: 'claude', model: 'claude-opus-5', reason: 'unknown_model', records: 81952, tokens: 19300000000,
+  }];
   const { els } = await browser(async () => ({ ok: true, json: async () => data }));
   const html = els['cost-surface'].innerHTML;
   assert.match(html, /\$0\.00/);
@@ -174,6 +177,7 @@ test('zero, sub-cent, unavailable, partial, and fixed diagnostics stay distinct'
   assert.match(html, />Unavailable</);
   assert.match(html, />partial</);
   assert.match(html, /model without an exact reviewed rate was excluded/);
+  assert.match(html, /Claude claude-opus-5: 81,952 records \/ 19,300,000,000 tokens omitted/);
   assert.doesNotMatch(html, /raw secret reason/);
 });
 
