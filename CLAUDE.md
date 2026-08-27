@@ -290,8 +290,11 @@
 - **Structured-log analytics are aggregate-only, capability-gated, bounded, and
   cache-served.** Raw content, paths, payloads, and identifiers may exist only as
   ephemeral parser keys; API records carry normalized aggregates and bounded
-  labels. A structurally valid timestamped observation proves support, an explicit
-  zero remains zero, and absent/malformed evidence remains unavailable. Scanners
+  labels. Any aggregate that caps detail retains exact overflow record/token totals
+  at that same scope; a combined view re-aggregates its inputs instead of truncating
+  child summaries, and high-cardinality tests cover multiple tools together. A
+  structurally valid timestamped observation proves support, an explicit zero
+  remains zero, and absent/malformed evidence remains unavailable. Scanners
   need finite traversal/byte/event/result/cache budgets and atomic last-good cache
   replacement; a missing root is authoritative empty while transient read failures
   retain the prior complete view. New local JSON/JSONL readers enforce bounds at
@@ -415,6 +418,10 @@
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
   (node:test).
+- **Usage-ingestion changes require a fresh-process current-corpus release check:**
+  run the bounded cold scan through convergence, then measure forced-GC cache and
+  heap occupancy against the explicit ceilings. Fixtures alone do not prove that
+  multi-gigabyte cold-start behavior remains bounded and complete.
 - **An installer/setup step must never dirty the tracked checkout.** Generate
   machine-specific artifacts (a wrapper that `exec`s an absolute node against the
   tracked plugin) *beside* the tracked source — never rewrite a tracked file in

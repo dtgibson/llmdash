@@ -1,5 +1,21 @@
 # Decisions — llmdash
 
+## LLM usage coverage gaps — retained cap evidence and convergent log coverage — 2026-08-27 (fix)
+
+**Bug:** Reset-less Fable caps disappeared on newer account-only captures, large
+or cold Codex logs fell outside analytics coverage, and generic evidence notes
+could not reconcile which recognized usage remained unpriced.
+**Cause:** The model-cap merge treated a missing reset as expiry, log ingestion
+used all-or-nothing file/cache paths, oversized rows were classified too broadly,
+and pricing plus bounded omission aggregation did not cover the observed corpus.
+**Resolution:** Reset-less model-cap evidence now retains its original observation
+for seven days; descriptor-validated streaming scans publish bounded partial data
+and converge without losing last-good parses; exact effective-dated rates never
+back-project; and bounded tool/combined omission rows retain exact overflow totals.
+**Implications:** Future usage-ingestion changes must preserve hard I/O and memory
+ceilings, prove cold current-corpus convergence, and reconcile every truncated
+aggregate at its own scope rather than trading bounded output for lost counts.
+
 ## Capacity-now health history — bounded host-scoped evidence — 2026-08-12
 
 **Decision:** The dashboard's canonical first read is account quota and allowances,

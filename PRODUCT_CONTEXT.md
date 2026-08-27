@@ -20,7 +20,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   owner-confirmed subscription spend with exact-model, effective-dated
   API-equivalent values for the same retained Claude/Codex usage under observed
   and no-cache pricing, with signed cache effect, reconciled histories,
-  provenance, and explicit evidence completeness for this machine.
+  provenance, bounded scan-progress diagnostics, and exact model/reason counts for
+  recognized usage that cannot be priced on this machine.
 - **Reset and billing settings** — an owner can save a daylight-saving-aware
   Claude weekly fallback, maintain automatically recurring monthly Claude/Codex
   access-cost history, and view or download every fixed billing input over the
@@ -97,8 +98,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   advancing activity can retry at the normal cadence, and startup/shutdown clean
   only marker-owned probe remnants. The `/usage` scrape can also add model-specific
   caps, and account-only statusline captures preserve those active model caps until
-  reset instead of deleting them. Activity stats are computed on demand from
-  `~/.claude/projects/**/*.jsonl`.
+  their explicit reset, or for seven days from the original capture when the
+  provider omits reset timing, without restamping the evidence. Activity stats are
+  computed on demand from `~/.claude/projects/**/*.jsonl`.
 - Codex limits, reset-credit entitlements, and account facts come from `codex
   app-server` (polled on the interval, not per request) with a rollout-file
   fallback; explicit duration identifies each current window, a complete response
@@ -117,7 +119,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   descriptor-validated and streamed line by line; a cold cache publishes bounded
   newest-first evidence and converges across later poller passes without replacing
   the last complete parse of a file that grows mid-read. Claude pricing preserves
-  the observed 5-minute and 1-hour cache-write channels separately.
+  the observed 5-minute and 1-hour cache-write channels separately. Coverage notes
+  retain exact omitted record/token totals in bounded per-tool and combined rows.
 - Reset and recurring-plan configuration lives in a strict versioned
   `account-config.json`; the focused `/settings` page writes it atomically through
   one trusted-authority, same-origin, CSRF- and ETag-protected route, while legacy
