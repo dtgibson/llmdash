@@ -197,6 +197,7 @@ test('tracked rate card validates and includes reviewed provider provenance', ()
     'openai-gpt-5-5-launch-2026-04-23',
     'openai-gpt-5-6-sol-preview-2026-06-26',
     'openai-gpt-5-6-sol-promo-2026-08-27',
+    'openai-gpt-5-6-terra-luna-pricing-2026-07-30',
   ]);
   const current = Date.parse('2026-08-27T12:00:00.000Z');
   assert.ok(findRate(parsed, 'claude', 'claude-fable-5', current));
@@ -217,5 +218,17 @@ test('tracked rate card validates and includes reviewed provider provenance', ()
   assert.equal(findRate(parsed, 'codex', 'gpt-5.3-codex', Date.parse('2026-02-04T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.5', Date.parse('2026-04-22T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.6-sol', Date.parse('2026-06-25T23:59:59.999Z')), null);
+  const terra = findRate(parsed, 'codex', 'gpt-5.6-terra', current);
+  assert.equal(ratesForInput(terra, 272000).input, 2_000_000n);
+  assert.equal(ratesForInput(terra, 272000).cacheRead, 200_000n);
+  assert.equal(ratesForInput(terra, 272001).input, 4_000_000n);
+  assert.equal(ratesForInput(terra, 272001).output, 18_000_000n);
+  const luna = findRate(parsed, 'codex', 'gpt-5.6-luna', current);
+  assert.equal(ratesForInput(luna, 272000).input, 200_000n);
+  assert.equal(ratesForInput(luna, 272000).cacheRead, 20_000n);
+  assert.equal(ratesForInput(luna, 272001).input, 400_000n);
+  assert.equal(ratesForInput(luna, 272001).output, 1_800_000n);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.6-terra', Date.parse('2026-07-29T23:59:59.999Z')), null);
+  assert.equal(findRate(parsed, 'codex', 'gpt-5.6-luna', Date.parse('2026-07-29T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.5-codex', current), null);
 });

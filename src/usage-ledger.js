@@ -483,6 +483,7 @@ export function scanCodexUsage(sinceMs, {
       // sentinel; exact-rate lookup will name them as unpriceable rather than
       // pretending the usage itself was unreadable.
       model: record.model || 'unknown',
+      modelSource: record.modelSource || 'unknown',
       input: record.input,
       output: record.output,
       cacheRead: record.cached,

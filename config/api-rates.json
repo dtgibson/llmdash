@@ -47,6 +47,11 @@
       "id": "openai-gpt-5-6-sol-promo-2026-08-27",
       "label": "OpenAI GPT-5.6 Sol model documentation and promotional pricing",
       "publishedAt": "2026-08-27T00:00:00.000Z"
+    },
+    {
+      "id": "openai-gpt-5-6-terra-luna-pricing-2026-07-30",
+      "label": "OpenAI GPT-5.6 Terra and Luna pricing and July 2026 changelog",
+      "publishedAt": "2026-07-30T00:00:00.000Z"
     }
   ],
   "rates": [
@@ -159,6 +164,34 @@
         {
           "aboveInputTokens": 272000,
           "usdPerMillionTokens": { "input": "8.00", "output": "30.00", "cacheRead": "0.80" }
+        }
+      ]
+    },
+    {
+      "tool": "codex",
+      "model": "gpt-5.6-terra",
+      "effectiveFrom": "2026-07-30T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "openai-gpt-5-6-terra-luna-pricing-2026-07-30",
+      "usdPerMillionTokens": { "input": "2.00", "output": "12.00", "cacheRead": "0.20" },
+      "inputTokenTiers": [
+        {
+          "aboveInputTokens": 272000,
+          "usdPerMillionTokens": { "input": "4.00", "output": "18.00", "cacheRead": "0.40" }
+        }
+      ]
+    },
+    {
+      "tool": "codex",
+      "model": "gpt-5.6-luna",
+      "effectiveFrom": "2026-07-30T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "openai-gpt-5-6-terra-luna-pricing-2026-07-30",
+      "usdPerMillionTokens": { "input": "0.20", "output": "1.20", "cacheRead": "0.02" },
+      "inputTokenTiers": [
+        {
+          "aboveInputTokens": 272000,
+          "usdPerMillionTokens": { "input": "0.40", "output": "1.80", "cacheRead": "0.04" }
         }
       ]
     }

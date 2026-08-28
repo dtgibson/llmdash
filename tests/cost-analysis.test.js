@@ -107,6 +107,28 @@ test('Codex long-context pricing applies only above the exact input threshold', 
   assert.deepEqual(long.provenance.pricing.effectiveRates[0].inputTokenThresholds, [272000]);
 });
 
+test('session-inferred Codex models remain comparable and expose exact estimate totals', () => {
+  const payload = buildCostAnalysis({
+    nowMs: NOW, timeZone: 'UTC', range: '7d',
+    ledger: ledger([
+      { tool: 'codex', tsMs: NOW - 2, model: 'gpt-test', modelSource: 'session-inferred', input: 100, output: 20, cacheWrite: 0, cacheRead: 40 },
+      { tool: 'codex', tsMs: NOW - 1, model: 'gpt-test', modelSource: 'explicit', input: 50, output: 10, cacheWrite: 0, cacheRead: 20 },
+    ]),
+    subscriptions: subscriptions(), rateCard: rateCard([codexRate()]),
+  });
+  const codex = payload.scopes.codex.usageCoverage;
+  assert.equal(codex.recognizedRecords, 2);
+  assert.equal(codex.comparableRecords, 2);
+  assert.equal(codex.inferredModelRecords, 1);
+  assert.equal(codex.inferredModelTokens, 120);
+  assert.equal(codex.status, 'complete');
+  assert.deepEqual(codex.omissions, []);
+  assert.equal(payload.scopes.claude.usageCoverage.inferredModelRecords, 0);
+  assert.equal(payload.scopes.combined.usageCoverage.inferredModelRecords, 1);
+  assert.equal(payload.scopes.combined.usageCoverage.inferredModelTokens, 120);
+  assert.equal(payload.scopes.combined.usageCoverage.comparableRecords, 2);
+});
+
 test('zero-token records need no rate and remain comparable complete zero', () => {
   const payload = buildCostAnalysis({
     nowMs: NOW, timeZone: 'UTC', range: '7d',

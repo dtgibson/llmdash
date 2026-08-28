@@ -1973,6 +1973,7 @@ const COST_REASON_COPY = Object.freeze({
   token_record_invalid: 'Usage with an invalid token tuple was excluded.',
   source_missing: 'A local usage root is not present.',
   source_unreadable: 'A local usage root could not be read.',
+  active_rollout_pending: 'An active Codex rollout is still changing. It will be retried while the last complete evidence remains visible.',
   source_traversal_error: 'Part of a local usage tree could not be traversed.',
   file_too_large: 'An oversized local usage file was omitted.',
   record_unsupported: 'An unsupported local usage record was omitted.',
@@ -2140,7 +2141,11 @@ function coverageCopy(scope, toolLabel) {
   const records = `${Number(coverage.comparableRecords || 0).toLocaleString()} of ${Number(coverage.recognizedRecords || 0).toLocaleString()} recognized records`;
   const tokens = `${Number(coverage.comparableTokens || 0).toLocaleString()} of ${Number(coverage.recognizedTokens || 0).toLocaleString()} recognized tokens`;
   const included = `${records} and ${tokens} were comparable`;
-  return coverage.denominatorKnown ? `${included}.` : `${included}; additional ${toolLabel} usage may be omitted.`;
+  const inferredRecords = Number.isSafeInteger(coverage.inferredModelRecords) && coverage.inferredModelRecords > 0
+    ? coverage.inferredModelRecords : 0;
+  const inferred = inferredRecords
+    ? ` ${inferredRecords.toLocaleString()} ${toolLabel} record${inferredRecords === 1 ? '' : 's'} use session-level model estimates.` : '';
+  return (coverage.denominatorKnown ? `${included}.` : `${included}; additional ${toolLabel} usage may be omitted.`) + inferred;
 }
 
 function costOmissionCopy(row) {
@@ -2164,7 +2169,15 @@ function costDiagnosticsHtml(data) {
     .slice(0, 64).map(costOmissionCopy).filter(Boolean);
   const detailedReasons = new Set((data.scopes?.combined?.usageCoverage?.omissions || [])
     .map((row) => row && row.reason).filter((reason) => typeof reason === 'string'));
-  const notes = omissions.concat(reasons.filter((reason) => !detailedReasons.has(reason)).map((reason) =>
+  const codexCoverage = data.scopes?.codex?.usageCoverage;
+  const inferredRecords = Number.isSafeInteger(codexCoverage?.inferredModelRecords)
+    && codexCoverage.inferredModelRecords > 0 ? codexCoverage.inferredModelRecords : 0;
+  const inferredTokens = Number.isSafeInteger(codexCoverage?.inferredModelTokens)
+    && codexCoverage.inferredModelTokens >= 0 ? codexCoverage.inferredModelTokens : 0;
+  const estimate = inferredRecords
+    ? [`Codex: ${inferredRecords.toLocaleString()} record${inferredRecords === 1 ? '' : 's'} / ${inferredTokens.toLocaleString()} tokens use the session’s sole explicit model as a personal estimate.`]
+    : [];
+  const notes = estimate.concat(omissions, reasons.filter((reason) => !detailedReasons.has(reason)).map((reason) =>
     Object.hasOwn(COST_REASON_COPY, reason) ? COST_REASON_COPY[reason] : 'Some evidence could not be included.'));
   if (!notes.length) return '';
   return `<div class="cost-diagnostics" role="note"><strong>Evidence notes</strong><ul>`

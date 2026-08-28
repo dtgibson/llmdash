@@ -147,7 +147,7 @@ export function normalizeCodexModelLabel(value) {
   const gpt = model.match(/^(gpt-\d{1,2}(?:\.\d{1,2}){0,2})(?:-(.+))?$/);
   if (gpt) {
     const suffix = gpt[2];
-    if (!suffix || /^(?:codex(?:-(?:mini|max|spark))?|mini|nano|pro|turbo|sol|instant|thinking|chat-latest|\d{4}-\d{2}-\d{2})$/.test(suffix)) return model;
+    if (!suffix || /^(?:codex(?:-(?:mini|max|spark))?|mini|nano|pro|turbo|sol|terra|luna|instant|thinking|chat-latest|\d{4}-\d{2}-\d{2})$/.test(suffix)) return model;
     return gpt[1];
   }
   if (/^o[1-9](?:-(?:mini|pro|preview))?$/.test(model)) return model;
@@ -246,6 +246,8 @@ function blankResult() {
       invalidTokenRecords: 0,
       invalidTimestampRecords: 0,
       missingModelRecords: 0,
+      inferredModelRecords: 0,
+      inferredModelTokens: 0,
     },
   };
 }
@@ -307,6 +309,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   let lastFallbackFingerprint = null;
   let eventsSeen = 0;
   let acceptedRecords = 0;
+  const explicitSessionModels = new Set();
   const unsupported = (reason, key) => {
     if (!usageOnly) return;
     result.parseIncomplete ||= reason;
@@ -440,6 +443,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
         activeTurn = explicitTurn;
       }
       const model = normalizeCodexModelLabel(payload.model ?? event.model);
+      if (model && model !== 'Other') explicitSessionModels.add(model);
       const effort = normalizeEffort(payload.effort ?? event.effort);
       const contextWindow = safeInteger(payload.model_context_window ?? event.model_context_window, { positive: true });
       if (contextWindow !== null) result.capabilities.context = true;
@@ -577,9 +581,30 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
       record.contextWindow = context?.contextWindow ?? sessionContextWindow;
     }
   }
-  if (usageOnly && result.usage.some((record) => record.model === null)) {
-    result.parseDiagnostics.missingModelRecords = result.usage
-      .filter((record) => record.model === null).length;
+  if (usageOnly) {
+    const inferredModel = explicitSessionModels.size === 1
+      ? explicitSessionModels.values().next().value : null;
+    for (const record of result.usage) {
+      if (record.model !== null) {
+        record.modelSource = 'explicit';
+        continue;
+      }
+      if (inferredModel) {
+        record.model = inferredModel;
+        record.modelSource = 'session-inferred';
+        result.parseDiagnostics.inferredModelRecords = safeAdd(
+          result.parseDiagnostics.inferredModelRecords, 1,
+        );
+        result.parseDiagnostics.inferredModelTokens = safeAdd(
+          result.parseDiagnostics.inferredModelTokens, record.total,
+        );
+        continue;
+      }
+      record.modelSource = 'unknown';
+      result.parseDiagnostics.missingModelRecords = safeAdd(
+        result.parseDiagnostics.missingModelRecords, 1,
+      );
+    }
   }
   result.capabilities.latency = result.completions.some((record) => record.durationMs !== null || record.firstTokenMs !== null);
   result.compactions = usageOnly ? [] : (sawCanonicalCompaction ? canonicalCompactions : fallbackCompactions);
@@ -834,7 +859,8 @@ export function scanCodexRollouts(sinceMs, options = {}) {
         if (isBoundedFileError(error, 'BOUNDED_FILE_TOO_LARGE')) {
           throw scanBudgetError('scan_budget_file_bytes');
         }
-        result.scanIncomplete ||= 'source_unreadable';
+        result.scanIncomplete ||= isBoundedFileError(error, 'BOUNDED_FILE_CHANGED')
+          ? 'active_rollout_pending' : 'source_unreadable';
         // A prior complete parse is safer than dropping the whole refresh. With
         // no prior value, skip only this file and keep every readable session.
         if (parsed) {
@@ -877,7 +903,9 @@ export function scanCodexRollouts(sinceMs, options = {}) {
       }
       if (isBoundedFileError(error, 'BOUNDED_FILE_CHANGED', 'BOUNDED_FILE_INVALID', 'BOUNDED_FILE_TOO_LARGE')) {
         result.scanIncomplete ||= error.code === 'BOUNDED_FILE_TOO_LARGE'
-          ? 'scan_budget_file_bytes' : 'source_unreadable';
+          ? 'scan_budget_file_bytes'
+          : error.code === 'BOUNDED_FILE_CHANGED'
+            ? 'active_rollout_pending' : 'source_unreadable';
         // The active rollout can append while its descriptor is being read.
         // Retain the prior complete parse when one exists; a cold changing file
         // is skipped independently and retried from fresh stat evidence on the

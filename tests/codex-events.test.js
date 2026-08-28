@@ -116,12 +116,51 @@ test('model display labels use known grammar and cannot smuggle a family-prefixe
     token(at(4), { input_tokens: 1, output_tokens: 1 }, null, { turn_id: 'b' }),
     line(at(5), 'turn_context', { turn_id: 'c', model: rejected }),
     token(at(6), { input_tokens: 1, output_tokens: 1 }, null, { turn_id: 'c' }),
+    line(at(7), 'turn_context', { turn_id: 'd', model: 'gpt-5.6-terra' }),
+    token(at(8), { input_tokens: 1, output_tokens: 1 }, null, { turn_id: 'd' }),
+    line(at(9), 'turn_context', { turn_id: 'e', model: 'gpt-5.6-luna' }),
+    token(at(10), { input_tokens: 1, output_tokens: 1 }, null, { turn_id: 'e' }),
   ], 'model-bounds');
   assert.equal(scan.usage[0].model, accepted);
   assert.equal(scan.usage[1].model, 'gpt-5');
   assert.equal(scan.usage[2].model, 'Other');
+  assert.equal(scan.usage[3].model, 'gpt-5.6-terra');
+  assert.equal(scan.usage[4].model, 'gpt-5.6-luna');
   assert.doesNotMatch(JSON.stringify(scan), /private-project-codename/);
   assert.ok(scan.usage.every((row) => row.model.length <= 48));
+});
+
+test('usage-only scans infer missing models only from one unambiguous explicit session model', () => {
+  const inferred = scanCodexSession([
+    token(at(1), { input_tokens: 10, output_tokens: 2 }),
+    line(at(2), 'turn_context', { turn_id: 'terra-turn', model: 'gpt-5.6-terra' }),
+    token(at(3), { input_tokens: 6, output_tokens: 1 }, null, { turn_id: 'terra-turn' }),
+  ], 'one-model', { usageOnly: true });
+  assert.deepEqual(inferred.usage.map((row) => [row.model, row.modelSource]), [
+    ['gpt-5.6-terra', 'session-inferred'],
+    ['gpt-5.6-terra', 'explicit'],
+  ]);
+  assert.equal(inferred.parseDiagnostics.inferredModelRecords, 1);
+  assert.equal(inferred.parseDiagnostics.inferredModelTokens, 12);
+  assert.equal(inferred.parseDiagnostics.missingModelRecords, 0);
+
+  const ambiguous = scanCodexSession([
+    token(at(1), { input_tokens: 4, output_tokens: 1 }),
+    line(at(2), 'turn_context', { turn_id: 'sol-turn', model: 'gpt-5.6-sol' }),
+    line(at(3), 'turn_context', { turn_id: 'luna-turn', model: 'gpt-5.6-luna' }),
+  ], 'two-models', { usageOnly: true });
+  assert.equal(ambiguous.usage[0].model, null);
+  assert.equal(ambiguous.usage[0].modelSource, 'unknown');
+  assert.equal(ambiguous.parseDiagnostics.inferredModelRecords, 0);
+  assert.equal(ambiguous.parseDiagnostics.inferredModelTokens, 0);
+  assert.equal(ambiguous.parseDiagnostics.missingModelRecords, 1);
+
+  const absent = scanCodexSession([
+    token(at(1), { input_tokens: 3, output_tokens: 1 }),
+  ], 'no-models', { usageOnly: true });
+  assert.equal(absent.usage[0].model, null);
+  assert.equal(absent.usage[0].modelSource, 'unknown');
+  assert.equal(absent.parseDiagnostics.missingModelRecords, 1);
 });
 
 test('rejects numeric timestamps outside the JavaScript Date range', () => {
@@ -429,7 +468,7 @@ test('a rollout that grows during descriptor streaming retains its last complete
     growOnRead = true;
     const retained = scanCodexRollouts(Date.parse(at(0)), options);
     assert.equal(grew, true);
-    assert.equal(retained.scanIncomplete, 'source_unreadable');
+    assert.equal(retained.scanIncomplete, 'active_rollout_pending');
     assert.deepEqual(retained.usage.map((row) => row.tsMs), [Date.parse(at(1))],
       'descriptor growth cannot replace the last complete cache entry');
 

@@ -44,7 +44,7 @@ function scope(multiplier = 1) {
   }));
   return {
     summary,
-    usageCoverage: { status: 'complete', denominatorKnown: true, recognizedRecords: 12, comparableRecords: 12, recognizedTokens: 1000, comparableTokens: 1000, recordRatio: 1, tokenRatio: 1, deduplicatedRecords: 2, fallbackIdentityRecords: 0, reasons: [] },
+    usageCoverage: { status: 'complete', denominatorKnown: true, recognizedRecords: 12, comparableRecords: 12, recognizedTokens: 1000, comparableTokens: 1000, recordRatio: 1, tokenRatio: 1, deduplicatedRecords: 2, fallbackIdentityRecords: 0, inferredModelRecords: 0, inferredModelTokens: 0, reasons: [] },
     subscriptionCoverage: { status: 'complete', coveredMs: 100, requiredMs: 100, ratio: 1, gapCount: 0, gaps: [] },
     daily: [], cumulative: points,
   };
@@ -179,6 +179,22 @@ test('zero, sub-cent, unavailable, partial, and fixed diagnostics stay distinct'
   assert.match(html, /model without an exact reviewed rate was excluded/);
   assert.match(html, /Claude claude-opus-5: 81,952 records \/ 19,300,000,000 tokens omitted/);
   assert.doesNotMatch(html, /raw secret reason/);
+});
+
+test('session-inferred Codex usage and active-rollout retries are labeled precisely', async () => {
+  const data = payload();
+  data.scopes.codex.usageCoverage.inferredModelRecords = 91;
+  data.scopes.codex.usageCoverage.inferredModelTokens = 8_269_043_843;
+  data.scopes.combined.usageCoverage.inferredModelRecords = 91;
+  data.scopes.combined.usageCoverage.inferredModelTokens = 8_269_043_843;
+  data.scopes.combined.summary.observedCache = metric(20_000_000, 'partial', ['active_rollout_pending']);
+  const { els } = await browser(async () => ({ ok: true, json: async () => data }));
+  const html = els['cost-surface'].innerHTML;
+  assert.match(html, /91 Codex records use session-level model estimates/);
+  assert.match(html, /Codex: 91 records \/ 8,269,043,843 tokens use the session’s sole explicit model as a personal estimate/);
+  assert.match(html, /active Codex rollout is still changing/);
+  assert.match(html, /last complete evidence remains visible/);
+  assert.doesNotMatch(html, /usage root could not be read/);
 });
 
 test('a signed sub-micro cache effect keeps its raw sign visible', async () => {

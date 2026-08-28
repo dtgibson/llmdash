@@ -285,10 +285,32 @@ test('Codex valid usage without model context stays in the known denominator as 
   const out = scanCodexUsage(0, { sessionsDir: root });
   assert.equal(out.records.length, 1);
   assert.equal(out.records[0].model, 'unknown');
+  assert.equal(out.records[0].modelSource, 'unknown');
   assert.equal(out.report.denominatorKnown, true);
   assert.deepEqual(out.report.reasons, []);
   assert.equal(out.report.scanDiagnostics.missingModelRecords, 1);
+  assert.equal(out.report.scanDiagnostics.inferredModelRecords, 0);
+  assert.equal(out.report.scanDiagnostics.inferredModelTokens, 0);
   assert.equal(out.report.scanDiagnostics.invalidTokenRecords, 0);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('Codex ledger marks missing-model usage inferred from the session sole explicit model', () => {
+  clearUsageLedgerCaches();
+  const root = tempDir();
+  fs.writeFileSync(path.join(root, 'rollout-model-inferred.jsonl'), [
+    { timestamp: '2026-07-30T12:00:00.000Z', type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2 } } } },
+    { timestamp: '2026-07-30T12:00:01.000Z', type: 'turn_context', payload: { turn_id: 'turn-sol', model: 'gpt-5.6-sol' } },
+    { timestamp: '2026-07-30T12:00:02.000Z', type: 'event_msg', payload: { type: 'token_count', turn_id: 'turn-sol', info: { last_token_usage: { input_tokens: 5, cached_input_tokens: 2, output_tokens: 1 } } } },
+  ].map(JSON.stringify).join('\n'));
+  const out = scanCodexUsage(0, { sessionsDir: root });
+  assert.deepEqual(out.records.map((row) => [row.model, row.modelSource]), [
+    ['gpt-5.6-sol', 'session-inferred'],
+    ['gpt-5.6-sol', 'explicit'],
+  ]);
+  assert.equal(out.report.scanDiagnostics.inferredModelRecords, 1);
+  assert.equal(out.report.scanDiagnostics.inferredModelTokens, 12);
+  assert.equal(out.report.scanDiagnostics.missingModelRecords, 0);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

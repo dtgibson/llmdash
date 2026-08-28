@@ -228,6 +228,8 @@ function apiForTool(tool, range, ledger, card) {
   let comparableRecords = 0;
   let recognizedTokens = 0;
   let comparableTokens = 0;
+  let inferredModelRecords = 0;
+  let inferredModelTokens = 0;
   let observedPicos = 0n;
   let noCachePicos = 0n;
   const dailyObserved = range.buckets.map(() => 0n);
@@ -264,6 +266,10 @@ function apiForTool(tool, range, ledger, card) {
       : safeCountAdd(record.input, record.output);
     recognizedRecords = safeCountAdd(recognizedRecords, 1);
     recognizedTokens = safeCountAdd(recognizedTokens, tokenCount);
+    if (tool === 'codex' && record.modelSource === 'session-inferred') {
+      inferredModelRecords = safeCountAdd(inferredModelRecords, 1);
+      inferredModelTokens = safeCountAdd(inferredModelTokens, tokenCount);
+    }
     if (tool === 'codex' && record.cacheRead > record.input) {
       reasons.add('token_record_invalid');
       noteOmission('token_record_invalid', record, tokenCount);
@@ -342,6 +348,8 @@ function apiForTool(tool, range, ledger, card) {
       tokenRatio: denominatorKnown && recognizedTokens > 0 ? comparableTokens / recognizedTokens : null,
       deduplicatedRecords: Number(scan.deduplicatedRecords) || 0,
       fallbackIdentityRecords: Number(scan.fallbackIdentityRecords) || 0,
+      inferredModelRecords,
+      inferredModelTokens,
       reasons: finalReasons,
       omissions: [...omissions.values(), ...omissionOverflow.values()]
         .sort(omissionOrder),
@@ -533,6 +541,8 @@ function combineCoverage(left, right) {
     tokenRatio: denominatorKnown && recognizedTokens > 0 ? comparableTokens / recognizedTokens : null,
     deduplicatedRecords: safeCountAdd(left.deduplicatedRecords, right.deduplicatedRecords),
     fallbackIdentityRecords: safeCountAdd(left.fallbackIdentityRecords, right.fallbackIdentityRecords),
+    inferredModelRecords: safeCountAdd(left.inferredModelRecords || 0, right.inferredModelRecords || 0),
+    inferredModelTokens: safeCountAdd(left.inferredModelTokens || 0, right.inferredModelTokens || 0),
     reasons: sortedReasons(left.reasons, right.reasons),
     omissions: combineOmissions(left.omissions, right.omissions),
   };
@@ -648,6 +658,7 @@ function coldScope() {
       status: 'unavailable', denominatorKnown: false, recognizedRecords: 0, comparableRecords: 0,
       recognizedTokens: 0, comparableTokens: 0, recordRatio: null, tokenRatio: null,
       deduplicatedRecords: 0, fallbackIdentityRecords: 0, reasons: ['cache_cold'],
+      inferredModelRecords: 0, inferredModelTokens: 0,
       omissions: [],
     },
     subscriptionCoverage: { status: 'unavailable', coveredMs: 0, requiredMs: 0, ratio: null, gapCount: 0, gaps: [] },
