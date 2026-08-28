@@ -281,7 +281,10 @@
   fallback or pre-launch back-projection), price one shared comparison record set,
   and use fixed-point aggregation before one canonical display rounding. Keep
   configured spend, estimated API value, and signed cache effect distinct; never
-  relabel them as invoices, charges, or generic savings.
+  relabel them as invoices, charges, or generic savings. A model-less usage record
+  may inherit a model only from its complete session, only when that session has
+  exactly one non-`Other` explicit normalized model; carry the inference as
+  provenance and disclose exact inferred record/token totals as an estimate.
 - **Recurring access-cost history is append-only and effective-dated.** Expand an
   owner-confirmed monthly plan in memory from its preserved billing anchor (days
   29–31 clamp without drifting), close prior records at validated boundaries, and

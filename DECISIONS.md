@@ -1,5 +1,23 @@
 # Decisions — llmdash
 
+## Codex model-token attribution — exact future pricing and conservative historical estimates — 2026-08-27 (fix)
+
+**Bug:** Terra usage was collapsing to a generic GPT-5.6 label, historical
+model-less Codex records stayed unpriced even when their session identified one
+model, and a growing rollout could be described as unreadable.
+**Cause:** The normalized model grammar did not include Terra/Luna, usage records
+carried no attribution provenance, and descriptor growth shared the same public
+diagnostic as a real read failure.
+**Resolution:** Terra and Luna now keep exact labels and reviewed July 30 pricing;
+a model-less record uses the complete session's model only when exactly one
+non-`Other` explicit normalized model exists, with exact record/token totals
+labeled as a personal estimate; active rollouts retain last-good evidence under a
+retry-pending state.
+**Implications:** Forward Codex valuation uses exact observed model IDs. Historical
+attribution is deliberately best-effort and visible, while zero-model,
+multi-model, pre-effective-date, and `Other` records remain unpriced rather than
+receiving a convenient guess.
+
 ## LLM usage coverage gaps — retained cap evidence and convergent log coverage — 2026-08-27 (fix)
 
 **Bug:** Reset-less Fable caps disappeared on newer account-only captures, large

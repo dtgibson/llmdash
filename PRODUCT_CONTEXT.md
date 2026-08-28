@@ -20,8 +20,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   owner-confirmed subscription spend with exact-model, effective-dated
   API-equivalent values for the same retained Claude/Codex usage under observed
   and no-cache pricing, with signed cache effect, reconciled histories,
-  provenance, bounded scan-progress diagnostics, and exact model/reason counts for
-  recognized usage that cannot be priced on this machine.
+  provenance, conservative session-level estimates for model-less Codex history,
+  bounded scan-progress diagnostics, and exact counts for estimated or recognized
+  usage that cannot be priced on this machine.
 - **Reset and billing settings** — an owner can save a daylight-saving-aware
   Claude weekly fallback, maintain automatically recurring monthly Claude/Codex
   access-cost history, and view or download every fixed billing input over the
@@ -119,8 +120,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   descriptor-validated and streamed line by line; a cold cache publishes bounded
   newest-first evidence and converges across later poller passes without replacing
   the last complete parse of a file that grows mid-read. Claude pricing preserves
-  the observed 5-minute and 1-hour cache-write channels separately. Coverage notes
-  retain exact omitted record/token totals in bounded per-tool and combined rows.
+  the observed 5-minute and 1-hour cache-write channels separately. A model-less
+  Codex record inherits a model only when its complete session has one explicit
+  non-`Other` model, and coverage notes retain exact estimated and omitted
+  record/token totals in bounded per-tool and combined rows.
 - Reset and recurring-plan configuration lives in a strict versioned
   `account-config.json`; the focused `/settings` page writes it atomically through
   one trusted-authority, same-origin, CSRF- and ETag-protected route, while legacy
@@ -186,7 +189,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - **Configured subscription spend** is fixed access cost supplied by the owner;
   **API-equivalent values** are counterfactual estimates from retained local logs,
   not invoices or provider charges, and any missing source/rate coverage remains
-  visibly partial or unavailable.
+  visibly partial or unavailable. Session-inferred Codex history is labeled as a
+  personal estimate and reconciled to exact record and token totals.
 - A gauge with no reading yet names the cause and the remedy (statusline not
   reporting yet, codex command not runnable) instead of silent dashes, and the
   startup log prints a data-source health readout naming anything missing.
