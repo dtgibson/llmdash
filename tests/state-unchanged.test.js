@@ -79,7 +79,14 @@ test('the Claude freshness object still carries the server-supplied thresholds u
   const claude = s.tools.find((t) => t.source === 'claude-code');
   assert.deepEqual(Object.keys(claude.freshness).sort(), ['capturedAt', 'freshForMs', 'staleAfterMs']);
   const codex = s.tools.find((t) => t.source === 'codex');
-  assert.equal(codex.freshness, null); // Codex is still no-band
+  // RATIFIED CHANGE (tailnet-bind-and-reporting-resilience, FM-X2): Codex now
+  // carries the SAME freshness shape, with poll-derived thresholds (fresh
+  // through 2 polls, stale past 5) so the existing aging/stale pill applies.
+  // The key set is the Claude key set — no new field, no renamed field.
+  assert.deepEqual(Object.keys(codex.freshness).sort(), ['capturedAt', 'freshForMs', 'staleAfterMs']);
+  assert.equal(codex.freshness.capturedAt, null); // no Codex reading in this sandbox — never fabricated
+  assert.equal(codex.freshness.freshForMs, 2 * 60_000);
+  assert.equal(codex.freshness.staleAfterMs, 5 * 60_000);
 });
 
 test('model-specific limits are explicit supplemental tool data', () => {

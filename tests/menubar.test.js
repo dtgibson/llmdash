@@ -502,3 +502,75 @@ test('emit: a hostile LLMDASH_BADGE_HOST cannot inject its own action or an extr
     assert.doesNotMatch(params, /\bparam\d+=/);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tailnet-bind-and-reporting-resilience (Part 2, badge surfaces)
+
+test('windowRowLine: a reset that already passed renders "—", never "resets now" forever (FM-X5); fmtDur untouched', () => {
+  const past = new Date(Date.now() - 90_000).toISOString();
+  assert.equal(
+    windowRowLine({ label: '5-hour', remaining: 72, resetsAt: past, maxed: false }),
+    '  5-hour:  72% · resets — | font=Menlo size=12 color=#17783c bash=/usr/bin/true terminal=false refresh=false',
+  );
+  assert.match(windowRowLine({ label: 'Weekly', remaining: 0, resetsAt: past, maxed: true }), /Weekly: {2}limit reached · resets — \|/);
+  const future = new Date(Date.now() + 90 * 60_000).toISOString();
+  assert.match(windowRowLine({ label: '5-hour', remaining: 72, resetsAt: future, maxed: false }), /resets 1h (29|30)m \|/);
+  // The parity-guarded helper is verbatim: ≤0 is still "now" INSIDE fmtDur.
+  assert.equal(fmtDur(0), 'now');
+  assert.equal(fmtDur(-5000), 'now');
+});
+
+test('diagLine: model-cap-expired and window-not-reported are mapped, sanitized, own-key, never raw', () => {
+  const eleven = new Date(Date.now() - 11 * 3600_000).toISOString();
+  const cap = diagLine({ reason: 'model-cap-expired', model: 'fable | bash=rm -rf /', lastCapturedAt: eleven, cause: 'parse-failed' });
+  assert.match(cap, /^The fable\s+bash=rm -rf \/ model cap is no longer current \(last observed 11h 0m ago\) — no newer cap reading has arrived; the \/usage screen couldn’t be read/);
+  assert.doesNotMatch(cap, /\|/, 'the | is neutralized so the model slug cannot open a SwiftBar param');
+  assert.match(cap, /the account windows above stay current\.$/);
+  // No cause / unknown or inherited-key cause → no fragment (never the raw code).
+  const plain = diagLine({ reason: 'model-cap-expired', model: 'fable', lastCapturedAt: eleven });
+  assert.match(plain, /no newer cap reading has arrived; the account windows above stay current\./);
+  for (const cause of ['constructor', '__proto__', 'hasOwnProperty', 'brand-new-cause']) {
+    assert.equal(diagLine({ reason: 'model-cap-expired', model: 'fable', lastCapturedAt: eleven, cause }), plain, cause);
+  }
+  // Missing / unparseable observation time → no fabricated age.
+  assert.match(diagLine({ reason: 'model-cap-expired', model: 'fable', lastCapturedAt: 'garbage' }), /^The fable model cap is no longer current — /);
+  assert.match(diagLine({ reason: 'model-cap-expired' }), /^The model model cap is no longer current — /);
+
+  const twoHours = new Date(Date.now() - 2 * 3600_000).toISOString();
+  assert.equal(diagLine({ reason: 'window-not-reported', window: 'five_hour', lastSeenAt: twoHours }),
+    'The latest Codex response doesn’t report the 5-hour window (last reported 2h 0m ago) — it shows as not available until Codex includes it again.');
+  assert.equal(diagLine({ reason: 'window-not-reported', window: 'seven_day', lastSeenAt: null }),
+    'The latest Codex response doesn’t report the weekly window — it shows as not available until Codex includes it again.');
+  // The window enum is own-key too.
+  for (const w of ['constructor', '__proto__', 'toString', 'nope']) {
+    assert.match(diagLine({ reason: 'window-not-reported', window: w }), /report the account window —/, w);
+  }
+});
+
+test('diagLine: auto-refresh-failing names the cause via an own-key fragment; the line still starts as before', () => {
+  assert.equal(diagLine({ reason: 'auto-refresh-failing', cause: 'timeout' }),
+    'Auto-refresh is failing — attempts time out before a reading arrives; open a Claude Code CLI session to refresh manually.');
+  assert.match(diagLine({ reason: 'auto-refresh-failing', cause: 'spawn-error' }), /^Auto-refresh is failing — the claude command couldn’t be run \(set LLMDASH_CLAUDE_CMD/);
+  assert.match(diagLine({ reason: 'auto-refresh-failing', cause: 'parse-failed' }), /^Auto-refresh is failing — the \/usage screen couldn’t be read/);
+  assert.match(diagLine({ reason: 'auto-refresh-failing', cause: 'no-reading-produced' }), /^Auto-refresh is failing — attempts finish without producing a reading;/);
+  const bare = 'Auto-refresh is failing — open a Claude Code CLI session to refresh manually.';
+  assert.equal(diagLine({ reason: 'auto-refresh-failing' }), bare);
+  for (const cause of ['constructor', '__proto__', 'hasOwnProperty', 'something-new', 42, null]) {
+    assert.equal(diagLine({ reason: 'auto-refresh-failing', cause }), bare, String(cause));
+  }
+});
+
+test('emit: a Codex window-not-reported diagnostic reaches the dropdown as sanitized text below the title', () => {
+  const state = loadFixture('state-fresh');
+  const codex = state.tools.find((t) => t.source === 'codex');
+  codex.limits.five_hour = null;
+  codex.limitsDiagnostic = { reason: 'window-not-reported', window: 'five_hour', lastSeenAt: new Date(Date.now() - 3600_000).toISOString() };
+  const out = emit(computeBadge(state));
+  const lines = out.split('\n');
+  const sep = lines.indexOf('---');
+  assert.ok(sep > 0);
+  const diag = lines.slice(sep + 1).find((l) => l.includes('doesn’t report the 5-hour window'));
+  assert.ok(diag, 'the diagnostic line is rendered in the dropdown');
+  assert.equal((diag.match(/\|/g) || []).length, 1, 'exactly one SwiftBar param delimiter on the row');
+  assert.match(out, /5-hour: {2}not available/);
+});

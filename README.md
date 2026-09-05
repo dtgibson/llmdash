@@ -76,6 +76,17 @@ Then open it:
 - On this machine: <http://localhost:8787>
 - From another device on the tailnet: `http://<your-tailscale-ip>:8787` — use **http, not https**. Find the IP with `tailscale ip -4`, or use the machine's MagicDNS name. (The startup log prints the exact URL.)
 
+**Reachability is tailnet-only by default.** The server listens on all
+interfaces (so the menu-bar badge and the deploy health check keep using
+`127.0.0.1`), but it closes any connection that did not arrive on a loopback or
+Tailscale address *from* a loopback or Tailscale source — a device on your LAN
+that is not on the tailnet gets no response, and a tailnet peer must use the
+machine's Tailscale IP or MagicDNS name (not a `.local` / LAN address). If the
+Tailscale tunnel is down, only local clients can connect until it is back — no
+restart needed. Set `LLMDASH_ALLOW_LAN=1` to allow LAN devices too, or
+`LLMDASH_HOST=127.0.0.1` for local-only. The startup log states the scope in
+effect.
+
 To keep it running across reboots, install it as a systemd user service (a sample
 unit is described below), or use your preferred process manager.
 
@@ -213,8 +224,9 @@ the configuration or obtain a save token. A PUT must also come from the same HTT
 origin as the page and pass CSRF and version/ETag checks; cross-origin writes,
 preflights, arbitrary paths, peer writes, and permissive CORS are not supported.
 There is no app login or role model, so network reachability is the access
-boundary—bind `LLMDASH_HOST` to your Tailscale IP if you want to exclude LAN
-reachability too.
+boundary — by default that boundary is the tailnet: the wildcard bind refuses
+LAN connections at connect time unless `LLMDASH_ALLOW_LAN=1` is set, and
+`LLMDASH_HOST=127.0.0.1` keeps everything local-only.
 
 ## Multi-host — optional
 One llmdash can show **several of your tailnet machines** together — each host's
@@ -633,10 +645,16 @@ Codex limits work the same way as on Linux (via the `codex app-server`).
 ## Configuration
 All optional, via environment variables:
 - `LLMDASH_PORT` (default `8787`)
-- `LLMDASH_HOST` (default `0.0.0.0` — binds all local interfaces, so it's
-  reachable on your LAN and tailnet, but not the public internet behind NAT. To
-  restrict strictly to the tailnet, set this to your Tailscale IP, e.g.
-  `LLMDASH_HOST=100.x.y.z`.)
+- `LLMDASH_HOST` (default `0.0.0.0` — binds all local interfaces, but with the
+  default below the server accepts only loopback and tailnet connections, so it
+  is **tailnet-only** out of the box. Pin it to one address to change the
+  boundary itself: `127.0.0.1` for local-only, or your Tailscale IP
+  `100.x.y.z`. A pinned host has no connect-time gate, and `LLMDASH_ALLOW_LAN`
+  is ignored (the startup log says so).)
+- `LLMDASH_ALLOW_LAN` (default unset = tailnet-only) — set `1` or `true` to also
+  accept connections from your LAN (the pre-gate "LAN + tailnet" reachability,
+  still not the public internet behind NAT). Any other value keeps the default.
+  Only meaningful with the wildcard `LLMDASH_HOST`.
 - `LLMDASH_POLL_MS` (default `60000` = 1 minute) — existing poll cadence for
   limits, peers, and device-health snapshots; device health is current through
   two intervals, aging after two through five, and stale after five

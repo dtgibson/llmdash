@@ -20,7 +20,10 @@ delete process.env.LLMDASH_CLAUDE_MAX_AGE_MS;
 delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
 const { buildState } = await import('../src/server.js');
-const { readClaudeLimits } = await import('../src/claude-limits.js');
+const {
+  readClaudeLimits, expiredModelCap, MODEL_LIMIT_EXPIRED_DISCLOSURE_MS,
+} = await import('../src/claude-limits.js');
+const { insertSnapshot } = await import('../src/db.js');
 const { config } = await import('../config.js');
 
 const NOW = Date.UTC(2026, 6, 1, 12, 0, 0);
@@ -100,10 +103,14 @@ test('exactly one reason code or null in every band — never two (QA-21)', () =
   assert.equal('ageMs' in d, false); // no stale fields on the no-reading code
 });
 
-test('codex carries no freshness treatment (not retrofitted)', () => {
+test('codex carries poll-derived freshness thresholds (FM-X2, ratified): fresh ≤ 2 polls, stale > 5; no fabricated capture', () => {
   writeReading({ ageMs: 60_000 });
   const codex = buildState(NOW).tools.find((t) => t.source === 'codex');
-  assert.equal(codex.freshness, null);
+  assert.deepEqual(codex.freshness, {
+    capturedAt: null, // no Codex reading in this sandbox — the client renders no band
+    freshForMs: 2 * config.pollIntervalMs,
+    staleAfterMs: 5 * config.pollIntervalMs,
+  });
 });
 
 test('a future capturedAt (clock skew) is never stale', () => {
@@ -210,6 +217,85 @@ test('LLMDASH_CLAUDE_MAX_AGE_MS unset: default 300000, stale derived 600000', as
   const { config: c } = await import('../config.js?maxage=unset');
   assert.equal(c.claudeMaxAgeMs, 300_000);
   assert.equal(c.claudeStaleAfterMs, 600_000);
+});
+
+// --- tailnet-bind-and-reporting-resilience: Claude model caps ----------------
+// These run LAST in the file: the model-cap-expired case seeds the sandbox DB
+// with a stored cap row, and earlier cases assert a null diagnostic.
+
+test('a model cap whose reset passed within the 5-minute clock-skew grace is still active; past it, it expires (FM-C3)', () => {
+  const cap = (resetOffsetMs) => [{
+    source: 'claude-model:fable', model: 'fable', label: 'Fable', window: 'seven_day',
+    used_percentage: 100, resets_at: iso(NOW + resetOffsetMs), captured_at: iso(NOW - 3600_000),
+  }];
+  writeReading({ ageMs: 60_000, modelLimits: cap(-2 * 60_000) });
+  assert.equal(readClaudeLimits(NOW).modelLimits.length, 1, 'reset 2m ago (inside the skew grace) is still active');
+  assert.equal(readClaudeLimits(NOW).modelLimits[0].resetsAt, iso(NOW - 2 * 60_000));
+  writeReading({ ageMs: 60_000, modelLimits: cap(-(5 * 60_000 - 1)) });
+  assert.equal(readClaudeLimits(NOW).modelLimits.length, 1, 'just inside the grace');
+  writeReading({ ageMs: 60_000, modelLimits: cap(-5 * 60_000) });
+  assert.equal(readClaudeLimits(NOW).modelLimits.length, 0, 'at the grace boundary it has expired');
+  writeReading({ ageMs: 60_000, modelLimits: cap(-6 * 60_000) });
+  assert.equal(readClaudeLimits(NOW).modelLimits.length, 0, 'reset 6m ago is expired');
+});
+
+test('an aged-out model cap is disclosed as model-cap-expired (lowest precedence) with its last observation, never a value (FM-C1)', () => {
+  const lastCapturedAt = iso(NOW - 11 * 3600_000);
+  // The poller stored this cap while it was active; its reset has since passed.
+  insertSnapshot({ capturedAt: lastCapturedAt, source: 'claude-model:fable', window: 'seven_day', usedPct: 100, resetsAt: iso(NOW - 3600_000) });
+  writeReading({ ageMs: 60_000 }); // a fresh account reading with no caps
+  const c = claudeState();
+  assert.equal(c.haveLimits, true);
+  assert.deepEqual(c.modelLimits, [], 'the expired cap is not revived as a value');
+  assert.deepEqual(c.limitsDiagnostic, { reason: 'model-cap-expired', model: 'fable', lastCapturedAt });
+  assert.equal('cause' in c.limitsDiagnostic, false, 'no probe failure established → no cause field');
+
+  // Once the probe has failed 3+ times the cause rides along (own-key enum on the client).
+  const failing = buildState(NOW, {
+    disabled: false, inFlight: false, lastAttemptAt: null, nextAttemptAt: null,
+    consecutiveFailures: 3, lastFailureCause: 'parse-failed',
+  }).tools.find((t) => t.source === 'claude-code');
+  assert.deepEqual(failing.limitsDiagnostic, { reason: 'model-cap-expired', model: 'fable', lastCapturedAt, cause: 'parse-failed' });
+  const twoFailures = buildState(NOW, {
+    disabled: false, inFlight: false, lastAttemptAt: null, nextAttemptAt: null,
+    consecutiveFailures: 2, lastFailureCause: 'timeout',
+  }).tools.find((t) => t.source === 'claude-code');
+  assert.equal('cause' in twoFailures.limitsDiagnostic, false, 'the same 3-failure threshold as auto-refresh-failing');
+
+  // An ACTIVE cap for the same model+window in the reading → nothing has expired.
+  writeReading({ ageMs: 60_000, modelLimits: [{
+    source: 'claude-model:fable', model: 'fable', label: 'Fable', window: 'seven_day',
+    used_percentage: 40, resets_at: iso(NOW + 86400_000), captured_at: iso(NOW - 60_000),
+  }] });
+  assert.equal(claudeState().limitsDiagnostic, null);
+  assert.equal(claudeState().modelLimits.length, 1);
+
+  // Precedence: a stale reading outranks it (the gauges themselves are old).
+  writeReading({ ageMs: 11 * 60_000 });
+  assert.equal(claudeState().limitsDiagnostic.reason, 'stale-reading');
+  // …and no-statusline-reading outranks it.
+  fs.rmSync(config.rateLimitsFile, { force: true });
+  assert.deepEqual(claudeState().limitsDiagnostic, { reason: 'no-statusline-reading' });
+});
+
+test('expiredModelCap is bounded and pure: newest observation wins, still-active rows and old history are not named', () => {
+  const rows = [
+    { source: 'claude-model:fable', window: 'seven_day', resets_at: iso(NOW - 3600_000), captured_at: iso(NOW - 2 * 3600_000) },
+    { source: 'claude-model:sonnet-4-5', window: 'seven_day', resets_at: iso(NOW - 3600_000), captured_at: iso(NOW - 3 * 3600_000) },
+    { source: 'claude-model:opus', window: 'seven_day', resets_at: iso(NOW + 3600_000), captured_at: iso(NOW - 60_000) }, // still active by time — absent from the reading, but nothing is guessed
+    { source: 'claude-model:haiku', window: 'seven_day', resets_at: null, captured_at: iso(NOW - MODEL_LIMIT_EXPIRED_DISCLOSURE_MS - 1) }, // beyond the disclosure window
+    { source: 'claude-code', window: 'seven_day', resets_at: iso(NOW - 3600_000), captured_at: iso(NOW - 60_000) }, // account window, not a cap
+    { source: 'claude-model:future', window: 'seven_day', resets_at: iso(NOW - 3600_000), captured_at: iso(NOW + 3600_000) }, // future-dated evidence is not trusted
+  ];
+  assert.deepEqual(expiredModelCap([], NOW, rows), { model: 'fable', window: 'seven_day', lastCapturedAt: iso(NOW - 2 * 3600_000) });
+  // An active cap for fable in the reading → sonnet is the newest EXPIRED one.
+  assert.deepEqual(expiredModelCap([{ model: 'fable', window: 'seven_day' }], NOW, rows),
+    { model: 'sonnet-4-5', window: 'seven_day', lastCapturedAt: iso(NOW - 3 * 3600_000) });
+  assert.equal(expiredModelCap([], NOW, []), null);
+  assert.equal(expiredModelCap([], NOW, null), null);
+  assert.equal(expiredModelCap([], NOW, [{ source: 'claude-model:x', window: 'seven_day', captured_at: 'garbage' }]), null);
+  // Within the skew grace a passed reset is still active — not expired.
+  assert.equal(expiredModelCap([], NOW, [{ source: 'claude-model:fable', window: 'seven_day', resets_at: iso(NOW - 2 * 60_000), captured_at: iso(NOW - 3600_000) }]), null);
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

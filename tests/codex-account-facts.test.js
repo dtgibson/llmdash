@@ -270,4 +270,42 @@ test('reset-credit snapshots preserve partial, sparse, zero, capped, TTL, and ac
     'an explicit recognized account-plan change clears prior reset evidence');
 });
 
+test('reset credits past the account-fact TTL are served as stale with their capture age, then cleared at the 24 h hard cap (FM-X4)', async () => {
+  const second = (msFromNow) => Math.ceil((Date.now() + msFromNow) / 1000);
+  const expiry = second(48 * 60 * 60_000);
+  await poll({ planType: 'pro' }, {
+    availableCount: 2,
+    credits: [
+      { resetType: 'codexRateLimits', status: 'available', expiresAt: expiry },
+      { resetType: 'codexRateLimits', status: 'available', expiresAt: expiry },
+    ],
+  });
+  const fresh = codexResetCredits();
+  assert.equal(fresh.status, 'available');
+  const observedMs = Date.parse(fresh.capturedAt);
+
+  // Five failed polls later (TTL is 5×poll = 5 min in this sandbox): stale, not unsupported.
+  const stale = codexResetCredits(observedMs + 10 * 60_000);
+  assert.equal(stale.available, true);
+  assert.equal(stale.status, 'stale');
+  assert.equal(stale.availableCount, 2);
+  assert.deepEqual(stale.expirations, fresh.expirations);
+  assert.equal(stale.capturedAt, fresh.capturedAt, 'the original observation time is preserved (the client shows its age)');
+  assert.equal(codexAccountFacts(observedMs + 10 * 60_000).credits.resetCreditsAvailable, 2);
+
+  // Still stale right up to the hard cap…
+  assert.equal(codexResetCredits(observedMs + 24 * 60 * 60_000 - 1).status, 'stale');
+  // …then cleared: no evidence that old is presented at all.
+  assert.deepEqual(codexResetCredits(observedMs + 24 * 60 * 60_000), {
+    available: false, status: 'unsupported', availableCount: null,
+    expirations: [], missingExpirationCount: 0, capturedAt: null,
+  });
+  assert.equal(codexAccountFacts(observedMs + 24 * 60 * 60_000).credits.resetCreditsAvailable, null);
+
+  // The explicit-plan-change clearing rule is unchanged: a recognized plan
+  // switch drops the evidence immediately, stale or not.
+  await poll({ planType: 'plus' }, undefined);
+  assert.equal(codexResetCredits().status, 'unsupported');
+});
+
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

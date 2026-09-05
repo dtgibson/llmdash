@@ -1034,3 +1034,133 @@ test('the one-second limits tick preserves stable Codex insights and per-tool tr
   assert.equal(els['trends-claude'].innerHTML, '<div>stable Claude trend</div>');
   assert.equal(els['trends-codex'].innerHTML, '<div>stable Codex trend</div>');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tailnet-bind-and-reporting-resilience (Part 2, dashboard surfaces)
+
+test('a peer model cap with no capturedAt still renders — it inherits the member tool\'s dataAt as its evidence clock (FM-C4)', async () => {
+  const local = claudeTool(3 * 3600_000, 3 * 86400_000);
+  local.modelLimits = [modelLimit({ model: 'fable', label: 'Fable', remainingPct: 40, capturedAt: iso(-10 * 60_000) })];
+  const peer = claudeTool(3 * 3600_000, 3 * 86400_000);
+  peer.dataAt = iso(-30_000); // the peer's reading is newer than the local cap
+  peer.freshness.capturedAt = peer.dataAt;
+  const clockless = modelLimit({ model: 'fable', label: 'Fable', remainingPct: 7 });
+  delete clockless.capturedAt; // an older peer build ships caps without their own timestamp
+  peer.modelLimits = [clockless];
+  const combined = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([local]) },
+    { host: '100.64.0.9', label: 'Work', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([peer]) },
+  ], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  // Multi-host: the account overview (and its supplementary block) renders
+  // inside #hosts under the account-1 suffix.
+  const h = els.hosts.innerHTML;
+  assert.match(h, /Claude model caps/);
+  assert.match(h, /7<span class="unit">% left/, 'the newer (peer) cap wins by the inherited dataAt clock instead of being dropped');
+  assert.doesNotMatch(h, /40<span class="unit">% left/);
+});
+
+test('a peer model cap with neither capturedAt nor a tool dataAt is skipped (no evidence clock, nothing guessed) (FM-C4)', async () => {
+  const peer = claudeTool(3 * 3600_000, 3 * 86400_000);
+  peer.dataAt = null;
+  const clockless = modelLimit({ model: 'fable', label: 'Fable', remainingPct: 7 });
+  delete clockless.capturedAt;
+  peer.modelLimits = [clockless];
+  const combined = { hosts: [
+    { host: '100.64.0.9', label: 'Work', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([peer]) },
+  ], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  assert.doesNotMatch(els.hosts.innerHTML + els['supplementary-limits'].innerHTML, /% left/);
+});
+
+test('model-cap-expired: the model-cap block names the cap and its last observation instead of claiming a complete reading (FM-C1)', async () => {
+  const tool = claudeTool(3 * 3600_000, 3 * 86400_000);
+  tool.limitsDiagnostic = { reason: 'model-cap-expired', model: '<b>fable</b>', lastCapturedAt: iso(-11 * 3600_000) };
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]) }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const h = els['supplementary-limits'].innerHTML;
+  assert.match(h, /<strong>The &lt;b&gt;fable&lt;\/b&gt; cap is no longer current<\/strong> — last observed 11h 0m ago/);
+  assert.doesNotMatch(h, /<b>fable<\/b>/, 'the model field is escaped');
+  assert.doesNotMatch(h, /complete current reading/);
+  assert.doesNotMatch(h, /% left/, 'no value is revived');
+  // The lowest-precedence code does not stack a data-quality note on the gauges.
+  assert.doesNotMatch(els['limit-notes'].innerHTML, /model-cap|no longer current|Unavailable|No Claude Code limit reading/);
+  assert.doesNotMatch(els.tools.innerHTML, /No Claude Code limit reading yet/);
+
+  // With an established probe failure the cause rides along (own-key table; a
+  // proto/unknown cause falls back to the generic sentence, never raw).
+  tool.limitsDiagnostic.cause = 'parse-failed';
+  let out = (await renderWith(combined)).els['supplementary-limits'].innerHTML;
+  assert.match(out, /it is failing: The <code>\/usage<\/code> screen couldn&#39;t be read|it is failing: The <code>\/usage<\/code> screen couldn't be read/);
+  tool.limitsDiagnostic.cause = '__proto__';
+  out = (await renderWith(combined)).els['supplementary-limits'].innerHTML;
+  assert.match(out, /Refresh attempts keep failing/);
+  assert.doesNotMatch(out, /__proto__/);
+
+  // When other caps still render, the expired one is disclosed under the list.
+  tool.modelLimits = [modelLimit({ model: 'sonnet-4-5', label: 'Sonnet 4.5', remainingPct: 61 })];
+  out = (await renderWith(combined)).els['supplementary-limits'].innerHTML;
+  assert.match(out, /61<span class="unit">% left/);
+  assert.match(out, /<p class="evidence-note"><strong>The &lt;b&gt;fable&lt;\/b&gt; cap is no longer current<\/strong>/);
+});
+
+test('auto-refresh-failing: the model-cap block names the probe cause when no caps are reported (FM-C1)', async () => {
+  const tool = claudeTool(3 * 3600_000, 3 * 86400_000);
+  tool.freshness.capturedAt = iso(-15 * 60_000);
+  tool.limitsDiagnostic = { reason: 'auto-refresh-failing', cause: 'timeout', capturedAt: tool.freshness.capturedAt };
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]) }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const h = els['supplementary-limits'].innerHTML;
+  assert.match(h, /<strong>No Claude Code model caps are reported<\/strong> — model caps arrive only through the <code>\/usage<\/code> auto-refresh, which is failing\. Refresh attempts are timing out/);
+  assert.doesNotMatch(h, /complete current reading/);
+  // The default empty state no longer asserts completeness either.
+  tool.limitsDiagnostic = null;
+  tool.freshness.capturedAt = iso(-30_000);
+  const plain = (await renderWith(combined)).els['supplementary-limits'].innerHTML;
+  assert.match(plain, /No additional Claude Code model caps are reported in the current reading/);
+  assert.doesNotMatch(plain, /complete current reading/);
+});
+
+test('window-not-reported: the unavailable Codex card names the cause and the last sighting; the note slot stays quiet (FM-X1)', async () => {
+  const codex = codexTool(5 * 86400_000);
+  codex.freshness = { capturedAt: iso(-20_000), freshForMs: 120_000, staleAfterMs: 300_000 };
+  codex.limitsDiagnostic = { reason: 'window-not-reported', window: 'five_hour', lastSeenAt: iso(-2 * 3600_000) };
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]) }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  const h = els.tools.innerHTML;
+  assert.match(h, /5-hour[\s\S]*Unavailable[\s\S]*Not in the latest Codex response · last reported 2h 0m ago/);
+  assert.doesNotMatch(h, /No short-window reading/);
+  assert.match(h, /RESET ·|Reset ·/);
+  assert.doesNotMatch(els['limit-notes'].innerHTML, /No Codex limit reading yet|window-not-reported/);
+  assert.doesNotMatch(h, /No Codex limit reading yet/);
+  // Without a last sighting the card still names the cause, with no fabricated age.
+  codex.limitsDiagnostic.lastSeenAt = null;
+  const bare = (await renderWith(combined)).els.tools.innerHTML;
+  assert.match(bare, /Not in the latest Codex response<\/div>/);
+  assert.doesNotMatch(bare, /last reported/);
+  // The diagnostic names ONE window: the other card is untouched.
+  codex.limitsDiagnostic = { reason: 'window-not-reported', window: 'seven_day', lastSeenAt: null };
+  const other = (await renderWith(combined)).els.tools.innerHTML;
+  assert.match(other, /No short-window reading/);
+});
+
+test('codex freshness (FM-X2): the shared aging/stale pill applies to Codex once the server supplies thresholds', async () => {
+  const codex = codexTool(5 * 86400_000);
+  codex.freshness = { capturedAt: iso(-7 * 60_000), freshForMs: 120_000, staleAfterMs: 300_000 };
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]) }], generatedAt: iso(0) };
+  // The reading-age pill lives in the tool group header (rendered into #codex-details).
+  const group = async () => (await renderWith(combined)).els['codex-details'].innerHTML;
+  let out = await group();
+  assert.match(out, /Codex[\s\S]*<span class="age-pill pill-crit">stale<\/span>/);
+  codex.freshness.capturedAt = iso(-3 * 60_000);
+  out = await group();
+  assert.match(out, /Codex[\s\S]*<span class="age-pill pill-warn">aging<\/span>/);
+  assert.doesNotMatch(out, /pill-crit">stale/);
+  codex.freshness.capturedAt = iso(-30_000);
+  out = await group();
+  assert.doesNotMatch(out, /age-pill/);
+  // A peer on an older llmdash (null freshness) still renders with no band.
+  codex.freshness = null;
+  out = await group();
+  assert.doesNotMatch(out, /age-pill/);
+});

@@ -51,11 +51,27 @@ const peerTimeoutMs = clampedEnv(process.env.LLMDASH_PEER_TIMEOUT_MS, 3000, 500,
 const peerConcurrency = clampedEnv(process.env.LLMDASH_PEER_CONCURRENCY, 4, 1, 32);
 const peerBodyCapBytes = clampedEnv(process.env.LLMDASH_PEER_BODY_CAP_BYTES, 262_144, 16_384, 8_388_608);
 
+// Network scope opt-out. The wildcard bind is kept (the menu-bar badge and the
+// deploy health check talk to 127.0.0.1), but by default every accepted
+// connection must arrive on a loopback/Tailscale address from a loopback/
+// Tailscale source — LAN devices are refused at connect time. ONLY "1" or
+// "true" widen that to the LAN (any other value keeps the tailnet-only default,
+// so a typo never silently exposes the dashboard). Ignored when LLMDASH_HOST is
+// pinned to one address — the startup log names that case (no dead knob).
+const rawAllowLan = process.env.LLMDASH_ALLOW_LAN;
+const allowLan = rawAllowLan === '1'
+  || (typeof rawAllowLan === 'string' && rawAllowLan.toLowerCase() === 'true');
+
 export const config = {
   // Bind to 0.0.0.0 so the dashboard is reachable from other devices on the
-  // tailnet. Tailscale (not the dashboard) is the access boundary.
+  // tailnet. Tailscale (not the dashboard) is the access boundary — and since
+  // tailnet-bind-and-reporting-resilience the server enforces that boundary
+  // itself: with this wildcard bind and allowLan off, src/net.js's accept-time
+  // gate closes any connection that is not loopback↔loopback or tailnet↔tailnet.
   host: process.env.LLMDASH_HOST || '0.0.0.0',
   port: Number(process.env.LLMDASH_PORT || 8787),
+  // LLMDASH_ALLOW_LAN=1 restores the pre-gate "LAN + tailnet" reachability.
+  allowLan,
 
   // Raw multi-host peer list (LLMDASH_HOSTS, format host[:port][=label], comma-
   // separated). The EFFECTIVE host set — the local host always prepended, plus

@@ -6,6 +6,7 @@ import { parseHosts, remoteHosts } from './hosts.js';
 import { _peek } from './host-cache.js';
 import { configFileHealth } from './host-config.js';
 import { getAccountConfigSnapshot } from './account-config.js';
+import { bindPolicy, networkScopeDisclosure, tailnetIPv4 } from './net.js';
 
 // Resolve a command the way spawn() will: a path (contains a separator) is
 // checked directly; a bare name is searched on PATH. Returns the resolved
@@ -244,6 +245,23 @@ export function resetBillingConfigLine(
     + 'Configuration values are not printed in this health log.';
 }
 
+// Network-scope disclosure line (tailnet-bind-and-reporting-resilience): which
+// bind scope is in effect — tailnet-only (the default accept-time gate),
+// LAN + tailnet (LLMDASH_ALLOW_LAN=1), or a pinned LLMDASH_HOST — plus the
+// tailnet-down fallback and the two knobs, and an ignored-LLMDASH_ALLOW_LAN
+// note when the host is pinned (the hostsConfigLine precedent: a knob that
+// drives nothing is named, never silent). A cheap interface scan, no
+// subprocess, off the request path. `cfg`/`tailnetIp` are injectable for tests.
+export function networkScopeLine(cfg = config, tailnetIp = tailnetIPv4()) {
+  return networkScopeDisclosure(cfg, tailnetIp);
+}
+
+// The scope enum alone (for tests and the banner): tailnet-only |
+// lan-and-tailnet | pinned:<host>.
+export function networkScopeOf(cfg = config) {
+  return bindPolicy(cfg).scope;
+}
+
 // Startup-log lines describing data-source health. Honest and actionable:
 // each "missing" line says what is missing, why it matters, and how to fix it.
 export function healthLines(h = dataSourceHealth()) {
@@ -262,6 +280,10 @@ export function healthLines(h = dataSourceHealth()) {
   lines.push(h.codexSessions.present
     ? `  Codex activity: sessions dir present (${h.codexSessions.dir})`
     : `  Codex activity: no Codex sessions recorded on this machine yet (${h.codexSessions.dir}) — activity stats fill in after the first Codex session`);
+  // Network scope (tailnet-bind): the bind's reachability, the tailnet-down
+  // fallback, and the LLMDASH_ALLOW_LAN / LLMDASH_HOST knobs — stated loudly,
+  // per the surface-security-defaults rule.
+  lines.push(`  ${networkScopeLine()}`);
   // Owner reset/billing configuration: validated/empty/degraded state, fixed
   // management route and mutation posture, with no schedule or amount values.
   lines.push(`  ${resetBillingConfigLine()}`);

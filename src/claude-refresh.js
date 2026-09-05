@@ -3,11 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { config } from '../config.js';
-import {
-  MODEL_LIMIT_CLOCK_SKEW_MS,
-  MODEL_LIMIT_RESETLESS_TTL_MS,
-  readClaudeLimits,
-} from './claude-limits.js';
+import { modelLimitActiveAt, readClaudeLimits } from './claude-limits.js';
 import { resolveCommand } from './health.js';
 
 // Claude limit auto-refresh (the [R2-scrape] mechanism, spike-validated):
@@ -28,6 +24,13 @@ import { resolveCommand } from './health.js';
 
 const BACKOFF_BASE_MS = 5 * 60_000; // first failure waits 5m…
 const BACKOFF_CAP_MS = 60 * 60_000; // …doubling to a 60m cap (FR-15)
+// Model-cap age at which the probe may run even though the statusline keeps
+// the ACCOUNT reading fresh (FM-C1). The statusline never writes model caps —
+// the /usage probe is their only producer — so without this a heavy Claude
+// day starved the caps until they expired unannounced. A fixed constant, not
+// an env knob; in this mode attempts are spaced by the same interval, so a cap
+// the pane no longer renders cannot re-arm a probe every cadence-floor tick.
+export const MODEL_LIMIT_REFRESH_MS = 60 * 60_000;
 
 const state = {
   disabled: !config.claudeAutoRefresh,
@@ -91,11 +94,19 @@ export async function maybeRefreshClaude({
   // 1. Off-switch: zero work of any kind — no scans, no spawns (FR-27).
   if (disabled) return 'disabled';
 
-  // 2. Freshness suppression: organic statusline captures count (FR-13).
+  // 2. Freshness suppression: organic statusline captures count (FR-13) —
+  //    unless the newest active model cap has aged past MODEL_LIMIT_REFRESH_MS
+  //    (FM-C1), in which case the probe may proceed through the remaining
+  //    gates, at most once per that interval.
   const reading = readReading();
   if (reading && reading.capturedAt) {
     const age = now - Date.parse(reading.capturedAt);
-    if (Number.isFinite(age) && age < cfg.claudeMaxAgeMs) return 'fresh';
+    if (Number.isFinite(age) && age < cfg.claudeMaxAgeMs) {
+      const capMs = newestModelCapMs(reading);
+      const capAged = capMs != null && now - capMs >= MODEL_LIMIT_REFRESH_MS;
+      const spaced = state.lastAttemptAt == null || now - state.lastAttemptAt >= MODEL_LIMIT_REFRESH_MS;
+      if (!capAged || !spaced) return 'fresh';
+    }
   }
 
   // 3. Activity gate: refresh only while Claude is actually in use — the
@@ -145,6 +156,17 @@ export async function maybeRefreshClaude({
   } finally {
     state.inFlight = false;
   }
+}
+
+// The newest active model cap's capture time (ms), or null when the reading
+// carries no cap — the model-cap-age input to the freshness gate (FM-C1).
+function newestModelCapMs(reading) {
+  let newest = null;
+  for (const cap of Array.isArray(reading && reading.modelLimits) ? reading.modelLimits : []) {
+    const ms = Date.parse((cap && (cap.capturedAt ?? cap.captured_at)) || '');
+    if (Number.isFinite(ms) && (newest == null || ms > newest)) newest = ms;
+  }
+  return newest;
 }
 
 // Current Claude subagents write below
@@ -776,17 +798,6 @@ export function buildReadingPayload(windows, capturedAtMs, modelLimits = []) {
   return payload;
 }
 
-function resetValueToMs(v) {
-  if (v == null) return NaN;
-  if (typeof v === 'string') {
-    const t = Date.parse(v);
-    return Number.isFinite(t) ? t : NaN;
-  }
-  const n = Number(v);
-  if (!Number.isFinite(n)) return NaN;
-  return n < 1e12 ? n * 1000 : n;
-}
-
 function modelWindowKey(v) {
   if (v === 'five_hour' || v === 'five-hour' || v === '5h') return 'five_hour';
   return 'seven_day';
@@ -804,26 +815,36 @@ function rowsFromModelLimitPayload(payload) {
   return [];
 }
 
+// The shared activity rule (src/claude-limits.js) over a raw file row: reset
+// (with the FM-C3 skew grace) or the resetless TTL from the row's own
+// captured_at, falling back to the file-level capturedAt.
 function activeModelLimitAt(row, fallbackCapturedAt, atMs) {
-  const resetMs = resetValueToMs(row?.resets_at ?? row?.resetsAt);
-  if (Number.isFinite(resetMs)) return resetMs > atMs;
-  const capturedMs = Date.parse(row?.captured_at ?? row?.capturedAt ?? fallbackCapturedAt);
-  return Number.isFinite(capturedMs)
-    && capturedMs <= atMs + MODEL_LIMIT_CLOCK_SKEW_MS
-    && atMs - capturedMs < MODEL_LIMIT_RESETLESS_TTL_MS;
+  return modelLimitActiveAt(row?.resets_at ?? row?.resetsAt,
+    row?.captured_at ?? row?.capturedAt ?? fallbackCapturedAt, atMs);
 }
 
-function mergeActiveModelLimits(payload, current, newTs) {
+function modelRowEvidenceMs(row) {
+  const ms = Date.parse((row && (row.captured_at ?? row.capturedAt)) || '');
+  return Number.isFinite(ms) ? ms : -Infinity;
+}
+
+// Per cap key (model:window) the newest evidence wins: the current file's
+// still-active rows first, then the incoming rows — an incoming row replaces
+// a current one only when its captured_at is not older (a delayed write from
+// an earlier probe never regresses a fresher cap).
+function mergeActiveModelLimits(payload, current, atMs) {
   const merged = new Map();
   const add = (row, fallbackCapturedAt, requireUnexpired) => {
     if (!row || typeof row !== 'object') return;
     const key = modelLimitKey(row);
     if (!key) return;
-    if (requireUnexpired && !activeModelLimitAt(row, fallbackCapturedAt, newTs)) return;
+    if (requireUnexpired && !activeModelLimitAt(row, fallbackCapturedAt, atMs)) return;
     const next = { ...row };
     if (next.captured_at == null && next.capturedAt == null && fallbackCapturedAt) {
       next.captured_at = fallbackCapturedAt;
     }
+    const prev = merged.get(key);
+    if (prev && modelRowEvidenceMs(prev) > modelRowEvidenceMs(next)) return;
     merged.set(key, next);
   };
 
@@ -834,7 +855,11 @@ function mergeActiveModelLimits(payload, current, newTs) {
 
 // Newest-capturedAt-wins, atomically (temp + rename): a probe capture must
 // never replace a newer organic statusline capture, whatever the write order
-// (FR-10). Returns whether the file was written.
+// (FR-10). The ACCOUNT windows follow that rule strictly; the MODEL caps merge
+// per key regardless of who won the race (FM-C2) — the statusline never writes
+// caps, so when its write lands between a probe's capture and the probe's
+// write, the probe's caps (the only producer) must still reach the file.
+// Returns whether the file was written.
 export function writeReadingIfNewer(payload, cfg = config) {
   const newTs = Date.parse(payload.capturedAt);
   if (!Number.isFinite(newTs)) return false;
@@ -844,10 +869,19 @@ export function writeReadingIfNewer(payload, cfg = config) {
     current = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
     if (current && current.capturedAt) currentTs = Date.parse(current.capturedAt);
   } catch { /* absent or unreadable — any real reading is an improvement */ }
-  if (Number.isFinite(currentTs) && currentTs >= newTs) return false;
-  const nextPayload = { ...payload };
+  const currentWins = Number.isFinite(currentTs) && currentTs >= newTs;
+  const atMs = currentWins ? currentTs : newTs;
+  const mergedModels = mergeActiveModelLimits(payload, current, atMs);
+  let nextPayload;
+  if (currentWins) {
+    if (!rowsFromModelLimitPayload(payload).length) return false; // nothing the newer file lacks
+    const unchanged = JSON.stringify(mergeActiveModelLimits(null, current, atMs));
+    if (JSON.stringify(mergedModels) === unchanged) return false; // no fresher cap evidence
+    nextPayload = { ...current }; // the newer organic account windows stay
+  } else {
+    nextPayload = { ...payload };
+  }
   delete nextPayload.modelLimits;
-  const mergedModels = mergeActiveModelLimits(payload, current, newTs);
   if (mergedModels.length) nextPayload.model_limits = mergedModels;
   else delete nextPayload.model_limits;
   fs.mkdirSync(cfg.dataDir, { recursive: true });

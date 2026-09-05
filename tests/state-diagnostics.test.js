@@ -65,4 +65,16 @@ test('the rendered stat set did not silently drop fields (renderer contract)', (
   }
 });
 
+test('codex freshness thresholds are served even before any reading (FM-X2) — capturedAt stays null, never "now"', () => {
+  const codex = buildState().tools.find((t) => t.source === 'codex');
+  assert.deepEqual(codex.freshness, {
+    capturedAt: null,
+    freshForMs: 2 * config.pollIntervalMs,
+    staleAfterMs: 5 * config.pollIntervalMs,
+  });
+  // Precedence is unchanged for a tool with no reading at all: the command
+  // failure is the cause, not a window omission.
+  assert.equal(codex.limitsDiagnostic.reason, 'codex-cmd-failed');
+});
+
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

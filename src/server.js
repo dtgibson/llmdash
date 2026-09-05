@@ -3,22 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
-import { getDb, getLatestPerWindow } from './db.js';
-import { readClaudeLimits } from './claude-limits.js';
+import { getDb, getLatestModelSnapshots, getLatestPerWindow } from './db.js';
+import { expiredModelCap, readClaudeLimits } from './claude-limits.js';
 import { getRefreshState } from './claude-refresh.js';
-import { getDeviceHealthSnapshot } from './device-health.js';
+import { effectivePollInterval, getDeviceHealthSnapshot } from './device-health.js';
 import {
   cachedCodexLimits,
   codexLimitsDiagnostic,
   codexPlanLabel,
   codexResetCredits,
+  codexWindowLastSeenAt,
 } from './codex-limits.js';
-import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine } from './health.js';
+import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine, networkScopeLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
 import { computeCodexActivity, getCodexInsights, refreshCodexAnalytics } from './codex-stats.js';
 import { buildTrends } from './trends.js';
 import { startPoller, stopPoller } from './poller.js';
-import { tailnetIPv4 } from './net.js';
+import { bindPolicy, isTrustedConnection, isWildcardBind, tailnetIPv4 } from './net.js';
 import { getCombined, setHost } from './host-cache.js';
 import { parseHosts } from './hosts.js';
 import { readHostsConfig } from './host-config.js';
@@ -167,18 +168,31 @@ export function computeHeadroom(tools) {
 export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
   const claude = toolWrap('claude-code', 'Claude Code', 'Max',
     readClaudeLimits(nowMs), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
+  const codexReading = cachedCodexLimits();
   const codex = toolWrap('codex', 'Codex', codexPlanLabel(),
-    cachedCodexLimits(), computeCodexActivity(nowMs), nowMs, codexResetCredits(nowMs));
-  // Reading-age freshness (claude only; codex is not retrofitted). The client
-  // derives the fresh/aging/stale band live from these server-supplied
-  // thresholds — the thresholds live here, the ticking happens there. Cheap
-  // date math only: no subprocess, no poller work on this path.
+    codexReading, computeCodexActivity(nowMs), nowMs, codexResetCredits(nowMs));
+  // Reading-age freshness. The client derives the fresh/aging/stale band live
+  // from these server-supplied thresholds — the thresholds live here, the
+  // ticking happens there. Cheap date math only: no subprocess, no poller work
+  // on this path.
   claude.freshness = {
     capturedAt: claude.dataAt,
     freshForMs: config.claudeMaxAgeMs,
     staleAfterMs: config.claudeStaleAfterMs,
   };
-  codex.freshness = null;
+  // Codex (tailnet-bind-and-reporting-resilience, FM-X2): the poller retains
+  // the last complete reading across app-server timeouts/spawn errors, so its
+  // age is the honest signal. Bands are poll-derived (the device-health
+  // precedent): fresh through 2 polls, aging 2–5, stale past 5. capturedAt is
+  // the retained reading's own capture time — null before the first reading.
+  {
+    const pollMs = effectivePollInterval(config.pollIntervalMs);
+    codex.freshness = {
+      capturedAt: codexReading && codexReading.capturedAt ? codexReading.capturedAt : null,
+      freshForMs: 2 * pollMs,
+      staleAfterMs: 5 * pollMs,
+    };
+  }
   // When a tool has no limit data — or the data it has is stale — say WHY (the
   // server knows; the client shouldn't guess). Exactly one reason code or null,
   // in precedence order (FR-18): auto-refresh-failing > auto-refresh-disabled >
@@ -200,14 +214,39 @@ export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
       claude.limitsDiagnostic = { reason: 'auto-refresh-disabled', ...ageFields };
     } else if (!claude.haveLimits) {
       claude.limitsDiagnostic = { reason: 'no-statusline-reading' };
+    } else if (staleReading) {
+      claude.limitsDiagnostic = { reason: 'stale-reading', capturedAt: claude.dataAt, ageMs };
     } else {
-      claude.limitsDiagnostic = staleReading
-        ? { reason: 'stale-reading', capturedAt: claude.dataAt, ageMs }
+      // Lowest precedence (FM-C1): the account windows are current, but a
+      // model cap the poller previously observed has aged out (reset passed or
+      // the resetless TTL) and no newer capture replaced it. Disclose the cap
+      // and its last observation instead of letting the UI claim a complete
+      // reading; carry the probe's failure cause once it is established (the
+      // same 3-failure threshold as auto-refresh-failing) so the reason the
+      // cap never came back is visible even while the statusline keeps the
+      // account reading fresh. Evidence is the stored snapshot history —
+      // disclosure only, never a revived value.
+      const expired = expiredModelCap(claude.modelLimits, nowMs, getLatestModelSnapshots());
+      claude.limitsDiagnostic = expired
+        ? {
+          reason: 'model-cap-expired',
+          model: expired.model,
+          lastCapturedAt: expired.lastCapturedAt,
+          ...(refresh.consecutiveFailures >= 3 && refresh.lastFailureCause
+            ? { cause: refresh.lastFailureCause } : {}),
+        }
         : null;
     }
   }
   if (codex.haveLimits) {
-    codex.limitsDiagnostic = null;
+    // FM-X1: a complete response is authoritative for the window SET, so a
+    // slot it omits stays empty (no snapshot backfill) — but the omission now
+    // has a name, with the capture time of the last in-process reading that
+    // carried that window (null if this process never saw it).
+    const omitted = ['five_hour', 'seven_day'].find((w) => !codex.limits[w]);
+    codex.limitsDiagnostic = omitted
+      ? { reason: 'window-not-reported', window: omitted, lastSeenAt: codexWindowLastSeenAt(omitted) }
+      : null;
   } else {
     const d = codexLimitsDiagnostic();
     codex.limitsDiagnostic = d.reason === 'codex-cmd-failed'
@@ -311,6 +350,26 @@ const server = http.createServer((req, res) => {
   res.end(head ? undefined : 'not found');
 });
 
+// ── Accept-time network gate (tailnet-bind-and-reporting-resilience) ────────
+// The listener stays a wildcard (badge + deploy health check on 127.0.0.1), but
+// with the shipped default (LLMDASH_ALLOW_LAN unset) every accepted TCP
+// connection is classified BEFORE any HTTP byte is read: unless it arrived on
+// a loopback/tailnet address from a loopback/tailnet source it is destroyed —
+// zero response bytes, no request parsing. `connection` fires on accept, ahead
+// of the first `data` tick, so the http parser never sees the socket's bytes.
+// LLMDASH_ALLOW_LAN=1 or a pinned LLMDASH_HOST turns the gate off (bindPolicy).
+// The classifier is injectable so the real-socket test is hermetic on any
+// machine (no dependency on a live tailnet interface).
+const BIND_POLICY = bindPolicy(config);
+const defaultConnectionGate = (socket) => isTrustedConnection(socket, BIND_POLICY);
+let connectionGate = defaultConnectionGate;
+export function _setConnectionGate(fn) {
+  connectionGate = typeof fn === 'function' ? fn : defaultConnectionGate;
+}
+server.on('connection', (socket) => {
+  if (!connectionGate(socket)) socket.destroy();
+});
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   getDb();
   // Prime local analytics before the first state is published. Later refreshes
@@ -369,14 +428,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     // interfaces (0.0.0.0), or a host explicitly pinned to the tailnet IP.
     // Bound to loopback or a LAN IP, the tailnet address is unreachable, so
     // stay silent rather than print a real-looking but dead URL.
-    if (config.host === '0.0.0.0' || config.host === tailnetIp) {
+    if (isWildcardBind(config.host) || config.host === tailnetIp) {
       console.log(tailnetIp
         ? `On another tailnet device, open http://${tailnetIp}:${config.port} (use http, not https)`
         : `On another tailnet device, open http://<your-tailscale-ip>:${config.port} (find the IP with 'tailscale ip -4'; use http, not https)`);
     }
-    if (config.host === '0.0.0.0') {
-      console.log('Note: bound to all local interfaces (LAN + tailnet, not the public internet behind NAT). To restrict to the tailnet, set LLMDASH_HOST to your Tailscale IP.');
-    }
+    // Surface-defaults rule: the scope in effect (tailnet-only by default),
+    // the tailnet-down fallback, and the two knobs — stated at startup, never
+    // silently. Same line healthLines() carries (the hostsConfigLine precedent).
+    console.log(networkScopeLine(config, tailnetIp));
   });
 }
 

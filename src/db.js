@@ -54,6 +54,20 @@ export function getLatestPerWindow(source) {
   ).all(source);
 }
 
+// Latest stored snapshot per (source, window) for every model-cap source
+// (the poller writes each active Claude model cap as its own
+// `claude-model:<slug>` source). Used ONLY to DISCLOSE that a cap was observed
+// and when (model-cap-expired) — never to revive a value the current reading
+// no longer carries. Bounded: at most 256 (source, window) pairs.
+export function getLatestModelSnapshots(prefix = 'claude-model:') {
+  const d = getDb();
+  return d.prepare(
+    `SELECT source, window, resets_at, MAX(captured_at) AS captured_at
+     FROM usage_snapshots WHERE source LIKE ? GROUP BY source, window
+     ORDER BY captured_at DESC LIMIT 256`
+  ).all(`${String(prefix).replace(/[%_]/g, '')}%`);
+}
+
 // A window's series since a given ISO timestamp (foundation for feature 3).
 export function getSeries(source, window, sinceIso) {
   const d = getDb();

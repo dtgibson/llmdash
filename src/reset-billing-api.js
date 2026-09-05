@@ -1,8 +1,8 @@
 import path from 'node:path';
 import os from 'node:os';
-import { isIP, SocketAddress } from 'node:net';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { config } from '../config.js';
+import { canonicalIp, isLoopback, isTailnetIp } from './net.js';
 import {
   AccountConfigError, getAccountConfigSnapshot, refreshAccountConfig,
   saveAccountConfig, validateAccountConfigUpdate,
@@ -69,23 +69,8 @@ function validatedAuthority(req) {
   } catch { return null; }
 }
 
-function canonicalIp(value) {
-  const family = isIP(value);
-  if (!family) return null;
-  try {
-    const address = new SocketAddress({
-      address: value, port: 0, family: family === 4 ? 'ipv4' : 'ipv6',
-    }).address.toLowerCase();
-    // A wildcard IPv6 listener reports IPv4 clients as mapped addresses on
-    // some platforms. Treat that representation as the corresponding IPv4
-    // destination so a normal literal IPv4 Host still matches.
-    if (family === 6 && address.startsWith('::ffff:')) {
-      const mapped = address.slice('::ffff:'.length);
-      if (isIP(mapped) === 4) return { family: 4, address: mapped };
-    }
-    return { family, address };
-  } catch { return null; }
-}
+// canonicalIp / isLoopback / isTailnetIp now live in src/net.js (shared with
+// the accept-time bind gate) — behavior here is byte-equal to before the lift.
 
 function normalizedHostname(value) {
   if (typeof value !== 'string') return null;
@@ -105,22 +90,6 @@ function authorityParts(authority) {
       port: Number(parsed.port || 80),
     };
   } catch { return null; }
-}
-
-function isLoopback(ip) {
-  if (!ip) return false;
-  if (ip.family === 4) return ip.address.split('.')[0] === '127';
-  return ip.address === '::1';
-}
-
-function isTailnetIp(ip) {
-  if (!ip) return false;
-  if (ip.family === 4) {
-    const [first, second] = ip.address.split('.').map(Number);
-    return first === 100 && second >= 64 && second <= 127;
-  }
-  // Tailscale's stable IPv6 ULA prefix is fd7a:115c:a1e0::/48.
-  return ip.address.startsWith('fd7a:115c:a1e0:');
 }
 
 function isMagicDnsName(hostname) {

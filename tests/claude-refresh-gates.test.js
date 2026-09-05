@@ -12,6 +12,7 @@ delete process.env.LLMDASH_CLAUDE_AUTOREFRESH;
 
 const {
   maybeRefreshClaude, getRefreshState, _resetRefreshState, newestTranscriptMtimeMs, writeReadingIfNewer,
+  MODEL_LIMIT_REFRESH_MS,
 } = await import('../src/claude-refresh.js');
 
 const MIN = 60_000;
@@ -278,6 +279,78 @@ test('newestTranscriptMtimeMs finds the newest .jsonl mtime; metadata only', () 
   const got = newestTranscriptMtimeMs({ projectsDir });
   assert.ok(Math.abs(got - newest) < 1000, `newest jsonl mtime (got ${got}, want ~${newest})`);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// --- FM-C1 (tailnet-bind-and-reporting-resilience): model-cap age ---------------
+// The statusline keeps the ACCOUNT reading fresh but never writes model caps —
+// the /usage probe is their only producer — so a fresh reading must not starve
+// an aged cap forever. The probe is allowed once the newest active cap is older
+// than MODEL_LIMIT_REFRESH_MS, at most once per that interval, and every other
+// gate (activity, single flight, backoff) still applies.
+
+const isoAt = (ms) => new Date(ms).toISOString();
+const freshWithCap = (now, capAgeMin) => () => ({
+  capturedAt: isoAt(now - 2 * MIN), // the statusline wrote 2 minutes ago — "fresh"
+  modelLimits: [{ source: 'claude-model:fable', model: 'fable', window: 'seven_day', capturedAt: isoAt(now - capAgeMin * MIN) }],
+});
+
+test('a fresh statusline reading with a >60-min-old model cap lets the probe run — once per MODEL_LIMIT_REFRESH_MS (FM-C1)', async () => {
+  assert.equal(MODEL_LIMIT_REFRESH_MS, 60 * MIN, 'a fixed constant, not an env knob');
+  const attempt = countingAttempt([{ ok: true }, { ok: true }, { ok: true }]);
+  const run = (now, capAgeMin, activityAgeMs = 0) => maybeRefreshClaude({
+    now, readReading: freshWithCap(now, capAgeMin), newestActivityMs: activityAged(now, activityAgeMs), attempt, cfg,
+  });
+  // A 30-minute-old cap is not aged: the organic capture suppresses as before.
+  assert.equal(await run(T0, 30), 'fresh');
+  // A 61-minute-old cap during activity → the probe attempts (account reading still fresh).
+  assert.equal(await run(T0, 61), 'refreshed');
+  assert.equal(attempt.calls.length, 1);
+  // The write is mocked away, so the cap stays aged: attempts are spaced by the
+  // 60-minute interval in this mode, NOT the 5-minute cadence floor — a cap the
+  // pane no longer renders cannot re-arm a probe every tick.
+  assert.equal(await run(T0 + 5 * MIN, 66), 'fresh');
+  assert.equal(await run(T0 + 59 * MIN, 120), 'fresh');
+  assert.equal(await run(T0 + 60 * MIN, 121), 'refreshed');
+  assert.equal(attempt.calls.length, 2);
+  // The activity gate is preserved: an aged cap while Claude is idle does no work.
+  assert.equal(await run(T0 + 180 * MIN, 240, 11 * MIN), 'idle');
+  assert.equal(attempt.calls.length, 2);
+  // A cap-age trigger that lands while an attempt is in flight does no work:
+  // the 60-minute spacing (lastAttemptAt is stamped at attempt START) answers
+  // 'fresh' before the single-flight check is even reached.
+  let release;
+  const hanging = () => new Promise((r) => { release = r; });
+  const first = maybeRefreshClaude({ now: T0 + 240 * MIN, readReading: freshWithCap(T0 + 240 * MIN, 300), newestActivityMs: activityAged(T0 + 240 * MIN, 0), attempt: hanging, cfg });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(getRefreshState().inFlight, true);
+  assert.equal(await run(T0 + 241 * MIN, 301), 'fresh');
+  assert.equal(attempt.calls.length, 2, 'no second attempt started mid-flight');
+  release({ ok: true });
+  assert.equal(await first, 'refreshed');
+});
+
+test('a fresh reading with NO model caps, or with a fresh cap, keeps the organic suppression exactly as before (FM-C1)', async () => {
+  const attempt = countingAttempt([]);
+  for (let i = 0; i < 30; i++) {
+    const now = T0 + i * MIN;
+    assert.equal(await maybeRefreshClaude({ now, readReading: readingAged(now, 2 * MIN), newestActivityMs: activityAged(now, 0), attempt, cfg }), 'fresh');
+    assert.equal(await maybeRefreshClaude({ now, readReading: freshWithCap(now, 5), newestActivityMs: activityAged(now, 0), attempt, cfg }), 'fresh');
+  }
+  assert.equal(attempt.calls.length, 0);
+});
+
+test('the cap-age path honors the backoff of a failed attempt and the failure is recorded (FM-C1)', async () => {
+  const attempt = countingAttempt([{ ok: false, cause: 'parse-failed' }, { ok: true }]);
+  const run = (now, capAgeMin) => maybeRefreshClaude({
+    now, readReading: freshWithCap(now, capAgeMin), newestActivityMs: activityAged(now, 0), attempt, cfg,
+  });
+  assert.equal(await run(T0, 90), 'failed');
+  const s = getRefreshState();
+  assert.equal(s.consecutiveFailures, 1);
+  assert.equal(s.lastFailureCause, 'parse-failed'); // surfaces as `cause` on model-cap-expired once ≥3
+  assert.equal(await run(T0 + 30 * MIN, 120), 'fresh'); // inside the 60-minute spacing
+  assert.equal(await run(T0 + 60 * MIN, 150), 'refreshed');
+  assert.equal(attempt.calls.length, 2);
 });
 
 // --- Config knob parsing (fresh import per case, like the freshness tests) ----

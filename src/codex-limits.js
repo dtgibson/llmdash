@@ -30,10 +30,24 @@ let observedResetCreditsAtMs = null;
 // but also for a window that is absent. That distinction cannot be reconstructed
 // from the per-window snapshot table (which intentionally retains history).
 let lastCompleteReading = null;
+// Per window: the capture time of the last complete in-process reading that
+// carried it (FM-X1 window-not-reported evidence). In-process only — snapshot
+// rows are history for Trends, never proof of the current window set — and
+// never a value: a slot a complete response omits stays empty.
+const WINDOW_KEYS = ['five_hour', 'seven_day'];
+const windowLastSeenAt = { five_hour: null, seven_day: null };
+// Which windows have already been logged as omitted since they were last
+// present, so the present→omitted transition writes ONE stderr line, not one
+// per poll.
+const omittedWindowsLogged = new Set();
 
 const configuredPollMs = Number(config.pollIntervalMs);
 const ACCOUNT_FACT_TTL_MS = Math.min(30 * 60_000, Math.max(5 * 60_000,
   Number.isFinite(configuredPollMs) && configuredPollMs > 0 ? configuredPollMs * 5 : 5 * 60_000));
+// Reset-credit evidence past ACCOUNT_FACT_TTL_MS is served as `stale` (with its
+// original observation time) rather than vanishing into `unsupported` while
+// the gauges keep rendering (FM-X4); after this hard cap it is cleared.
+const ACCOUNT_FACT_HARD_CAP_MS = 24 * 60 * 60_000;
 
 const PLAN_LABELS = {
   free: 'ChatGPT Free',
@@ -51,8 +65,44 @@ const PLAN_LABELS = {
 
 export function codexLimitsDiagnostic() { return diag; }
 export function cachedCodexLimits() { return lastCompleteReading; }
+export function codexWindowLastSeenAt(windowKey) {
+  return Object.hasOwn(windowLastSeenAt, windowKey) ? windowLastSeenAt[windowKey] : null;
+}
 function fresh(value, observedAtMs, nowMs) {
   return observedAtMs !== null && nowMs - observedAtMs <= ACCOUNT_FACT_TTL_MS ? value : undefined;
+}
+
+// Reset-credit evidence with its age band: fresh within the TTL, `stale` up to
+// the hard cap, null (cleared) beyond it. The explicit-plan-change and
+// unknown-plan clearing rules (clearObservedCredits) are untouched.
+function resetCreditsEvidence(nowMs) {
+  if (!observedResetCreditsSnapshot || observedResetCreditsAtMs === null) return null;
+  const ageMs = nowMs - observedResetCreditsAtMs;
+  if (ageMs >= ACCOUNT_FACT_HARD_CAP_MS) return null;
+  return { snapshot: observedResetCreditsSnapshot, stale: ageMs > ACCOUNT_FACT_TTL_MS };
+}
+
+// Every reading that becomes the in-process complete reading passes through
+// here: it records which windows were seen (and when), and on the
+// present→omitted transition writes ONE bounded stderr line naming the window
+// slot key only — no values, no raw provider text.
+function commitCompleteReading(reading) {
+  const previous = lastCompleteReading;
+  const nextWindows = reading && reading.windows && typeof reading.windows === 'object' ? reading.windows : {};
+  const omitted = [];
+  for (const key of WINDOW_KEYS) {
+    if (nextWindows[key]) {
+      if (reading.capturedAt) windowLastSeenAt[key] = reading.capturedAt;
+      omittedWindowsLogged.delete(key);
+    } else if (previous && previous.windows && previous.windows[key] && !omittedWindowsLogged.has(key)) {
+      omitted.push(key);
+      omittedWindowsLogged.add(key);
+    }
+  }
+  if (omitted.length) {
+    console.error(`codex limits: the latest complete rate-limit response omits ${omitted.join(' and ')} (reported in the previous response) — that window shows as "not reported" with its last-seen time until Codex includes it again.`);
+  }
+  lastCompleteReading = reading;
 }
 
 function clearObservedCredits() {
@@ -129,11 +179,11 @@ function normalizeResetCreditsObservation(raw, observedAtMs) {
 // new arrays/objects so consumers cannot mutate sparse cache state.
 export function codexResetCredits(nowMs = Date.now()) {
   const now = Number(nowMs);
-  const snapshot = fresh(observedResetCreditsSnapshot, observedResetCreditsAtMs,
-    Number.isFinite(now) ? now : Date.now());
-  if (!snapshot) return unsupportedResetCredits();
-
   const at = Number.isFinite(now) ? now : Date.now();
+  const evidence = resetCreditsEvidence(at);
+  if (!evidence) return unsupportedResetCredits();
+  const { snapshot, stale } = evidence;
+
   const expiredCount = snapshot.expirations.reduce((sum, iso) =>
     sum + (Date.parse(iso) <= at ? 1 : 0), 0);
   const availableCount = Math.max(0,
@@ -144,8 +194,12 @@ export function codexResetCredits(nowMs = Date.now()) {
   const missingExpirationCount = Math.max(0, availableCount - expirations.length);
   return {
     available: true,
-    status: availableCount === 0 ? 'zero'
-      : missingExpirationCount > 0 ? 'partial' : 'available',
+    // Past the TTL the reading is still the last good evidence, but it is old
+    // (FM-X4): say `stale` — the client shows the preserved capture age — never
+    // flip to `unsupported` while the primary gauges keep rendering.
+    status: stale ? 'stale'
+      : availableCount === 0 ? 'zero'
+        : missingExpirationCount > 0 ? 'partial' : 'available',
     availableCount,
     expirations: [...expirations],
     missingExpirationCount,
@@ -285,6 +339,11 @@ const WINDOW_DURATION_FIELDS = [
   'window_duration_mins',
   'windowDurationMinutes',
   'window_duration_minutes',
+  // The key the installed Codex (0.153.0) emits on every rollout event and
+  // app-server response: `"primary":{"used_percent":0.0,"window_minutes":300,…}`
+  // (FM-X3). Relative fields like resetsInSeconds have zero hits and are not
+  // recognized.
+  'window_minutes',
 ];
 
 // A duration on a positional primary/secondary slot is stronger evidence than
@@ -465,7 +524,7 @@ export async function readCodexLimits() {
     // Live path works again — clear the diagnostic and re-arm the one-time log.
     diag = { reason: 'ok', cmd: config.codexCmd, detail: null };
     loggedKey = '';
-    lastCompleteReading = live;
+    commitCompleteReading(live);
     return live;
   }
   // Keep a spawn-failure diagnostic (the actionable cause) over a generic
@@ -482,7 +541,7 @@ export async function readCodexLimits() {
   if (rollout && (!lastCompleteReading
     || (rolloutResult.hasEventTimestamp && Number.isFinite(rolloutAt)
       && (!Number.isFinite(cachedAt) || rolloutAt > cachedAt)))) {
-    lastCompleteReading = rollout;
+    commitCompleteReading(rollout);
   }
   return lastCompleteReading;
 }

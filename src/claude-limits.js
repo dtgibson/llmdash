@@ -3,6 +3,11 @@ import { config } from '../config.js';
 
 export const MODEL_LIMIT_RESETLESS_TTL_MS = 7 * 24 * 60 * 60_000;
 export const MODEL_LIMIT_CLOCK_SKEW_MS = 5 * 60_000;
+// How long after its last observation an aged-out model cap is still NAMED
+// (model-cap-expired) instead of the UI claiming a complete reading. A code
+// constant, not a knob: long enough to notice a probe that keeps failing,
+// bounded so a cap the account genuinely lost stops being mentioned.
+export const MODEL_LIMIT_EXPIRED_DISCLOSURE_MS = 30 * 24 * 60 * 60_000;
 
 // Normalize a reset value (epoch seconds, epoch ms, or ISO string) to ISO-8601.
 export function toIso(v) {
@@ -60,12 +65,54 @@ function normalizeModelLimit(raw, capturedAt) {
   };
 }
 
-function activeModelLimit(limit, nowMs) {
-  const resetMs = Date.parse(limit.resetsAt || '');
-  if (Number.isFinite(resetMs)) return resetMs > nowMs;
-  const capturedMs = Date.parse(limit.capturedAt || '');
+// The ONE activity rule for a model cap, shared by the reader (below) and the
+// reading-file merge in src/claude-refresh.js. Accepts the raw field shapes
+// (epoch seconds, epoch ms, or ISO) via toIso. A reset-bearing cap is active
+// until its reset PLUS the clock-skew grace (FM-C3: the pane's reset time and
+// this machine's clock can disagree by minutes — expiring the instant the
+// reset passes dropped caps that were still live); a resetless cap is active
+// for the bounded TTL after a plausible (not future-dated) capture.
+export function modelLimitActiveAt(resetsAt, capturedAt, nowMs) {
+  const resetIso = toIso(resetsAt);
+  if (resetIso) return Date.parse(resetIso) + MODEL_LIMIT_CLOCK_SKEW_MS > nowMs;
+  const capturedMs = Date.parse(toIso(capturedAt) || '');
   return Number.isFinite(capturedMs) && capturedMs <= nowMs + MODEL_LIMIT_CLOCK_SKEW_MS
     && nowMs - capturedMs < MODEL_LIMIT_RESETLESS_TTL_MS;
+}
+
+function activeModelLimit(limit, nowMs) {
+  return modelLimitActiveAt(limit.resetsAt, limit.capturedAt, nowMs);
+}
+
+// Which previously observed model cap has aged out with no newer capture
+// (the model-cap-expired evidence). `storedRows` are the poller's snapshot
+// rows for `claude-model:<slug>` sources (src/db.js getLatestModelSnapshots),
+// injected so this stays pure. Rules: a cap with an ACTIVE row in the current
+// reading is not expired; a row still active by time but absent from the
+// reading is not "expired" either (nothing is guessed about it); only a row
+// whose reset (with skew grace) or resetless TTL has passed, observed within
+// the bounded disclosure window, qualifies — the newest such observation wins.
+// Returns { model, window, lastCapturedAt } or null. Disclosure only: no value
+// is revived from history.
+export function expiredModelCap(activeLimits, nowMs, storedRows) {
+  const active = new Set((Array.isArray(activeLimits) ? activeLimits : [])
+    .filter((l) => l && typeof l === 'object')
+    .map((l) => `${modelSlug(l.model ?? l.source)}:${normalizeModelWindow(l.window)}`));
+  let newest = null;
+  for (const row of (Array.isArray(storedRows) ? storedRows : []).slice(0, 256)) {
+    if (!row || typeof row !== 'object' || typeof row.source !== 'string') continue;
+    if (!row.source.startsWith('claude-model:')) continue;
+    const model = modelSlug(row.source);
+    const window = normalizeModelWindow(row.window);
+    if (!model || active.has(`${model}:${window}`)) continue;
+    const lastCapturedAt = toIso(row.captured_at ?? row.capturedAt);
+    const capturedMs = lastCapturedAt ? Date.parse(lastCapturedAt) : NaN;
+    if (!Number.isFinite(capturedMs) || capturedMs > nowMs + MODEL_LIMIT_CLOCK_SKEW_MS) continue;
+    if (nowMs - capturedMs > MODEL_LIMIT_EXPIRED_DISCLOSURE_MS) continue;
+    if (modelLimitActiveAt(row.resets_at ?? row.resetsAt, lastCapturedAt, nowMs)) continue;
+    if (!newest || capturedMs > newest.capturedMs) newest = { model, window, lastCapturedAt, capturedMs };
+  }
+  return newest ? { model: newest.model, window: newest.window, lastCapturedAt: newest.lastCapturedAt } : null;
 }
 
 // Read the latest rate-limit reading captured by the Claude Code statusline

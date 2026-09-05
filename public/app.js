@@ -38,8 +38,9 @@ function fmtAge(iso) {
 // Reading-age band, derived LIVE on each 1s render tick from the
 // server-supplied thresholds (freshness.freshForMs / freshness.staleAfterMs)
 // — the bands are never hardcoded client-side. A reading visibly crosses
-// fresh → aging → stale between 60s fetches. Null freshness (Codex is not
-// retrofitted) or no capture yet → no band treatment at all.
+// fresh → aging → stale between 60s fetches. Null freshness (a peer on an
+// older llmdash still sends null for Codex) or no capture yet → no band
+// treatment at all. Codex now carries poll-derived thresholds from the server.
 function ageBand(f) {
   if (!f || !f.capturedAt) return null;
   const age = Date.now() - Date.parse(f.capturedAt);
@@ -426,10 +427,27 @@ function toolDetailsTitleId(tool) {
     : tool && tool.source === 'codex' ? 'codex-details-title' : 'tool-details-title';
 }
 
+// "last reported 2h 5m ago" from an ISO instant, or '' when there is no
+// evidence time — never a fabricated age.
+function lastSeenCopy(iso, verb = 'last reported') {
+  const age = fmtAge(iso);
+  if (!age) return '';
+  return age === 'just now' ? `${verb} just now` : `${verb} ${age.replace(/^updated /, '')}`;
+}
+
 function gaugeHtml(win, label, tool, reset = null) {
   if (!win) {
     const codexShort = tool && tool.source === 'codex' && label === '5-hour';
-    const note = codexShort ? 'No short-window reading' : 'No current window reading';
+    const windowKey = label === '5-hour' ? 'five_hour' : 'seven_day';
+    const d = tool && tool.limitsDiagnostic;
+    // FM-X1: when the server names the cause (a complete Codex response that
+    // omits this window), the unavailable card says so — with the last time
+    // this process saw the window — instead of a bare "no reading".
+    const notReported = d && d.reason === 'window-not-reported' && d.window === windowKey;
+    const seen = notReported ? lastSeenCopy(d.lastSeenAt) : '';
+    const note = notReported
+      ? `Not in the latest ${esc(tool.label)} response${seen ? ` · ${esc(seen)}` : ''}`
+      : codexShort ? 'No short-window reading' : 'No current window reading';
     return `<div class="panel limit-card unavailable">`
       + `<div class="panel-head limit-card-head"><span class="win-label window-label">${esc(label)}</span></div>`
       + `<div class="limit-unavailable">Unavailable</div><div class="sub limit-meta">${note}</div>`
@@ -665,8 +683,9 @@ function globalToolGroupHtml(tool, suffix) {
   if (rows) {
     body += codex ? '<h4 class="nested-limit-title">Model caps</h4>' : '';
     body += `<ul class="model-limit-list">${rows}</ul>`;
+    if (!codex) body += modelCapExpiredNoteHtml(tool);
   } else if (!codex) {
-    body += `<p class="empty-evidence"><strong>No additional ${esc(tool.label)} model caps are reported.</strong> The standard account windows above remain the complete current reading.</p>`;
+    body += modelCapEmptyHtml(tool);
   }
   return `<section class="global-limit-group ${toolToneClass(tool)}" aria-labelledby="${id}">`
     + `<div class="global-limit-head"><h3 class="global-limit-title" id="${id}">`
@@ -744,9 +763,23 @@ const AUTOREFRESH_CAUSE_SENTENCES = {
 };
 const AUTOREFRESH_FALLBACK_SENTENCE = (remedy) => `Refresh attempts keep failing — open a Claude Code CLI session to ${remedy}.`;
 
+// Own-key lookup only: a plain [d.cause] would also hit inherited Object keys
+// ('constructor', '__proto__', …), bypassing the intended fallback. Takes the
+// diagnostic object so every caller (the gauge note, the model-cap block)
+// shares the one guarded lookup.
+function autoRefreshCauseSentence(d, remedy) {
+  return (Object.prototype.hasOwnProperty.call(AUTOREFRESH_CAUSE_SENTENCES, d.cause)
+    ? AUTOREFRESH_CAUSE_SENTENCES[d.cause] : AUTOREFRESH_FALLBACK_SENTENCE)(remedy);
+}
+
 function limitsNoteHtml(tool) {
   const d = tool.limitsDiagnostic;
   if (!d) return '';
+  // The two lowest-precedence codes describe a SUPPLEMENTARY slot, not the
+  // gauges: model-cap-expired is rendered in the model-cap block and
+  // window-not-reported on the unavailable window card. The gauges are
+  // current, so no data-quality note is stacked here (no duplicate copy).
+  if (d.reason === 'model-cap-expired' || d.reason === 'window-not-reported') return '';
   // Auto-refresh diagnostics first — the branch order mirrors the server's
   // precedence (failing > disabled > stale). Both render with the shipped
   // data-quality note component in its existing slot; the opening fragment
@@ -760,10 +793,7 @@ function limitsNoteHtml(tool) {
     if (d.reason === 'auto-refresh-disabled') {
       return `<div class="stale-note"><strong>Auto-refresh is off</strong> (<code>LLMDASH_CLAUDE_AUTOREFRESH=0</code>) ${opening} Unset the variable and restart to re-enable, or open a Claude Code CLI session to ${remedy}.</div>`;
     }
-    // Own-key lookup only: a plain [d.cause] would also hit inherited Object
-    // keys ('constructor', '__proto__', …), bypassing the intended fallback.
-    const sentence = (Object.prototype.hasOwnProperty.call(AUTOREFRESH_CAUSE_SENTENCES, d.cause)
-      ? AUTOREFRESH_CAUSE_SENTENCES[d.cause] : AUTOREFRESH_FALLBACK_SENTENCE)(remedy);
+    const sentence = autoRefreshCauseSentence(d, remedy);
     return `<div class="stale-note"><strong>Auto-refresh is failing</strong> ${opening} ${sentence}</div>`;
   }
   if (d.reason === 'stale-reading') {
@@ -781,6 +811,39 @@ function limitsNoteHtml(tool) {
     text = `No ${esc(tool.label)} limit reading yet — limits appear once the app-server responds to the dashboard's poll or a session records them locally.`;
   }
   return `<div class="empty-note">${text}</div>`;
+}
+
+// The model-cap block's empty state names WHY no cap is shown (FM-C1): an
+// aged-out cap is disclosed with its last observation — and the probe's
+// failure cause when one is established — instead of the block asserting a
+// "complete current reading". Reason/cause codes come from the server; the
+// client maps them to copy via own-key lookups and escapes the few free-form
+// fields (the model slug is server-normalized but escaped anyway).
+function modelCapExpiredSentence(d) {
+  const model = esc(d.model || 'model');
+  const seen = lastSeenCopy(d.lastCapturedAt, 'last observed') || 'last observation time unknown';
+  return `<strong>The ${model} cap is no longer current</strong> — ${seen}; no newer model-cap reading has arrived, so it is not shown. `
+    + 'The account windows above are current, but they are not the whole picture until the <code>/usage</code> auto-refresh captures the cap again'
+    + (d.cause ? ` — it is failing: ${autoRefreshCauseSentence(d, 'refresh the model caps manually')}` : '.');
+}
+
+function modelCapEmptyHtml(tool) {
+  const d = tool && tool.limitsDiagnostic;
+  if (d && d.reason === 'model-cap-expired') {
+    return `<p class="empty-evidence">${modelCapExpiredSentence(d)}</p>`;
+  }
+  if (d && d.reason === 'auto-refresh-failing') {
+    return `<p class="empty-evidence"><strong>No ${esc(tool.label)} model caps are reported</strong> — model caps arrive only through the <code>/usage</code> auto-refresh, which is failing. ${autoRefreshCauseSentence(d, 'refresh the reading manually')}</p>`;
+  }
+  return `<p class="empty-evidence"><strong>No additional ${esc(tool.label)} model caps are reported in the current reading.</strong> Model caps arrive only through the <code>/usage</code> auto-refresh; the standard account windows above are the current account-wide reading.</p>`;
+}
+
+// When other caps still render but one has aged out, disclose that one under
+// the list (same class as the reset-credit evidence notes).
+function modelCapExpiredNoteHtml(tool) {
+  const d = tool && tool.limitsDiagnostic;
+  if (!d || d.reason !== 'model-cap-expired') return '';
+  return `<p class="evidence-note">${modelCapExpiredSentence(d)}</p>`;
 }
 
 function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool), weeklyResetSelection = null, includePacing = true) {
@@ -964,7 +1027,10 @@ function supplementaryToolForMembers(members, representative) {
     for (const model of Array.isArray(member.tool.modelLimits) ? member.tool.modelLimits.slice(0, 128) : []) {
       if (!model || typeof model !== 'object') continue;
       const key = `${model.source || ''}|${model.model || ''}|${model.window || ''}`;
-      const at = Date.parse(model.capturedAt || '');
+      // FM-C4: a peer cap that carries no capturedAt of its own still has an
+      // evidence clock — the member tool's reading time — so it competes and
+      // renders instead of being dropped silently.
+      const at = Date.parse(model.capturedAt || member.tool.dataAt || '');
       if (!Number.isFinite(at)) continue;
       const current = newestModels.get(key);
       if (!current || at > current.at) newestModels.set(key, { at, model });

@@ -17,8 +17,13 @@
     6. launchctl load -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist
        (stop with: launchctl unload -w ~/Library/LaunchAgents/com.llmdash.dashboard.plist)
 
-  To restrict strictly to your tailnet, add an LLMDASH_HOST entry set to your
-  Tailscale IP (100.x.y.z) alongside LLMDASH_PORT below.
+  Reachability is TAILNET-ONLY by default: the server listens on all interfaces
+  (the menu-bar badge uses 127.0.0.1) but refuses any connection that is not
+  loopback- or Tailscale-to-Tailscale at connect time. To also allow devices on
+  your LAN, add an LLMDASH_ALLOW_LAN entry set to 1 alongside LLMDASH_PORT
+  below; to bind one address instead (127.0.0.1 = local-only, or your Tailscale
+  IP 100.x.y.z), add an LLMDASH_HOST entry — a pinned host has no gate and
+  ignores LLMDASH_ALLOW_LAN.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

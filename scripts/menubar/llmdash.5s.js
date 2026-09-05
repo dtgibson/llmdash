@@ -199,18 +199,60 @@ export function sanitizeHostPort(s) {
   return String(s).replace(/[\s|]/g, '');
 }
 
+// A bounded "3h 12m ago" for a diagnostic's evidence time (sanitized ISO in,
+// fixed words out); '' when there is no usable instant — never a fabricated age.
+function ageText(iso) {
+  const ms = Date.parse(typeof iso === 'string' ? iso : '');
+  if (!Number.isFinite(ms)) return '';
+  const age = Date.now() - ms;
+  return age < 60_000 ? 'just now' : `${fmtDur(age)} ago`;
+}
+
+// The auto-refresh failure cause, mapped to one fixed fragment (mirrors the
+// dashboard's AUTOREFRESH_CAUSE_SENTENCES semantics). Own-key lookup only; an
+// unmapped or absent cause contributes nothing — the code is never shown raw.
+const AUTOREFRESH_CAUSE_FRAGMENTS = {
+  'spawn-error': 'the claude command couldn’t be run (set LLMDASH_CLAUDE_CMD to the absolute path and restart);',
+  'timeout': 'attempts time out before a reading arrives;',
+  'parse-failed': 'the /usage screen couldn’t be read (a Claude Code update may have changed it);',
+  'no-reading-produced': 'attempts finish without producing a reading;',
+};
+function autoRefreshCauseFragment(cause) {
+  return Object.prototype.hasOwnProperty.call(AUTOREFRESH_CAUSE_FRAGMENTS, cause)
+    ? ` ${AUTOREFRESH_CAUSE_FRAGMENTS[cause]}` : '';
+}
+const WINDOW_NAMES = { five_hour: '5-hour', seven_day: 'weekly' };
+function windowName(key) {
+  return Object.prototype.hasOwnProperty.call(WINDOW_NAMES, key) ? WINDOW_NAMES[key] : 'account';
+}
+
 // Diagnostic reason code → one fixed honest line. Own-key (hasOwnProperty)
 // lookup only, mirroring the shipped convention: a plain LINES[reason] would
 // also hit inherited Object keys ('constructor', '__proto__', …) and bypass the
 // generic fallback. Copy mirrors limitsNoteHtml's semantics (not its HTML).
+// Every free-form field (detail, model) is sanitized for the SwiftBar grammar.
 export const DIAG_LINES = {
-  'auto-refresh-failing': () => 'Auto-refresh is failing — open a Claude Code CLI session to refresh manually.',
+  'auto-refresh-failing': (d) => `Auto-refresh is failing —${autoRefreshCauseFragment(d && d.cause)} open a Claude Code CLI session to refresh manually.`,
   'auto-refresh-disabled': () => 'Auto-refresh is off (LLMDASH_CLAUDE_AUTOREFRESH=0) — unset it to re-enable, or open a Claude Code CLI session.',
   'stale-reading': () => 'Stale reading — the limits may have moved since; open a Claude Code CLI session to refresh.',
   'no-statusline-reading': () => 'No statusline reading yet — open a Claude Code CLI session to capture the first reading.',
   'codex-cmd-failed': (d) => 'The codex command couldn’t be run — set LLMDASH_CODEX_CMD to the absolute path and restart.'
     + (d && d.detail ? ` (${sanitize(d.detail)})` : ''),
   'no-reading': () => 'No Codex limit reading yet.',
+  // model-cap-expired (FM-C1): a previously observed model cap aged out and no
+  // newer capture replaced it — named with its last observation, never a value.
+  'model-cap-expired': (d) => {
+    const model = sanitize(String(d && d.model || 'model')).slice(0, 48);
+    const seen = ageText(d && d.lastCapturedAt);
+    return `The ${model} model cap is no longer current${seen ? ` (last observed ${seen})` : ''} — no newer cap reading has arrived;`
+      + `${autoRefreshCauseFragment(d && d.cause)} the account windows above stay current.`;
+  },
+  // window-not-reported (FM-X1): the latest complete Codex response omitted
+  // this window; the slot stays empty (never backfilled), with its last-seen time.
+  'window-not-reported': (d) => {
+    const seen = ageText(d && d.lastSeenAt);
+    return `The latest Codex response doesn’t report the ${windowName(d && d.window)} window${seen ? ` (last reported ${seen})` : ''} — it shows as not available until Codex includes it again.`;
+  },
 };
 export const DIAG_FALLBACK = 'Limit reading unavailable.';
 
@@ -594,7 +636,12 @@ function wrappedMenuLines(text, opts = {}, { max = DROPDOWN_WRAP_CHARS } = {}) {
 
 function windowRowText(row) {
   const resetMs = row.resetsAt ? Date.parse(row.resetsAt) : NaN;
-  const resetIn = Number.isFinite(resetMs) ? fmtDur(resetMs - Date.now()) : fmtDur(null);
+  // A reset that has already passed is not a live countdown (FM-X5): the
+  // dashboard's compact reset shows '—' there, so the badge must not read
+  // "resets now" forever. Guarded HERE — fmtDur itself stays verbatim for the
+  // parity test.
+  const resetIn = Number.isFinite(resetMs) && resetMs > Date.now()
+    ? fmtDur(resetMs - Date.now()) : fmtDur(null);
   const resetPresentation = row[RESET_PRESENTATION];
   const resetSource = resetPresentation && resetPresentation.source === 'configured' ? 'Configured'
     : resetPresentation && resetPresentation.source === 'live' ? 'Live' : null;
@@ -1084,7 +1131,7 @@ export function toolAggregates(shownViews) {
           if (key && (windows[key] == null || row.remaining < windows[key])) {
             windows[key] = row.remaining;
           }
-          const band = tv.band || 'fresh'; // Codex has no freshness band → treat as fresh
+          const band = tv.band || 'fresh'; // no freshness band (a peer on an older llmdash) → treat as fresh
           if (best == null || row.remaining < best.pct) best = { pct: row.remaining, band };
         }
       }
