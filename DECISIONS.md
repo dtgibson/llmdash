@@ -1,5 +1,54 @@
 # Decisions — llmdash
 
+## Tailnet-only default bind and limit-reporting resilience — 2026-09-04 (improve)
+
+**Decision:** The shipped network default is now **tailnet-only** (user-ratified):
+the server keeps its single wildcard listener but destroys every accepted
+connection before any HTTP byte is parsed unless it arrived on a loopback or
+Tailscale address *from* a loopback or Tailscale source. `LLMDASH_ALLOW_LAN=1`
+restores LAN-plus-tailnet reachability; `LLMDASH_HOST=127.0.0.1` stays local-only;
+a pinned `LLMDASH_HOST` keeps its exact meaning with no gate. In the same change,
+Claude model caps and Codex reset readings stop vanishing silently: the `/usage`
+probe may refresh aged caps during active use, probe caps survive the statusline's
+newest-wins race, a passed reset gets skew grace, and an expired cap is disclosed
+as `model-cap-expired` with its last observation; Codex readings carry a
+poll-derived freshness band, a complete response that omits a window ships
+`window-not-reported`, `window_minutes` identifies windows, and reset credits
+degrade to `stale` (24 h hard cap) instead of `unsupported`.
+**Rationale:** An accept-time gate over both socket addresses was chosen over two
+address-bound listeners because it gives the same protection under the weak-host
+model with no re-bind lifecycle when `tailscale0` is down at boot: loopback
+consumers (the badge, the deploy health check) keep working, nothing widens while
+the tunnel is down, and tailnet clients are accepted the moment it is up. The
+reporting half answers live evidence: the sole model-cap producer was starved
+whenever the statusline kept the account reading fresh, and Codex's absent 5-hour
+window rendered as a bare dash with no cause.
+**Implications:** A LAN device not on the tailnet is refused at connect time
+(empty reply); a tailnet peer reaching this machine by a `.local`/LAN address must
+switch to the Tailscale IP or MagicDNS name. Refusal is connect-then-reset, so a
+LAN scanner still sees the port as open (it learns nothing else) — a property of
+the chosen approach. The installer regenerates the plist on every deploy, so a
+hand-added `LLMDASH_ALLOW_LAN=1` there is wiped by the next deploy; a durable LAN
+opt-out needs an installer/template change. Prior decisions modified:
+2026-06-22 — the banner's wildcard-bind note now states tailnet-only scope and
+the tunnel-down loopback fallback; 2026-07-01 — "Codex is not retrofitted" is
+reversed, Codex now carries a server-supplied freshness band; 2026-07-02 /
+2026-07-16 — the probe's freshness gate gains a model-cap-age condition (activity
+gate, single flight, cadence floor, and backoff preserved; attempts in that mode
+are spaced by the 60-minute age threshold); 2026-07-11 / 2026-08-27 — probe caps
+merge regardless of which writer wins the timestamp race, the reset branch gets
+the same 5-minute skew grace, and TTL/reset expiry is disclosed as
+`model-cap-expired` with last-observed evidence read from bounded SQLite snapshots
+(disclosure only, never a revived value); 2026-07-13 — `window_minutes` joins the
+explicit duration keys and an omitted window stays authoritative but names itself;
+2026-07-30 — reset credits past TTL are `stale` with their age, cleared at 24 h,
+never `unsupported`. **Open:** the per-request `getLatestModelSnapshots()` `LIKE`
+prefix is a full index scan (Low; the fix is a `>= / <` range predicate); peer
+ingest still drops the new diagnostic fields and the `stale` credit status (safe
+direction, a multi-host honesty gap); why Codex 0.153.0 omits `five_hour` is
+unconfirmed — its new `rateLimitsByLimitId` map is unread; the pre-existing
+`/usage` `parse-failed` probes are a parser problem this change did not fix.
+
 ## Codex model-token attribution — exact future pricing and conservative historical estimates — 2026-08-27 (fix)
 
 **Bug:** Terra usage was collapsing to a generic GPT-5.6 label, historical

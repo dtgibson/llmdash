@@ -12,10 +12,12 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   and schedules live in pacing alongside both-window predictors, provider-reported
   model caps, and local-log activity stats, with limit snapshots logged to SQLite.
 - **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
-  Claude in the leading account-limit comparison alongside its current reset-credit
-  count and every explicit expiration, with absent evidence left unavailable and
-  its account facts, local activity, reasoning, work mix, context/compaction
-  pressure, latency, and daily patterns grouped into one honest Codex story.
+  Claude in the leading account-limit comparison with the same aging/stale
+  freshness band, alongside its current reset-credit count and every explicit
+  expiration, with absent evidence left unavailable (a window omitted from the
+  latest response names itself as such) and its account facts, local activity,
+  reasoning, work mix, context/compaction pressure, latency, and daily patterns
+  grouped into one honest Codex story.
 - **Local cost analysis** — an independent 7d / 30d / 90d view compares
   owner-confirmed subscription spend with exact-model, effective-dated
   API-equivalent values for the same retained Claude/Codex usage under observed
@@ -34,8 +36,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
   and keeps itself fresh automatically while Claude is active (including nested
   subagent work) and the Claude CLI is authenticated: the activity-gated probe
-  retries at a bounded cadence after timeouts, cleans up across reloads and exits,
-  degrades honestly when failing or disabled, and costs no usage quota.
+  also refreshes aged model caps during active use, retries at a bounded cadence
+  after timeouts, cleans up across reloads and exits, degrades honestly when
+  failing or disabled, discloses an expired model cap with its last observation
+  rather than dropping it silently, and costs no usage quota.
 - **macOS menu-bar badge** — a glanceable badge in the menu bar (via SwiftBar/xbar)
   showing the most-constrained remaining % across Claude Code and Codex (both
   windows), with a dropdown carrying the full per-tool picture, including Claude
@@ -105,9 +109,11 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - Codex limits, reset-credit entitlements, and account facts come from `codex
   app-server` (polled on the interval, not per request) with a rollout-file
   fallback; explicit duration identifies each current window, a complete response
-  can authoritatively omit a window, and historical snapshot rows never repopulate
-  that missing current slot. Reset credits retain only a bounded available count,
-  explicit expiration instants, and their observation time in process memory. A
+  can authoritatively omit a window (disclosed with the last time it was seen), and
+  historical snapshot rows never repopulate that missing current slot. Reset
+  credits retain only a bounded available count, explicit expiration instants, and
+  their observation time in process memory, reading as stale (never unsupported)
+  while polls fail. A
   bounded local scanner reduces `~/.codex/sessions` into cached aggregate activity
   and 24h/7d/30d diagnostics for `/api/codex-insights`, never returning raw session
   content or identifiers; deeper insight history is re-derived from logs and never
@@ -132,7 +138,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Static assets are served `no-store`; the CSP allows inline styles while
   scripts stay locked to `'self'`.
-- Served on `0.0.0.0:8787`, reachable over the tailnet. This Mac runs it as the
+- Served on `0.0.0.0:8787` but **tailnet-only by default**: a connection is
+  refused at accept unless it arrives on a loopback/Tailscale address from a
+  loopback/Tailscale source (`LLMDASH_ALLOW_LAN=1` also admits LAN devices;
+  `LLMDASH_HOST=127.0.0.1` is local-only). This Mac runs it as the
   `com.llmdash.dashboard` user LaunchAgent; Linux installs can use the documented
   systemd user service.
 - The menu-bar badge is a zero-dependency Node plugin that reads its local

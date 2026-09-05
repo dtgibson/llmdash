@@ -133,6 +133,11 @@
   bounded in memory; never persist them without explicit historical semantics and
   expiry cleanup. Activity/token stats are derived on demand from Claude Code logs
   — no extra storage.
+- **A request-path SQL predicate must be index-seekable and output-bounded, not
+  merely parameterized.** SQLite's default case-insensitive `LIKE 'prefix%'` on a
+  BINARY-collated column is a full index scan whose cost grows with snapshot
+  history; use a range (`source >= 'prefix:' AND source < 'prefix;'`) or compute
+  once per poller tick and serve the cached result.
 - **Be honest in the UI.** When a number's source or scope differs from the
   headline data (e.g. account-wide limits vs local-log activity), say so.
   Account-wide allowances have one canonical home in the leading account story;
@@ -148,9 +153,26 @@
   future silent revert is caught. A default diff that lands unannounced reads as a
   regression; ratify it, disclose it, and pin it.
 - **Surface security-relevant defaults** (e.g. network binding) in the README and
-  the startup log — never silently. Treat `0.0.0.0` as **LAN plus tailnet**
-  exposure, never tailnet-only; when adding privacy-sensitive aggregates, disclose
-  that reachability and preserve the `127.0.0.1` local-only option.
+  the startup log — never silently. The shipped default is **tailnet-only**: the
+  wildcard bind stays (loopback consumers keep working) but an accept-time gate
+  refuses any connection not arriving on a loopback/Tailscale address from a
+  loopback/Tailscale source. `LLMDASH_ALLOW_LAN=1` is the opt-out, and with it
+  `0.0.0.0` means **LAN plus tailnet** exposure, never tailnet-only; a pinned
+  `LLMDASH_HOST` has no gate (`127.0.0.1` stays the local-only option). When
+  adding privacy-sensitive aggregates, disclose that reachability. The installer
+  regenerates the plist on every deploy, so a hand-added `LLMDASH_ALLOW_LAN` in
+  the live plist does not survive a deploy — a durable opt-out is a template
+  change, not a plist edit.
+- **Network scope is enforced at accept, by one classifier over BOTH socket
+  addresses (arrived-on and came-from), failing closed on a missing address or an
+  absent policy.** The gate runs in `server.on('connection')` and destroys the
+  socket before the HTTP parser sees a byte; it is injectable
+  (`_setConnectionGate`) so a real-socket zero-byte test is hermetic without a
+  tailnet interface. Address classifiers (`canonicalIp` / `isLoopback` /
+  `isTailnetIp`) have exactly one home, `src/net.js` — never a second copy in a
+  route module. A network-scope change is host-verified on all three address
+  classes (loopback, tailnet, LAN) with a raw-socket zero-byte assertion, because
+  "refused" here means connect-then-reset: a scanner still sees the port open.
 - HTTP responses carry baseline security headers (`nosniff`, CSP `default-src
   'self'`, `Referrer-Policy`) and reject mutation methods with 405 except for the
   exact protected reset-and-billing PUT described above.
@@ -208,6 +230,9 @@
   same reading file — activity-gated, on by default, off via
   `LLMDASH_CLAUDE_AUTOREFRESH=0`. The TUI scrape is version-brittle; a layout it
   can't parse fails loudly as `parse-failed`, never a partial or fabricated reading.
+  A gate that refreshes aged *secondary* evidence (the model-cap-age condition)
+  spaces its attempts by the same interval as its age threshold, so evidence that
+  never refreshes cannot drive a probe loop.
 - **Any outbound HTTP llmdash makes follows the hardened-fetch template** in
   `src/hosts.js` (`fetchPeerState`). A peer/host read is the one outbound surface,
   and it is SSRF-shaped. The rules: target
@@ -263,7 +288,11 @@
   explicitly named legacy fields keep their declared identity and positional
   fallback is allowed only when duration metadata is absent. Per-window snapshot
   rows are history for Trends, not proof that a window still exists now, so they
-  must never fill a slot omitted by a complete current response.
+  must never fill a slot omitted by a complete current response. A
+  lowest-precedence diagnostic that describes a supplementary slot
+  (`model-cap-expired`, `window-not-reported`) renders on that slot, leaves the
+  gauge note empty, and may cite bounded history only to disclose "last
+  observed" — never to revive a value.
 - If a tool genuinely lacks token activity, render an honest "not available" state
   (never fabricated zeros) and omit its activity charts. (Codex *does* record
   activity — `~/.codex/sessions` rollout logs — so it shows full stats.)
@@ -329,7 +358,11 @@
   null-prototype object), never a bare `TABLE[code] || fallback`. A bare bracket
   lookup also hits `Object.prototype` keys (`constructor`, `toString`,
   `__proto__`), so an unexpected code can bypass the fallback, throw mid-render,
-  or leak `[object …]` into copy.
+  or leak `[object …]` into copy. A new `limitsDiagnostic` field or enum status
+  (or a new reset-credit status) ships with the `src/hosts.js` peer normalizer
+  (`normalizeDiagnostic`, `RESET_CREDIT_STATUSES`) and a `normalizePeerState`-path
+  test in the same change — the whitelist is the right fail-safe, but a field it
+  silently drops is an honesty gap the multi-host view cannot see.
 - `auto-refresh-failing` (with a `cause`: `spawn-error` / `timeout` /
   `parse-failed`) and `auto-refresh-disabled` are the **live** diagnostic codes
   for the Claude `/usage` auto-refresh probe — no longer reserved. The cause
