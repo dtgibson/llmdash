@@ -4,7 +4,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 
 // ── install-macos.sh --service install|remove|status — the launchctl/plist hooks ─
 // (menubar-service-controls, FR-02/FR-03/FR-04/FR-07/FR-08/FR-17.)
@@ -44,6 +44,8 @@ function fakeLaunchctlHarness(mode) {
   const state = path.join(dir, 'state');
   const printCount = path.join(dir, 'print-count');
   const bootstrapCount = path.join(dir, 'bootstrap-count');
+  const readinessLog = path.join(dir, 'readiness.log');
+  const readinessCount = path.join(dir, 'readiness-count');
   const hangPid = path.join(dir, 'hang.pid');
   const descendantPid = path.join(dir, 'descendant.pid');
   const launchctl = path.join(dir, 'launchctl');
@@ -185,6 +187,43 @@ fi
 exit 64
 `);
   fs.chmodSync(launchctl, 0o755);
+  const curl = path.join(dir, 'curl');
+  fs.writeFileSync(curl, `#!/bin/sh
+set -u
+printf '%s\\n' "$*" >> "$LLMDASH_FAKE_CURL_LOG"
+count=0
+if [ -f "$LLMDASH_FAKE_CURL_COUNT" ]; then
+  count="$(cat "$LLMDASH_FAKE_CURL_COUNT")"
+fi
+count=$((count + 1))
+printf '%s\\n' "$count" > "$LLMDASH_FAKE_CURL_COUNT"
+if [ ! -f "$LLMDASH_FAKE_LAUNCHCTL_STATE" ] ||
+   [ "$(cat "$LLMDASH_FAKE_LAUNCHCTL_STATE")" != "loaded" ]; then
+  echo 'Readiness probe ran before bootstrap.' >&2
+  exit 88
+fi
+case "$LLMDASH_FAKE_LAUNCHCTL_MODE" in
+  delayed-readiness)
+    if [ "$count" -lt 3 ]; then
+      echo "curl: (7) simulated refusal on readiness attempt $count" >&2
+      exit 7
+    fi
+    ;;
+  never-ready)
+    echo "curl: (7) simulated refusal on readiness attempt $count" >&2
+    exit 7
+    ;;
+  hang-readiness)
+    echo 'Readiness probe began, then hung.' >&2
+    printf '%s\\n' "$$" > "$LLMDASH_FAKE_LAUNCHCTL_HANG_PID"
+    trap '' TERM
+    exec >/dev/null 2>&1
+    exec /bin/sleep 60
+    ;;
+esac
+exit 0
+`);
+  fs.chmodSync(curl, 0o755);
   const sleep = path.join(dir, 'sleep');
 fs.writeFileSync(sleep, `#!/bin/sh
 set -u
@@ -218,6 +257,8 @@ exit 0
       LLMDASH_FAKE_LAUNCHCTL_STATE: state,
       LLMDASH_FAKE_LAUNCHCTL_PRINT_COUNT: printCount,
       LLMDASH_FAKE_LAUNCHCTL_BOOTSTRAP_COUNT: bootstrapCount,
+      LLMDASH_FAKE_CURL_LOG: readinessLog,
+      LLMDASH_FAKE_CURL_COUNT: readinessCount,
       LLMDASH_FAKE_LAUNCHCTL_HANG_PID: hangPid,
       LLMDASH_FAKE_LAUNCHCTL_DESCENDANT_PID: descendantPid,
       TMPDIR: dir,
@@ -228,6 +269,10 @@ exit 0
     },
     deadlineFiles() {
       return fs.readdirSync(dir).filter((name) => name.startsWith('llmdash-deadline.'));
+    },
+    readinessCalls() {
+      if (!fs.existsSync(readinessLog)) return [];
+      return fs.readFileSync(readinessLog, 'utf8').trim().split('\n').filter(Boolean);
     },
   };
 }
@@ -251,6 +296,7 @@ const binDir = path.join(tmp, 'bin');
 const fakeNode = fakeBin(binDir, 'node');
 const fakeCodex = fakeBin(binDir, 'codex');
 const fakeClaude = fakeBin(binDir, 'claude');
+fakeBin(binDir, 'curl');
 const SYS_PATH = `${binDir}:/usr/bin:/bin:/usr/sbin:/sbin`;
 const HANG_TEST_OUTER_TIMEOUT_MS = 8000;
 let acceleratedScript;
@@ -263,10 +309,12 @@ function scriptWithAcceleratedDeadlines() {
   assert.equal((source.match(/^SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5$/gm) || []).length, 1);
   assert.equal((source.match(/^SERVICE_SLEEP_DEADLINE_SECONDS=1$/gm) || []).length, 1);
   assert.equal((source.match(/^SERVICE_BOOTOUT_WAIT_ATTEMPTS=50$/gm) || []).length, 1);
+  assert.equal((source.match(/^SERVICE_READY_WAIT_ATTEMPTS=50$/gm) || []).length, 1);
   acceleratedScript = path.join(tmp, 'install-macos-short-deadlines.sh');
   fs.writeFileSync(acceleratedScript, source
     .replace('SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5', 'SERVICE_LAUNCHCTL_DEADLINE_SECONDS=1')
-    .replace('SERVICE_BOOTOUT_WAIT_ATTEMPTS=50', 'SERVICE_BOOTOUT_WAIT_ATTEMPTS=3'));
+    .replace('SERVICE_BOOTOUT_WAIT_ATTEMPTS=50', 'SERVICE_BOOTOUT_WAIT_ATTEMPTS=3')
+    .replace('SERVICE_READY_WAIT_ATTEMPTS=50', 'SERVICE_READY_WAIT_ATTEMPTS=3'));
   fs.chmodSync(acceleratedScript, 0o755);
   return acceleratedScript;
 }
@@ -333,6 +381,52 @@ function runSvc(args, {
     timeout,
     killSignal: 'SIGKILL',
   });
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function startHttpDecoy() {
+  const dir = fs.mkdtempSync(path.join(tmp, 'readiness-decoy-'));
+  const serverScript = path.join(dir, 'server.mjs');
+  const portFile = path.join(dir, 'port');
+  const hitFile = path.join(dir, 'hits');
+  fs.writeFileSync(serverScript, `
+import fs from 'node:fs';
+import http from 'node:http';
+const [portFile, hitFile] = process.argv.slice(2);
+const server = http.createServer((_req, res) => {
+  fs.appendFileSync(hitFile, 'hit\\n');
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end('{}');
+});
+server.listen(0, '127.0.0.1', () => fs.writeFileSync(portFile, String(server.address().port)));
+`);
+  const child = spawn(process.execPath, [serverScript, portFile, hitFile], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  for (let attempt = 0; attempt < 100 && !fs.existsSync(portFile); attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`readiness decoy exited ${child.exitCode}`);
+    await delay(10);
+  }
+  if (!fs.existsSync(portFile)) {
+    child.kill('SIGKILL');
+    throw new Error('readiness decoy did not publish its port');
+  }
+  return {
+    child,
+    port: Number(fs.readFileSync(portFile, 'utf8')),
+    hits() {
+      if (!fs.existsSync(hitFile)) return 0;
+      return fs.readFileSync(hitFile, 'utf8').trim().split('\n').filter(Boolean).length;
+    },
+    async stop() {
+      if (child.exitCode !== null) return;
+      const exited = new Promise((resolve) => child.once('exit', resolve));
+      child.kill('SIGTERM');
+      await Promise.race([exited, delay(1000)]);
+      if (child.exitCode === null) child.kill('SIGKILL');
+    },
+  };
 }
 
 function assertBoundedTimeout(result, diagnostic) {
@@ -408,6 +502,160 @@ test('--service install: regenerates the plist with ABSOLUTE paths and bootstrap
   // It really bootstrapped into the user domain.
   const printed = spawnSync('/bin/launchctl', ['print', `gui/${uid}/${label}`], { encoding: 'utf8' });
   assert.equal(printed.status, 0, 'the scratch agent is bootstrapped (launchctl print succeeds)');
+});
+
+test('--service install waits for loopback HTTP readiness after bootstrap', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const fake = fakeLaunchctlHarness('delayed-readiness');
+  const result = runSvc(['--service', 'install', checkout], {
+    label: `${LABEL}-delayed-readiness`,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /State: running/);
+  assert.equal(fake.calls().filter((call) => call.startsWith('bootstrap ')).length, 1);
+  assert.deepEqual(fake.readinessCalls(), [
+    '-q --noproxy * --proto =http -fsS -o /dev/null http://127.0.0.1:8787/api/state',
+    '-q --noproxy * --proto =http -fsS -o /dev/null http://127.0.0.1:8787/api/state',
+    '-q --noproxy * --proto =http -fsS -o /dev/null http://127.0.0.1:8787/api/state',
+  ]);
+});
+
+test('--service install fails after a bounded HTTP-readiness wait', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const label = `${LABEL}-never-ready`;
+  const fake = fakeLaunchctlHarness('never-ready');
+  const result = runSvc(['--service', 'install', checkout], {
+    label,
+    laDir,
+    commandDir: fake.dir,
+    env: { ...fake.env, LLMDASH_PORT: '9317' },
+    scriptPath: scriptWithAcceleratedDeadlines(),
+  });
+  assert.equal(result.status, 7, result.stderr);
+  assert.match(result.stderr, /curl: \(7\) simulated refusal on readiness attempt 3/);
+  assert.doesNotMatch(result.stderr, /readiness attempt [12]/,
+    'only the final probe diagnostic is reported');
+  assert.match(result.stderr,
+    new RegExp(`${label} did not accept HTTP at http://127\\.0\\.0\\.1:9317/api/state after 3 readiness checks \\(last probe exited 7\\)`));
+  assert.ok(fake.readinessCalls().every((call) => call.endsWith('http://127.0.0.1:9317/api/state')),
+    'the readiness boundary honors the configured service port');
+  assert.equal(fake.readinessCalls().length, 3);
+  assert.doesNotMatch(result.stdout, /State: running/);
+  assertNoDeadlineCaptureFiles(fake, 'failed readiness wait');
+});
+
+test('--service install rejects unsafe ports before plist, bootstrap, or readiness work', () => {
+  for (const port of ['8787@host.example:9443', 'not-a-port', '0', '65536']) {
+    const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+    const checkout = scratchCheckout();
+    const label = `${LABEL}-invalid-port-${port.length}`;
+    const fake = fakeLaunchctlHarness('normal');
+    const result = runSvc(['--service', 'install', checkout], {
+      label,
+      laDir,
+      commandDir: fake.dir,
+      env: { ...fake.env, LLMDASH_PORT: port },
+    });
+    assert.equal(result.status, 2, `${port}: ${result.stderr}`);
+    assert.equal(result.stdout, '', port);
+    assert.equal(result.stderr,
+      '  Service: LLMDASH_PORT must be a decimal TCP port from 1 to 65535.\n', port);
+    assert.equal(fs.existsSync(path.join(laDir, `${label}.plist`)), false,
+      `${port}: no plist may be generated`);
+    assert.deepEqual(fake.calls(), [], `${port}: launchctl must not run`);
+    assert.deepEqual(fake.readinessCalls(), [], `${port}: curl must not run`);
+  }
+});
+
+test('--service install readiness ignores hostile curl config and proxy state', async () => {
+  const decoy = await startHttpDecoy();
+  const hostileHome = fs.mkdtempSync(path.join(tmp, 'curl-home-'));
+  const directUrl = 'http://127.0.0.1:1/api/state';
+  const decoyUrl = `http://127.0.0.1:${decoy.port}`;
+  const hostileEnv = {
+    CURL_HOME: hostileHome,
+    http_proxy: decoyUrl,
+    HTTP_PROXY: decoyUrl,
+    all_proxy: decoyUrl,
+    ALL_PROXY: decoyUrl,
+    no_proxy: '',
+    NO_PROXY: '',
+  };
+  fs.writeFileSync(path.join(hostileHome, '.curlrc'),
+    `connect-to = "127.0.0.1:1:127.0.0.1:${decoy.port}"\nlocation\n`);
+  try {
+    const configControl = spawnSync('/usr/bin/curl', ['-fsS', '-o', '/dev/null', directUrl], {
+      env: {
+        ...process.env,
+        HOME: hostileHome,
+        CURL_HOME: hostileHome,
+        http_proxy: '',
+        HTTP_PROXY: '',
+        https_proxy: '',
+        HTTPS_PROXY: '',
+        all_proxy: '',
+        ALL_PROXY: '',
+        no_proxy: '*',
+        NO_PROXY: '*',
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(configControl.status, 0,
+      `the hostile curl-config control must reach the decoy: ${configControl.stderr}`);
+    assert.equal(decoy.hits(), 1, 'the config-controlled request is diverted to the decoy');
+
+    const proxyControl = spawnSync('/usr/bin/curl', ['-q', '-fsS', '-o', '/dev/null', directUrl], {
+      env: { ...process.env, HOME: hostileHome, ...hostileEnv },
+      encoding: 'utf8',
+    });
+    assert.equal(proxyControl.status, 0,
+      `the hostile proxy control must reach the decoy: ${proxyControl.stderr}`);
+    assert.equal(decoy.hits(), 2, 'the proxy-controlled request is diverted to the decoy');
+
+    const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+    const checkout = scratchCheckout();
+    const fake = fakeLaunchctlHarness('normal');
+    fs.rmSync(path.join(fake.dir, 'curl'));
+    fs.symlinkSync('/usr/bin/curl', path.join(fake.dir, 'curl'));
+    const result = runSvc(['--service', 'install', checkout], {
+      label: `${LABEL}-hostile-curl-state`,
+      laDir,
+      commandDir: fake.dir,
+      env: { ...fake.env, ...hostileEnv, LLMDASH_PORT: '1' },
+      home: hostileHome,
+      scriptPath: scriptWithAcceleratedDeadlines(),
+    });
+    assert.equal(result.status, 7, result.stderr);
+    assert.match(result.stderr, /curl: \(7\)/, 'the final direct-loopback failure is retained');
+    assert.equal(decoy.hits(), 2, 'the hardened readiness probes never reach the decoy');
+    assert.doesNotMatch(result.stdout, /State: running/);
+    assertNoDeadlineCaptureFiles(fake, 'hostile curl state');
+  } finally {
+    await decoy.stop();
+  }
+});
+
+test('--service install preserves final HTTP-readiness timeout evidence and status', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const fake = fakeLaunchctlHarness('hang-readiness');
+  const result = runSvc(['--service', 'install', checkout], {
+    label: `${LABEL}-readiness-timeout`,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+    scriptPath: scriptWithAcceleratedDeadlines(),
+    timeout: HANG_TEST_OUTER_TIMEOUT_MS,
+  });
+  assertBoundedTimeout(result, /timed out checking HTTP readiness at http:\/\/127\.0\.0\.1:8787\/api\/state \(curl exceeded 0\.5s\)/);
+  assert.match(result.stderr, /Readiness probe began, then hung/);
+  assert.equal(fake.readinessCalls().length, 3);
+  assertRecordedProcessGone(fake, 'hanging readiness probe');
 });
 
 test('--service status: running once bootstrapped, then not-installed after remove (QA-04/QA-08)', () => {

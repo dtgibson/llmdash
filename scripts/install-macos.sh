@@ -88,6 +88,27 @@ resolve_node() {
 # in the USER domain gui/<uid> — never sudo, never a system domain (NFR-03).
 service_uid() { id -u; }
 
+# Normalize the externally supplied port before it reaches either the plist or
+# a readiness URL. In particular, curl treats strings containing `@` as URL
+# authority syntax, so validation must happen before any service-side effect.
+require_valid_port() {
+  local candidate="$PORT"
+  case "$candidate" in
+    ''|*[!0123456789]*)
+      echo "  Service: LLMDASH_PORT must be a decimal TCP port from 1 to 65535." >&2
+      return 2
+      ;;
+  esac
+  while [ "${candidate#0}" != "$candidate" ]; do
+    candidate="${candidate#0}"
+  done
+  if [ -z "$candidate" ] || [ "${#candidate}" -gt 5 ] || [ "$candidate" -gt 65535 ]; then
+    echo "  Service: LLMDASH_PORT must be a decimal TCP port from 1 to 65535." >&2
+    return 2
+  fi
+  PORT="$candidate"
+}
+
 # (Re)generate the plist from the tracked template with ABSOLUTE node/codex/claude
 # paths + the resolved checkout dir + the port (never a stale cached plist — FR-02).
 # $1 = project dir, $2 = node path, $3 = codex path, $4 = claude path.
@@ -118,6 +139,9 @@ SERVICE_BOOTSTRAP_ATTEMPTS=2
 SERVICE_BOOTSTRAP_RETRY_SECONDS=0.2
 SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5
 SERVICE_SLEEP_DEADLINE_SECONDS=1
+SERVICE_READY_WAIT_ATTEMPTS=50
+SERVICE_READY_POLL_SECONDS=0.1
+SERVICE_READY_PROBE_DEADLINE_SECONDS=0.5
 SERVICE_WATCHDOG_POLL_SECONDS=0.01
 SERVICE_WATCHDOG_GRACE_ATTEMPTS=10
 RUN_WITH_DEADLINE_TIMED_OUT=0
@@ -300,6 +324,54 @@ bootstrap_service() {
   done
 }
 
+# launchctl bootstrap proves the job was registered, not that its HTTP listener
+# is accepting connections yet. The deployment contract probes loopback
+# immediately after `--service install`, so keep that race inside this hook: do
+# not report success until the smallest health endpoint answers. Every probe and
+# retry delay is bounded by the same stock-Bash watchdog used above.
+wait_for_service_ready() {
+  local checks=0 probe_output="" probe_status=1 probe_timed_out=0 sleep_status ready_url
+  ready_url="http://127.0.0.1:${PORT}/api/state"
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "  Service: curl not found; could not verify HTTP readiness at $ready_url." >&2
+    return 1
+  fi
+  while [ "$checks" -lt "$SERVICE_READY_WAIT_ATTEMPTS" ]; do
+    if run_with_deadline_capture "$SERVICE_READY_PROBE_DEADLINE_SECONDS" \
+      curl -q --noproxy '*' --proto '=http' -fsS -o /dev/null "$ready_url"; then
+      return 0
+    else
+      probe_status=$?
+    fi
+    probe_output="$RUN_WITH_DEADLINE_OUTPUT"
+    probe_timed_out="$RUN_WITH_DEADLINE_TIMED_OUT"
+    checks=$((checks + 1))
+    if [ "$checks" -ge "$SERVICE_READY_WAIT_ATTEMPTS" ]; then
+      break
+    fi
+    if run_with_deadline "$SERVICE_SLEEP_DEADLINE_SECONDS" sleep "$SERVICE_READY_POLL_SECONDS"; then
+      :
+    else
+      sleep_status=$?
+      if [ "$RUN_WITH_DEADLINE_TIMED_OUT" -eq 1 ]; then
+        echo "  Service: timed out during the HTTP-readiness poll delay (sleep exceeded ${SERVICE_SLEEP_DEADLINE_SECONDS}s)." >&2
+      else
+        echo "  Service: HTTP-readiness poll delay failed (sleep exited $sleep_status)." >&2
+      fi
+      return "$sleep_status"
+    fi
+  done
+  if [ -n "$probe_output" ]; then
+    printf '%s\n' "$probe_output" >&2
+  fi
+  if [ "$probe_timed_out" -eq 1 ]; then
+    echo "  Service: timed out checking HTTP readiness at $ready_url (curl exceeded ${SERVICE_READY_PROBE_DEADLINE_SECONDS}s)." >&2
+    return 124
+  fi
+  echo "  Service: $SERVICE_LABEL did not accept HTTP at $ready_url after $checks readiness checks (last probe exited $probe_status)." >&2
+  return "$probe_status"
+}
+
 load_service() {
   local uid bootout_output bootout_status bootout_timed_out absence_output absence_status
   uid="$(service_uid)"
@@ -369,7 +441,8 @@ service_state() {
 # can't be resolved (the plist can't run without it) — loud, non-zero, no dead
 # service silently written.
 service_install() {
-  local dir="$1"
+  local dir="$1" readiness_status
+  require_valid_port || return $?
   if [ ! -f "$dir/macos/com.llmdash.dashboard.plist.example" ]; then
     echo "  Service: plist template not found under $dir — is this a llmdash checkout?" >&2
     return 1
@@ -388,6 +461,12 @@ service_install() {
   claude_bin="$(resolve_claude || echo claude)"
   generate_plist "$dir" "$node_bin" "$codex_bin" "$claude_bin"
   load_service
+  if wait_for_service_ready; then
+    :
+  else
+    readiness_status=$?
+    return "$readiness_status"
+  fi
   echo "- Service: (re)generated the plist ($PLIST) with absolute paths and loaded it (label $SERVICE_LABEL)."
   echo "  State: $(service_state)"
 }
@@ -659,6 +738,10 @@ if [ "${1:-}" = "--uninstall" ]; then
     *) echo "usage: install-macos.sh --uninstall --enumerate|--step=<name> [project-dir]" >&2; exit 2 ;;
   esac
 fi
+
+# The interactive installer writes and starts the same service. Reject an
+# invalid port before its first network or filesystem side effect as well.
+require_valid_port || exit $?
 
 echo "llmdash installer (macOS)"
 
