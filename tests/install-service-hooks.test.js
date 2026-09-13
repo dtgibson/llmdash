@@ -209,6 +209,12 @@ case "$LLMDASH_FAKE_LAUNCHCTL_MODE" in
       exit 7
     fi
     ;;
+  cold-readiness)
+    if [ "$count" -lt 12 ]; then
+      echo "curl: (7) simulated cold-start refusal on readiness attempt $count" >&2
+      exit 7
+    fi
+    ;;
   never-ready)
     echo "curl: (7) simulated refusal on readiness attempt $count" >&2
     exit 7
@@ -227,6 +233,9 @@ exit 0
   const sleep = path.join(dir, 'sleep');
 fs.writeFileSync(sleep, `#!/bin/sh
 set -u
+if [ "$LLMDASH_FAKE_LAUNCHCTL_MODE" = "cold-readiness" ] && [ "\${1:-}" = "0.5" ]; then
+  exec /bin/sleep "$1"
+fi
 if [ "$LLMDASH_FAKE_LAUNCHCTL_MODE" = "forked-poll-sleep" ] && [ "\${1:-}" = "0.1" ]; then
   echo 'Forked sleep wrapper began, then hung.' >&2
   printf '%s\\n' "$$" > "$LLMDASH_FAKE_LAUNCHCTL_HANG_PID"
@@ -309,12 +318,12 @@ function scriptWithAcceleratedDeadlines() {
   assert.equal((source.match(/^SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5$/gm) || []).length, 1);
   assert.equal((source.match(/^SERVICE_SLEEP_DEADLINE_SECONDS=1$/gm) || []).length, 1);
   assert.equal((source.match(/^SERVICE_BOOTOUT_WAIT_ATTEMPTS=50$/gm) || []).length, 1);
-  assert.equal((source.match(/^SERVICE_READY_WAIT_ATTEMPTS=50$/gm) || []).length, 1);
+  assert.equal((source.match(/^SERVICE_READY_WAIT_ATTEMPTS=41$/gm) || []).length, 1);
   acceleratedScript = path.join(tmp, 'install-macos-short-deadlines.sh');
   fs.writeFileSync(acceleratedScript, source
     .replace('SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5', 'SERVICE_LAUNCHCTL_DEADLINE_SECONDS=1')
     .replace('SERVICE_BOOTOUT_WAIT_ATTEMPTS=50', 'SERVICE_BOOTOUT_WAIT_ATTEMPTS=3')
-    .replace('SERVICE_READY_WAIT_ATTEMPTS=50', 'SERVICE_READY_WAIT_ATTEMPTS=3'));
+    .replace('SERVICE_READY_WAIT_ATTEMPTS=41', 'SERVICE_READY_WAIT_ATTEMPTS=3'));
   fs.chmodSync(acceleratedScript, 0o755);
   return acceleratedScript;
 }
@@ -522,6 +531,32 @@ test('--service install waits for loopback HTTP readiness after bootstrap', () =
     '-q --noproxy * --proto =http -fsS -o /dev/null http://127.0.0.1:8787/api/state',
     '-q --noproxy * --proto =http -fsS -o /dev/null http://127.0.0.1:8787/api/state',
   ]);
+});
+
+test('--service install readiness budget spans 20s and survives the old 5s window', () => {
+  const source = fs.readFileSync(script, 'utf8');
+  const attempts = Number(source.match(/^SERVICE_READY_WAIT_ATTEMPTS=(\d+)$/m)?.[1]);
+  const pollSeconds = Number(source.match(/^SERVICE_READY_POLL_SECONDS=([\d.]+)$/m)?.[1]);
+  assert.equal((attempts - 1) * pollSeconds, 20,
+    'immediate refusals get a nominal 20-second readiness window');
+
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const fake = fakeLaunchctlHarness('cold-readiness');
+  const startedAt = Date.now();
+  const result = runSvc(['--service', 'install', checkout], {
+    label: `${LABEL}-cold-readiness`,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+    timeout: 15_000,
+  });
+  const elapsedMs = Date.now() - startedAt;
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(elapsedMs >= 5_000, `fixture must exceed the old 5s window; observed ${elapsedMs}ms`);
+  assert.equal(fake.readinessCalls().length, 12);
+  assert.match(result.stdout, /State: running/);
 });
 
 test('--service install fails after a bounded HTTP-readiness wait', () => {
