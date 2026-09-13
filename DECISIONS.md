@@ -1,5 +1,46 @@
 # Decisions — llmdash
 
+## Product-owned Double dash identity — 2026-09-12 (improve)
+
+**Decision:** llmdash's product mark is the provider-neutral **Double dash**: a
+cobalt field carrying one long warm-white allowance bar and one shorter green
+headroom bar. Browser favicons, favorites, touch icons, and PWA launchers use the
+same geometry and full-color identity; the Claude/OpenAI marks and the menu-bar
+`◆` / `▲` tool cues remain separate. In maskable exports, both semantic bars stay
+wholly inside the central 80% safe circle while only the expendable cobalt field
+may be cropped.
+**Rationale:** Generic browser artwork made llmdash hard to find, while borrowing a
+monitored provider's identity would confuse the product with its data sources. A
+blunt two-bar silhouette carries llmdash's allowance/headroom vocabulary clearly
+from 16 px browser chrome through installed-app sizes.
+**Implications:** Future product-level icon surfaces should reuse the Double dash
+master rather than inventing a second mark. Every maskable geometry change keeps a
+deterministic pixel safe-circle assertion and every favicon change is reviewed at
+true 16 px and 32 px sizes; visual inspection alone is not enough to prove crop
+safety.
+
+## LaunchAgent install readiness — direct bounded loopback proof — 2026-09-12 (improve)
+
+**Decision:** A successful `--service install` means more than launchd accepting
+the plist: the dashboard must answer its smallest health endpoint directly on
+validated loopback. `LLMDASH_PORT` is validated as a decimal TCP port from 1 to
+65535 before any plist, launchctl, or curl side effect. The readiness request is
+isolated from user curl configuration and proxies, restricted to HTTP without
+redirects, and governed by one authoritative 45-second elapsed-time deadline;
+0.5-second per-probe and poll bounds plus a 91-attempt cap remain independent
+backstops, with final failure evidence and status preserved.
+**Rationale:** Production exposed a real startup race: launchd reported the job
+running before its HTTP listener accepted the deployment health check. A single
+elapsed budget gives refused, hanging, and mixed probes the same bounded cold-start
+window without allowing local curl or proxy state to turn a loopback proof into a
+different request.
+**Implications:** This extends the 2026-07-19 and 2026-07-20 reload decisions from
+registration safety through application readiness. Future LaunchAgent work must
+keep validation before side effects, direct loopback/config-isolated probing, the
+authoritative total deadline with per-operation backstops, exact child cleanup,
+and fail-closed diagnostics; bootstrap or `launchctl print` alone never proves a
+deploy is ready.
+
 ## Tailnet-only default bind and limit-reporting resilience — 2026-09-04 (improve)
 
 **Decision:** The shipped network default is now **tailnet-only** (user-ratified):

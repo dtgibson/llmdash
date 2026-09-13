@@ -90,7 +90,13 @@
   failure. Retry only bootstrap status `5`, once. The watchdog's trust boundary
   is its exact direct child: PATH-resolved targets are a same-user trusted seam,
   arbitrary descendants are not controlled, and regular-file capture must keep
-  such a descendant from holding a completion pipe open.
+  such a descendant from holding a completion pipe open. **Registration and HTTP
+  readiness are separate states:** after bootstrap, `--service install` succeeds
+  only after a direct `127.0.0.1` `/api/state` probe answers. Validate the decimal
+  port (1–65535) before any side effect; isolate curl from user config and proxies,
+  restrict it to HTTP without redirects, and keep one authoritative 45-second
+  elapsed deadline plus per-probe, poll, and attempt backstops. On failure, reap
+  the exact probe child and preserve its final status and diagnostic.
 - **A path-ownership check before a destructive fs op is a whole-token path
   match, never a substring `includes()`.** Deciding "does this file/command belong
   to THIS checkout, so I may delete or revert it" on a bare `String(cmd).includes(
@@ -380,8 +386,12 @@
   'unsafe-inline'` (the UI sets dynamic widths/colors via inline styles) while
   `script-src` stays `'self'`. Keep style values to literals or coerced numbers —
   never interpolate untrusted input into a style or raw HTML (escape text).
-- Static assets are served `cache-control: no-store` so code changes show on a
-  plain refresh.
+- Static assets stay on an explicit fixed-route allow-list with fixed MIME types
+  and `cache-control: no-store` so code changes show on a plain refresh. If a
+  future route accepts a variable path, prove canonical separator-aware containment
+  with traversal and sibling-prefix regressions; a raw string-prefix test is not a
+  directory boundary. Treat served SVG as active-capable content: keep it
+  script-free, externally reference-free, CSP-protected, and covered by `nosniff`.
 - Charts are plain SVG built into `innerHTML`. Verify the UI actually **renders**
   (not just that the page loads) — a blank-bar regression once passed a
   "page loads" check.

@@ -26,6 +26,8 @@ Colors (light / dark):
 - warn-bg (warn-tinted callouts) `#fff2df` / `#2b2114`
 - grid (chart gridlines) `#e9edf2` / `#232b34`
 - tool identity: Claude `#b85d43` / `#e18468`; Codex reuses accent
+- product icon: cobalt gradient `#3478f6` → `#1747c3`, deep-cobalt track
+  `#12379a`, warm-white allowance `#f4f8ff`, green headroom `#65dc8c`
 - Status: good `#168a45` / `#55cb7b`, warn `#b96807` / `#e8a54e`, crit
   `#cc3434` / `#ff7777`
 - Status thresholds (remaining %): ≥50 good, 20–49 warn, <20 crit
@@ -148,6 +150,15 @@ Spacing & shape:
   having replaced the older `C`/`X` letters. An opt-in product **logo** may replace
   a mark as a small template-image, but the neutral glyph is always the floor —
   identity never depends on an image rendering.
+- **Product mark — Double dash:** a cobalt field with one long warm-white
+  allowance bar and one shorter green headroom bar. Use it for llmdash-level
+  browser, favorite, touch, launcher, and future product-identity surfaces; never
+  substitute the provider-specific Claude/OpenAI marks or the `◆` / `▲` tool cues.
+  Preserve one geometry from favicon through app-icon sizes and keep both semantic
+  bars wholly inside a maskable icon's central 80% safe circle; the full-bleed
+  cobalt field is the only expendable crop area. Verify true-size 16 px and 32 px
+  legibility and retain a deterministic pixel safe-circle assertion whenever the
+  geometry changes.
 - **Compact glyph cell** (menu-bar badge): the five-state honesty vocabulary
   miniaturized to a marker + number for a menu-bar line. `fresh` = bare `<pct>` in
   its status hue; `aging` = `◷<pct>`; `stale` = `⚠<pct>`; `no-reading` = `—`
