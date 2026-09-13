@@ -139,12 +139,13 @@ SERVICE_BOOTSTRAP_ATTEMPTS=2
 SERVICE_BOOTSTRAP_RETRY_SECONDS=0.2
 SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5
 SERVICE_SLEEP_DEADLINE_SECONDS=1
-# With immediate connection refusals, 41 probes span 40 half-second gaps: a
-# clear 20-second cold-start window. The per-probe deadline below also keeps the
-# slower accept-but-hang case strictly bounded.
-SERVICE_READY_WAIT_ATTEMPTS=41
+# With immediate connection refusals, 91 probes span 90 half-second gaps. The
+# total deadline makes the same 45-second budget authoritative when individual
+# probes accept but temporarily do not answer.
+SERVICE_READY_WAIT_ATTEMPTS=91
 SERVICE_READY_POLL_SECONDS=0.5
 SERVICE_READY_PROBE_DEADLINE_SECONDS=0.5
+SERVICE_READY_TOTAL_SECONDS=45
 SERVICE_WATCHDOG_POLL_SECONDS=0.01
 SERVICE_WATCHDOG_GRACE_ATTEMPTS=10
 RUN_WITH_DEADLINE_TIMED_OUT=0
@@ -333,13 +334,20 @@ bootstrap_service() {
 # not report success until the smallest health endpoint answers. Every probe and
 # retry delay is bounded by the same stock-Bash watchdog used above.
 wait_for_service_ready() {
-  local checks=0 probe_output="" probe_status=1 probe_timed_out=0 sleep_status ready_url
+  local checks=0 elapsed_seconds=0 probe_output="" probe_status=1 probe_timed_out=0 sleep_status ready_url started_at
   ready_url="http://127.0.0.1:${PORT}/api/state"
+  started_at="$SECONDS"
   if ! command -v curl >/dev/null 2>&1; then
     echo "  Service: curl not found; could not verify HTTP readiness at $ready_url." >&2
     return 1
   fi
   while [ "$checks" -lt "$SERVICE_READY_WAIT_ATTEMPTS" ]; do
+    if [ "$checks" -gt 0 ]; then
+      elapsed_seconds=$((SECONDS - started_at))
+      if [ "$elapsed_seconds" -ge "$SERVICE_READY_TOTAL_SECONDS" ]; then
+        break
+      fi
+    fi
     if run_with_deadline_capture "$SERVICE_READY_PROBE_DEADLINE_SECONDS" \
       curl -q --noproxy '*' --proto '=http' -fsS -o /dev/null "$ready_url"; then
       return 0
@@ -349,7 +357,9 @@ wait_for_service_ready() {
     probe_output="$RUN_WITH_DEADLINE_OUTPUT"
     probe_timed_out="$RUN_WITH_DEADLINE_TIMED_OUT"
     checks=$((checks + 1))
-    if [ "$checks" -ge "$SERVICE_READY_WAIT_ATTEMPTS" ]; then
+    elapsed_seconds=$((SECONDS - started_at))
+    if [ "$checks" -ge "$SERVICE_READY_WAIT_ATTEMPTS" ] ||
+       [ "$elapsed_seconds" -ge "$SERVICE_READY_TOTAL_SECONDS" ]; then
       break
     fi
     if run_with_deadline "$SERVICE_SLEEP_DEADLINE_SECONDS" sleep "$SERVICE_READY_POLL_SECONDS"; then

@@ -309,6 +309,7 @@ fakeBin(binDir, 'curl');
 const SYS_PATH = `${binDir}:/usr/bin:/bin:/usr/sbin:/sbin`;
 const HANG_TEST_OUTER_TIMEOUT_MS = 8000;
 let acceleratedScript;
+let shortReadinessScript;
 let deadlineHarness;
 let delayedObservationDeadlineHarness;
 
@@ -318,14 +319,26 @@ function scriptWithAcceleratedDeadlines() {
   assert.equal((source.match(/^SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5$/gm) || []).length, 1);
   assert.equal((source.match(/^SERVICE_SLEEP_DEADLINE_SECONDS=1$/gm) || []).length, 1);
   assert.equal((source.match(/^SERVICE_BOOTOUT_WAIT_ATTEMPTS=50$/gm) || []).length, 1);
-  assert.equal((source.match(/^SERVICE_READY_WAIT_ATTEMPTS=41$/gm) || []).length, 1);
+  assert.equal((source.match(/^SERVICE_READY_WAIT_ATTEMPTS=91$/gm) || []).length, 1);
+  assert.equal((source.match(/^SERVICE_READY_TOTAL_SECONDS=45$/gm) || []).length, 1);
   acceleratedScript = path.join(tmp, 'install-macos-short-deadlines.sh');
   fs.writeFileSync(acceleratedScript, source
     .replace('SERVICE_LAUNCHCTL_DEADLINE_SECONDS=5', 'SERVICE_LAUNCHCTL_DEADLINE_SECONDS=1')
     .replace('SERVICE_BOOTOUT_WAIT_ATTEMPTS=50', 'SERVICE_BOOTOUT_WAIT_ATTEMPTS=3')
-    .replace('SERVICE_READY_WAIT_ATTEMPTS=41', 'SERVICE_READY_WAIT_ATTEMPTS=3'));
+    .replace('SERVICE_READY_WAIT_ATTEMPTS=91', 'SERVICE_READY_WAIT_ATTEMPTS=3'));
   fs.chmodSync(acceleratedScript, 0o755);
   return acceleratedScript;
+}
+
+function scriptWithShortReadinessBudget() {
+  if (shortReadinessScript) return shortReadinessScript;
+  const source = fs.readFileSync(script, 'utf8');
+  assert.equal((source.match(/^SERVICE_READY_TOTAL_SECONDS=45$/gm) || []).length, 1);
+  shortReadinessScript = path.join(tmp, 'install-macos-short-readiness.sh');
+  fs.writeFileSync(shortReadinessScript,
+    source.replace('SERVICE_READY_TOTAL_SECONDS=45', 'SERVICE_READY_TOTAL_SECONDS=2'));
+  fs.chmodSync(shortReadinessScript, 0o755);
+  return shortReadinessScript;
 }
 
 function runWithDeadline(args, { timeout = 7000, delayedObservation = false } = {}) {
@@ -533,12 +546,14 @@ test('--service install waits for loopback HTTP readiness after bootstrap', () =
   ]);
 });
 
-test('--service install readiness budget spans 20s and survives the old 5s window', () => {
+test('--service install readiness budget is a pinned 45s and survives the old 5s window', () => {
   const source = fs.readFileSync(script, 'utf8');
   const attempts = Number(source.match(/^SERVICE_READY_WAIT_ATTEMPTS=(\d+)$/m)?.[1]);
   const pollSeconds = Number(source.match(/^SERVICE_READY_POLL_SECONDS=([\d.]+)$/m)?.[1]);
-  assert.equal((attempts - 1) * pollSeconds, 20,
-    'immediate refusals get a nominal 20-second readiness window');
+  const totalSeconds = Number(source.match(/^SERVICE_READY_TOTAL_SECONDS=(\d+)$/m)?.[1]);
+  assert.equal((attempts - 1) * pollSeconds, 45,
+    'immediate refusals span the complete readiness budget');
+  assert.equal(totalSeconds, 45, 'mixed refusal/timeout startup gets one authoritative budget');
 
   const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
   const checkout = scratchCheckout();
@@ -557,6 +572,29 @@ test('--service install readiness budget spans 20s and survives the old 5s windo
   assert.ok(elapsedMs >= 5_000, `fixture must exceed the old 5s window; observed ${elapsedMs}ms`);
   assert.equal(fake.readinessCalls().length, 12);
   assert.match(result.stdout, /State: running/);
+});
+
+test('--service install total readiness deadline bounds repeated probe timeouts', () => {
+  const laDir = fs.mkdtempSync(path.join(tmp, 'la-'));
+  const checkout = scratchCheckout();
+  const fake = fakeLaunchctlHarness('hang-readiness');
+  const startedAt = Date.now();
+  const result = runSvc(['--service', 'install', checkout], {
+    label: `${LABEL}-total-readiness-timeout`,
+    laDir,
+    commandDir: fake.dir,
+    env: fake.env,
+    scriptPath: scriptWithShortReadinessBudget(),
+    timeout: HANG_TEST_OUTER_TIMEOUT_MS,
+  });
+  const elapsedMs = Date.now() - startedAt;
+  assertBoundedTimeout(result, /timed out checking HTTP readiness/);
+  assert.match(result.stderr, /Readiness probe began, then hung/);
+  assert.ok(elapsedMs >= 1_500 && elapsedMs < 5_000,
+    `2s fixture budget must stay tight; observed ${elapsedMs}ms`);
+  assert.ok(fake.readinessCalls().length < 91,
+    'the total budget, not the secondary attempt cap, ends repeated probe timeouts');
+  assertRecordedProcessGone(fake, 'total readiness timeout');
 });
 
 test('--service install fails after a bounded HTTP-readiness wait', () => {
