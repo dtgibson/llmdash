@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-safe-area="on" data-mask="squircle">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>llmdash — favicon and app icon study</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --border: #dfe5ec;
+      --border-strong: #cfd7e2;
+      --text: #151a21;
+      --muted: #667181;
+      --faint: #8994a3;
+      --accent: #2563eb;
+      --accent-soft: #eaf0ff;
+      --good: #168a45;
+      --good-soft: #e8f6ed;
+      --track: #e8edf3;
+      --focus-ring: rgba(37, 99, 235, 0.32);
+      --shadow: 0 22px 64px rgba(37, 58, 86, 0.11), 0 2px 10px rgba(37, 58, 86, 0.06);
+      --panel-glass: rgba(255, 255, 255, 0.9);
+      --accent-glow: rgba(37, 99, 235, 0.12);
+      --good-glow: rgba(22, 138, 69, 0.07);
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif;
+      --icon-blue-top: #3478f6;
+      --icon-blue-bottom: #1747c3;
+      --icon-track: #12379a;
+      --icon-light: #f4f8ff;
+      --icon-good: #65dc8c;
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0c1015;
+      --panel: #151b22;
+      --panel-soft: #11171e;
+      --border: #27303b;
+      --border-strong: #34404e;
+      --text: #edf1f5;
+      --muted: #a0aab6;
+      --faint: #75808d;
+      --accent: #7ea4ff;
+      --accent-soft: #18243e;
+      --good: #55cb7b;
+      --good-soft: #14291d;
+      --track: #252e39;
+      --focus-ring: rgba(126, 164, 255, 0.38);
+      --shadow: 0 24px 72px rgba(4, 8, 14, 0.34), 0 2px 10px rgba(4, 8, 14, 0.22);
+      --panel-glass: rgba(21, 27, 34, 0.91);
+      --accent-glow: rgba(126, 164, 255, 0.14);
+      --good-glow: rgba(85, 203, 123, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-width: 280px; margin: 0; }
+    body {
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      background:
+        radial-gradient(920px 500px at 8% -8%, var(--accent-glow), transparent 68%),
+        radial-gradient(720px 420px at 96% 3%, var(--good-glow), transparent 72%),
+        var(--bg);
+    }
+    button { color: inherit; font: inherit; }
+    button, input { -webkit-tap-highlight-color: transparent; }
+    svg { display: block; }
+    h1, h2, h3, p { margin-top: 0; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .page { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 2px 2px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .wordmark {
+      font-family: var(--mono);
+      font-size: 1.08rem;
+      font-weight: 720;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+    .wordmark span {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 0.72rem;
+      font-weight: 520;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+    .switch {
+      display: flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel-soft);
+    }
+    .switch button {
+      min-width: 56px;
+      min-height: 34px;
+      padding: 6px 12px;
+      border: 0;
+      border-radius: 999px;
+      color: var(--muted);
+      background: transparent;
+      font-family: var(--mono);
+      font-size: 0.67rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: color 160ms ease-out, background-color 160ms ease-out, box-shadow 120ms ease-out;
+    }
+    .switch button:hover { color: var(--text); }
+    .switch button[aria-pressed="true"] { color: #f4f8ff; background: #2563eb; }
+    .switch button:active { box-shadow: inset 0 2px 4px rgba(14, 35, 86, 0.3); }
+    .switch button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(270px, 0.82fr);
+      gap: clamp(34px, 7vw, 80px);
+      align-items: center;
+      padding: clamp(44px, 8vw, 82px) 2px 52px;
+    }
+    .kicker {
+      margin-bottom: 13px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 0.69rem;
+      font-weight: 760;
+      line-height: 1;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 650px;
+      margin-bottom: 17px;
+      font-family: var(--mono);
+      font-size: clamp(2.4rem, 7vw, 5.2rem);
+      font-weight: 760;
+      line-height: 0.94;
+      letter-spacing: -0.075em;
+    }
+    .hero-copy { max-width: 590px; margin-bottom: 0; color: var(--muted); font-size: 1rem; }
+    .hero-copy strong { color: var(--text); font-weight: 680; }
+    .hero-mark-wrap { display: grid; place-items: center; min-width: 0; }
+    .hero-mark {
+      position: relative;
+      width: min(100%, 300px);
+      aspect-ratio: 1;
+      border-radius: 32%;
+      filter: drop-shadow(0 26px 38px rgba(23, 71, 195, 0.28));
+      transition: transform 220ms cubic-bezier(.2,.8,.2,1), filter 220ms ease-out;
+    }
+    .hero-mark:hover { transform: translateY(-3px); filter: drop-shadow(0 31px 44px rgba(23, 71, 195, 0.34)); }
+    .mark-name {
+      margin-top: 21px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 680;
+      letter-spacing: 0.06em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .why {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel-glass);
+      box-shadow: var(--shadow);
+    }
+    .why-main { padding: 24px 26px; }
+    .why-main h2, .section-head h2 {
+      margin-bottom: 8px;
+      font-family: var(--mono);
+      font-size: 1.2rem;
+      font-weight: 740;
+      line-height: 1.2;
+      letter-spacing: -0.035em;
+    }
+    .why-main p, .section-head p { margin-bottom: 0; color: var(--muted); font-size: 0.82rem; }
+    .why-notes { display: grid; grid-template-columns: repeat(2, 1fr); border-left: 1px solid var(--border); }
+    .why-note { padding: 20px; background: var(--panel-soft); }
+    .why-note + .why-note { border-left: 1px solid var(--border); }
+    .why-note strong { display: block; margin-bottom: 6px; font-family: var(--mono); font-size: 0.73rem; }
+    .why-note span { display: block; color: var(--muted); font-size: 0.69rem; line-height: 1.45; }
+
+    .review-section { margin-top: 30px; }
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 28px;
+      margin: 0 2px 13px;
+    }
+    .section-head p { max-width: 520px; text-align: right; }
+    .stage {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel-glass);
+      box-shadow: 0 12px 42px var(--accent-glow);
+    }
+    .stage-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 15px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.66rem;
+    }
+    .stage-label strong { color: var(--text); font-weight: 720; }
+
+    .browser-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .browser-demo { min-width: 0; padding: 22px; }
+    .browser-demo + .browser-demo { border-left: 1px solid var(--border); }
+    .browser-demo-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.65rem;
+    }
+    .browser {
+      overflow: hidden;
+      border: 1px solid #c8d0da;
+      border-radius: 11px;
+      background: #eef1f5;
+      box-shadow: 0 10px 30px rgba(37, 58, 86, 0.11);
+    }
+    .browser.dark { border-color: #303947; background: #151a22; box-shadow: 0 12px 34px rgba(5, 9, 15, 0.38); }
+    .browser-top { display: flex; align-items: center; gap: 7px; height: 40px; padding: 7px 9px 0; }
+    .traffic { display: flex; gap: 4px; flex: 0 0 auto; }
+    .traffic i { width: 7px; height: 7px; border-radius: 50%; background: #b5bec9; }
+    .browser.dark .traffic i { background: #4f5a68; }
+    .browser-tab {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      width: 180px;
+      height: 33px;
+      margin-left: 2px;
+      padding: 0 10px;
+      border-radius: 8px 8px 0 0;
+      color: #28313d;
+      background: #ffffff;
+      font-size: 0.7rem;
+    }
+    .browser.dark .browser-tab { color: #e9edf2; background: #242b35; }
+    .browser-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .generic-icon {
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+      border-radius: 50%;
+      color: #7f8995;
+      background: #d7dde4;
+      font-size: 9px;
+      line-height: 1;
+    }
+    .browser.dark .generic-icon { color: #8d98a6; background: #3d4652; }
+    .browser-page {
+      height: 118px;
+      padding: 18px;
+      color: #151a21;
+      background:
+        radial-gradient(250px 110px at 15% 0, rgba(37, 99, 235, 0.1), transparent 70%),
+        #f5f7fa;
+    }
+    .browser.dark .browser-page {
+      color: #edf1f5;
+      background:
+        radial-gradient(250px 110px at 15% 0, rgba(126, 164, 255, 0.13), transparent 70%),
+        #0c1015;
+    }
+    .page-brand { font-family: var(--mono); font-size: 0.72rem; font-weight: 720; }
+    .page-rule { width: 100%; height: 1px; margin: 10px 0 12px; background: #dfe5ec; }
+    .browser.dark .page-rule { background: #27303b; }
+    .mini-gauges { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .mini-gauge { height: 43px; padding: 7px; border: 1px solid #dfe5ec; border-radius: 7px; background: #ffffff; }
+    .browser.dark .mini-gauge { border-color: #27303b; background: #151b22; }
+    .mini-gauge b { display: block; margin-bottom: 6px; color: #667181; font: 650 7px/1 var(--mono); }
+    .mini-meter { height: 4px; overflow: hidden; border-radius: 999px; background: #e8edf3; }
+    .browser.dark .mini-meter { background: #252e39; }
+    .mini-meter::before { display: block; width: 67%; height: 100%; border-radius: inherit; background: #168a45; content: ""; }
+
+    .pixel-stage { display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr); min-height: 255px; }
+    .pixel-real {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 25px;
+      border-right: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+    .pixel-real h3 { margin-bottom: 5px; font-family: var(--mono); font-size: 0.81rem; }
+    .pixel-real p { margin-bottom: 23px; color: var(--muted); font-size: 0.7rem; }
+    .actual-row { display: flex; align-items: flex-end; gap: 26px; }
+    .actual-sample { display: grid; justify-items: center; gap: 9px; }
+    .actual-sample span { color: var(--muted); font-family: var(--mono); font-size: 0.62rem; }
+    .pixel-detail { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(0, 1fr); align-items: center; gap: 28px; padding: 26px; }
+    .loupe {
+      display: grid;
+      place-items: center;
+      aspect-ratio: 1;
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      background:
+        linear-gradient(45deg, var(--track) 25%, transparent 25%) 0 0 / 16px 16px,
+        linear-gradient(45deg, transparent 75%, var(--track) 75%) 0 0 / 16px 16px,
+        linear-gradient(45deg, transparent 75%, var(--track) 75%) 8px -8px / 16px 16px,
+        linear-gradient(45deg, var(--track) 25%, var(--panel) 25%) 8px 8px / 16px 16px;
+    }
+    .loupe svg { width: 74%; height: 74%; filter: drop-shadow(0 12px 18px rgba(23, 71, 195, 0.24)); }
+    .detail-copy strong { display: block; margin-bottom: 7px; font-family: var(--mono); font-size: 0.8rem; }
+    .detail-copy p { margin-bottom: 13px; color: var(--muted); font-size: 0.72rem; }
+    .detail-check { display: flex; align-items: center; gap: 7px; color: var(--good); font-family: var(--mono); font-size: 0.66rem; font-weight: 700; }
+
+    .app-stage { padding: 24px; }
+    .app-grid {
+      display: grid;
+      grid-template-columns: 0.9fr 0.9fr 1.2fr;
+      gap: 0;
+      min-width: 0;
+    }
+    .app-context { min-width: 0; padding: 8px 24px 15px; text-align: center; }
+    .app-context + .app-context { border-left: 1px solid var(--border); }
+    .app-icon { width: min(100%, 158px); margin: 0 auto 16px; filter: drop-shadow(0 14px 22px rgba(23, 71, 195, 0.23)); }
+    .app-icon svg { width: 100%; height: auto; }
+    .touch .app-icon { border-radius: 23%; overflow: hidden; }
+    .pwa .app-icon { border-radius: 24%; overflow: hidden; }
+    .app-context strong { display: block; margin-bottom: 4px; font-family: var(--mono); font-size: 0.75rem; }
+    .app-context span { display: block; color: var(--muted); font-size: 0.67rem; }
+    .home-screen {
+      display: grid;
+      grid-template-columns: repeat(3, 58px);
+      justify-content: center;
+      gap: 14px;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+    .home-slot { display: grid; justify-items: center; gap: 7px; color: var(--muted); font-size: 0.57rem; }
+    .home-slot-icon { width: 52px; height: 52px; overflow: hidden; border-radius: 13px; background: var(--track); box-shadow: 0 6px 16px rgba(37, 58, 86, 0.13); }
+    .home-slot-icon svg { width: 100%; height: 100%; }
+    .home-slot-icon.calendar { display: grid; place-items: center; color: #637084; background: #f1f4f8; font: 750 1rem/1 var(--mono); }
+    .home-slot-icon.notes { background: linear-gradient(#f0d86b 0 24%, #fff7ce 24% 100%); }
+
+    .mask-review { display: grid; grid-template-columns: minmax(260px, 0.88fr) minmax(0, 1.12fr); min-height: 430px; }
+    .mask-canvas {
+      display: grid;
+      place-items: center;
+      padding: 35px;
+      border-right: 1px solid var(--border);
+      background:
+        linear-gradient(45deg, var(--track) 25%, transparent 25%) 0 0 / 20px 20px,
+        linear-gradient(45deg, transparent 75%, var(--track) 75%) 0 0 / 20px 20px,
+        linear-gradient(45deg, transparent 75%, var(--track) 75%) 10px -10px / 20px 20px,
+        linear-gradient(45deg, var(--track) 25%, var(--panel-soft) 25%) 10px 10px / 20px 20px;
+    }
+    .mask-icon {
+      position: relative;
+      width: min(100%, 310px);
+      aspect-ratio: 1;
+      overflow: hidden;
+      box-shadow: 0 22px 45px rgba(23, 71, 195, 0.27);
+      transition: clip-path 220ms cubic-bezier(.2,.8,.2,1), border-radius 220ms cubic-bezier(.2,.8,.2,1);
+    }
+    [data-mask="circle"] .mask-icon { clip-path: circle(50%); border-radius: 50%; }
+    [data-mask="squircle"] .mask-icon { clip-path: inset(0 round 25%); border-radius: 25%; }
+    [data-mask="rounded"] .mask-icon { clip-path: inset(0 round 12%); border-radius: 12%; }
+    .mask-icon svg { width: 100%; height: 100%; }
+    .safe-circle {
+      position: absolute;
+      inset: 10%;
+      border: 2px dashed rgba(244, 248, 255, 0.82);
+      border-radius: 50%;
+      box-shadow: 0 0 0 999px rgba(12, 23, 54, 0.16);
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 160ms ease-out;
+    }
+    [data-safe-area="off"] .safe-circle { opacity: 0; }
+    .mask-controls { padding: 31px; }
+    .mask-controls h3 { margin-bottom: 8px; font-family: var(--mono); font-size: 1.05rem; letter-spacing: -0.025em; }
+    .mask-controls > p { max-width: 510px; margin-bottom: 23px; color: var(--muted); font-size: 0.79rem; }
+    .control-label { display: block; margin-bottom: 8px; color: var(--muted); font-family: var(--mono); font-size: 0.64rem; font-weight: 720; letter-spacing: 0.08em; text-transform: uppercase; }
+    .mask-switch { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; }
+    .mask-switch button, .safe-toggle {
+      min-height: 40px;
+      padding: 8px 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: 9px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      font-weight: 680;
+      cursor: pointer;
+      transition: color 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 120ms ease-out;
+    }
+    .mask-switch button:hover, .safe-toggle:hover { color: var(--text); border-color: var(--accent); }
+    .mask-switch button[aria-pressed="true"], .safe-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+    .mask-switch button:active, .safe-toggle:active { box-shadow: inset 0 2px 4px var(--focus-ring); }
+    .mask-switch button:focus-visible, .safe-toggle:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+    .safe-toggle { display: inline-flex; align-items: center; gap: 8px; }
+    .safe-toggle::before { color: var(--good); content: "●"; }
+    [data-safe-area="off"] .safe-toggle::before { color: var(--faint); content: "○"; }
+    .safe-note {
+      margin-top: 23px;
+      padding: 13px 14px;
+      border-left: 3px solid var(--good);
+      border-radius: 9px;
+      color: var(--muted);
+      background: var(--good-soft);
+      font-size: 0.71rem;
+    }
+    .safe-note strong { color: var(--text); }
+
+    .decision-band {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 28px;
+      margin-top: 30px;
+      padding: 25px 27px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel-glass);
+    }
+    .decision-band h2 { margin-bottom: 7px; font-family: var(--mono); font-size: 1.15rem; letter-spacing: -0.035em; }
+    .decision-band p { max-width: 720px; margin-bottom: 0; color: var(--muted); font-size: 0.78rem; }
+    .signature {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: max-content;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+    }
+    .signature svg { width: 34px; height: 34px; }
+
+    @media (max-width: 800px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero-mark-wrap { justify-self: start; width: min(55vw, 240px); }
+      .why { grid-template-columns: 1fr; }
+      .why-notes { border-top: 1px solid var(--border); border-left: 0; }
+      .browser-comparison { grid-template-columns: 1fr; }
+      .browser-demo + .browser-demo { border-top: 1px solid var(--border); border-left: 0; }
+      .pixel-stage { grid-template-columns: 1fr; }
+      .pixel-real { border-right: 0; border-bottom: 1px solid var(--border); }
+      .app-grid { grid-template-columns: repeat(2, 1fr); }
+      .app-context:last-child { grid-column: 1 / -1; border-top: 1px solid var(--border); border-left: 0; padding-top: 28px; }
+      .mask-review { grid-template-columns: 1fr; }
+      .mask-canvas { border-right: 0; border-bottom: 1px solid var(--border); }
+    }
+
+    @media (max-width: 560px) {
+      .page { width: min(100% - 22px, 1100px); padding-top: 17px; }
+      .topbar { align-items: center; }
+      .wordmark span { max-width: 155px; }
+      .switch button { min-width: 47px; padding-inline: 9px; }
+      .hero { padding: 38px 2px 38px; }
+      h1 { font-size: clamp(2.35rem, 14vw, 4rem); }
+      .hero-mark-wrap { width: min(68vw, 230px); }
+      .section-head { display: block; }
+      .section-head p { text-align: left; }
+      .why-notes { grid-template-columns: 1fr; }
+      .why-note + .why-note { border-top: 1px solid var(--border); border-left: 0; }
+      .browser-demo { padding: 14px; }
+      .pixel-detail { grid-template-columns: 1fr; }
+      .loupe { width: min(100%, 200px); }
+      .app-stage { padding: 18px 12px; }
+      .app-grid { grid-template-columns: 1fr; }
+      .app-context { padding: 18px 14px 24px; }
+      .app-context + .app-context, .app-context:last-child { grid-column: auto; border-top: 1px solid var(--border); border-left: 0; }
+      .mask-canvas { padding: 26px; }
+      .mask-controls { padding: 24px 20px; }
+      .decision-band { grid-template-columns: 1fr; }
+      .signature { min-width: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+      .hero-mark:hover { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="sr-only" aria-hidden="true" width="0" height="0">
+    <defs>
+      <linearGradient id="llmdash-blue" x1="20" y1="8" x2="82" y2="96" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="var(--icon-blue-top)"></stop>
+        <stop offset="1" stop-color="var(--icon-blue-bottom)"></stop>
+      </linearGradient>
+      <symbol id="llmdash-mark" viewBox="0 0 100 100">
+        <rect width="100" height="100" rx="24" fill="url(#llmdash-blue)"></rect>
+        <path d="M17 28.5a7.5 7.5 0 0 1 7.5-7.5h51a7.5 7.5 0 0 1 0 15h-51a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-track)"></path>
+        <path d="M17 28.5a7.5 7.5 0 0 1 7.5-7.5h35a7.5 7.5 0 0 1 0 15h-35a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-light)"></path>
+        <path d="M17 62.5a7.5 7.5 0 0 1 7.5-7.5h51a7.5 7.5 0 0 1 0 15h-51a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-track)"></path>
+        <path d="M17 62.5a7.5 7.5 0 0 1 7.5-7.5h20a7.5 7.5 0 0 1 0 15h-20a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-good)"></path>
+      </symbol>
+      <symbol id="llmdash-fullbleed" viewBox="0 0 100 100">
+        <rect width="100" height="100" fill="url(#llmdash-blue)"></rect>
+        <path d="M17 28.5a7.5 7.5 0 0 1 7.5-7.5h51a7.5 7.5 0 0 1 0 15h-51a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-track)"></path>
+        <path d="M17 28.5a7.5 7.5 0 0 1 7.5-7.5h35a7.5 7.5 0 0 1 0 15h-35a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-light)"></path>
+        <path d="M17 62.5a7.5 7.5 0 0 1 7.5-7.5h51a7.5 7.5 0 0 1 0 15h-51a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-track)"></path>
+        <path d="M17 62.5a7.5 7.5 0 0 1 7.5-7.5h20a7.5 7.5 0 0 1 0 15h-20a7.5 7.5 0 0 1-7.5-7.5Z" fill="var(--icon-good)"></path>
+      </symbol>
+    </defs>
+  </svg>
+
+  <main class="page">
+    <header class="topbar">
+      <div class="wordmark">llmdash<span>Product icon study · first direction</span></div>
+      <div class="switch" role="group" aria-label="Mockup theme">
+        <button type="button" data-theme-choice="light" aria-pressed="true">Light</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+      </div>
+    </header>
+
+    <section class="hero" aria-labelledby="hero-title">
+      <div>
+        <div class="kicker">Direction 01 · Double dash</div>
+        <h1 id="hero-title">Headroom,<br>made memorable.</h1>
+        <p class="hero-copy"><strong>Two windows. One glance.</strong> The product’s existing square cue becomes a blue app tile; its familiar allowance meters become two deliberately unequal dashes. The green lower bar signals usable headroom without borrowing either provider’s identity.</p>
+      </div>
+      <div class="hero-mark-wrap">
+        <svg class="hero-mark" role="img" aria-label="Proposed llmdash double-dash mark"><use href="#llmdash-mark"></use></svg>
+        <div class="mark-name">llmdash · headroom mark</div>
+      </div>
+    </section>
+
+    <section class="why" aria-labelledby="why-title">
+      <div class="why-main">
+        <h2 id="why-title">A product mark, not a provider mark.</h2>
+        <p>The geometry comes from llmdash itself: the <code>▪</code> product cue, paired account windows, rounded status meters, and positive remaining allowance.</p>
+      </div>
+      <div class="why-notes">
+        <div class="why-note"><strong>Recognizable at 16 px</strong><span>A bold silhouette and two large interior strokes survive tab-scale rendering.</span></div>
+        <div class="why-note"><strong>Safe when masked</strong><span>The semantic bars stay inside the central safe circle; blue extends full bleed.</span></div>
+      </div>
+    </section>
+
+    <section class="review-section" aria-labelledby="browser-title">
+      <div class="section-head">
+        <div><h2 id="browser-title">Browser recognition</h2></div>
+        <p>The icon carries its own contrast, so the same asset remains legible in light and dark chrome without theme-specific variants.</p>
+      </div>
+      <div class="stage">
+        <div class="stage-label"><strong>Current → proposed</strong><span>16 px tab context</span></div>
+        <div class="browser-comparison">
+          <div class="browser-demo">
+            <div class="browser-demo-label"><span>Light chrome</span><span>generic → owned</span></div>
+            <div class="browser">
+              <div class="browser-top">
+                <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+                <div class="browser-tab"><span class="generic-icon" aria-label="Generic browser icon">◎</span><span>llmdash</span></div>
+                <div class="browser-tab"><svg width="16" height="16" aria-label="Proposed llmdash icon"><use href="#llmdash-mark"></use></svg><span>llmdash</span></div>
+              </div>
+              <div class="browser-page"><div class="page-brand">llmdash</div><div class="page-rule"></div><div class="mini-gauges"><div class="mini-gauge"><b>5-HOUR</b><div class="mini-meter"></div></div><div class="mini-gauge"><b>WEEKLY</b><div class="mini-meter"></div></div></div></div>
+            </div>
+          </div>
+          <div class="browser-demo">
+            <div class="browser-demo-label"><span>Dark chrome</span><span>generic → owned</span></div>
+            <div class="browser dark">
+              <div class="browser-top">
+                <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+                <div class="browser-tab"><span class="generic-icon" aria-label="Generic browser icon">◎</span><span>llmdash</span></div>
+                <div class="browser-tab"><svg width="16" height="16" aria-label="Proposed llmdash icon"><use href="#llmdash-mark"></use></svg><span>llmdash</span></div>
+              </div>
+              <div class="browser-page"><div class="page-brand">llmdash</div><div class="page-rule"></div><div class="mini-gauges"><div class="mini-gauge"><b>5-HOUR</b><div class="mini-meter"></div></div><div class="mini-gauge"><b>WEEKLY</b><div class="mini-meter"></div></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="review-section" aria-labelledby="pixel-title">
+      <div class="section-head">
+        <div><h2 id="pixel-title">Favicon scale</h2></div>
+        <p>These are rendered at their true CSS pixel dimensions—not enlarged facsimiles—beside a vector detail view.</p>
+      </div>
+      <div class="stage pixel-stage">
+        <div class="pixel-real">
+          <h3>Actual size</h3>
+          <p>Look from a normal viewing distance.</p>
+          <div class="actual-row">
+            <div class="actual-sample"><svg width="16" height="16" role="img" aria-label="16 pixel proposed llmdash favicon"><use href="#llmdash-mark"></use></svg><span>16 × 16</span></div>
+            <div class="actual-sample"><svg width="32" height="32" role="img" aria-label="32 pixel proposed llmdash favicon"><use href="#llmdash-mark"></use></svg><span>32 × 32</span></div>
+          </div>
+        </div>
+        <div class="pixel-detail">
+          <div class="loupe"><svg role="img" aria-label="Enlarged llmdash icon detail"><use href="#llmdash-mark"></use></svg></div>
+          <div class="detail-copy"><strong>Three-color core</strong><p>Cobalt owns the silhouette. Warm white keeps the long window crisp. Green is reserved for the shorter, actionable headroom signal.</p><div class="detail-check"><span aria-hidden="true">✓</span><span>No letters or hairline detail</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="review-section" aria-labelledby="app-title">
+      <div class="section-head">
+        <div><h2 id="app-title">Saved and installed</h2></div>
+        <p>One coherent master mark, exported at platform-native sizes with no added wordmark or provider artwork.</p>
+      </div>
+      <div class="stage app-stage">
+        <div class="app-grid">
+          <div class="app-context touch">
+            <div class="app-icon"><svg role="img" aria-label="Apple touch icon context at 180 pixels"><use href="#llmdash-fullbleed"></use></svg></div>
+            <strong>180 × 180</strong><span>Apple touch icon · rounded by iOS</span>
+          </div>
+          <div class="app-context pwa">
+            <div class="app-icon"><svg role="img" aria-label="PWA app icon context at 192 pixels"><use href="#llmdash-fullbleed"></use></svg></div>
+            <strong>192 × 192</strong><span>PWA standard icon · launcher scale</span>
+          </div>
+          <div class="app-context pwa">
+            <div class="app-icon"><svg role="img" aria-label="PWA app icon context at 512 pixels"><use href="#llmdash-fullbleed"></use></svg></div>
+            <strong>512 × 512</strong><span>PWA master and splash metadata source</span>
+            <div class="home-screen" aria-label="Home screen recognition preview">
+              <div class="home-slot"><div class="home-slot-icon calendar">12</div><span>Calendar</span></div>
+              <div class="home-slot"><div class="home-slot-icon"><svg aria-label="llmdash icon"><use href="#llmdash-fullbleed"></use></svg></div><span>llmdash</span></div>
+              <div class="home-slot"><div class="home-slot-icon notes"></div><span>Notes</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="review-section" aria-labelledby="mask-title">
+      <div class="section-head">
+        <div><h2 id="mask-title">Maskable safe area</h2></div>
+        <p>Try the common launcher crops. The dashed circle is the guaranteed 80% safe region for the meaningful bars.</p>
+      </div>
+      <div class="stage mask-review">
+        <div class="mask-canvas">
+          <div class="mask-icon">
+            <svg role="img" aria-label="Maskable 512 pixel llmdash app icon preview"><use href="#llmdash-fullbleed"></use></svg>
+            <div class="safe-circle" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="mask-controls">
+          <h3>Crop stress test</h3>
+          <p>Platform launchers may crop maskable artwork into different silhouettes. The blue tile is expendable at the edge; the paired headroom bars are not.</p>
+          <span class="control-label">Launcher mask</span>
+          <div class="mask-switch" role="group" aria-label="Launcher mask shape">
+            <button type="button" data-mask-choice="circle" aria-pressed="false">Circle</button>
+            <button type="button" data-mask-choice="squircle" aria-pressed="true">Squircle</button>
+            <button type="button" data-mask-choice="rounded" aria-pressed="false">Rounded</button>
+          </div>
+          <span class="control-label">Production check</span>
+          <button type="button" class="safe-toggle" aria-pressed="true">Hide 80% safe area</button>
+          <div class="safe-note"><strong>Pass:</strong> both dashes remain fully inside the safe circle across all three crops; no critical detail sits in the disposable edge region.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="decision-band" aria-labelledby="decision-title">
+      <div><h2 id="decision-title">The direction to react to</h2><p>Does “Double dash” feel like llmdash at a glance? The useful feedback now is about the mark itself: the cobalt/green balance, the two-bar metaphor, and whether the overall character should feel quieter, sharper, or more technical.</p></div>
+      <div class="signature"><svg aria-hidden="true"><use href="#llmdash-mark"></use></svg><span>Direction 01</span></div>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const themeButtons = [...document.querySelectorAll('[data-theme-choice]')];
+    const maskButtons = [...document.querySelectorAll('[data-mask-choice]')];
+    const safeButton = document.querySelector('.safe-toggle');
+
+    themeButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const theme = button.dataset.themeChoice;
+        root.dataset.theme = theme;
+        themeButtons.forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+      });
+    });
+
+    maskButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        root.dataset.mask = button.dataset.maskChoice;
+        maskButtons.forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+      });
+    });
+
+    safeButton.addEventListener('click', () => {
+      const next = root.dataset.safeArea === 'on' ? 'off' : 'on';
+      root.dataset.safeArea = next;
+      safeButton.setAttribute('aria-pressed', String(next === 'on'));
+      safeButton.textContent = next === 'on' ? 'Hide 80% safe area' : 'Show 80% safe area';
+    });
+  </script>
+</body>
+</html>

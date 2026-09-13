@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
-import { toolWrap, server } from '../src/server.js';
+import path from 'node:path';
+import { resolveStaticPath, toolWrap, server } from '../src/server.js';
 
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -42,6 +43,27 @@ test('malformed request targets return 400 instead of escaping the request callb
   const response = await rawHit('GET http://[::1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
   assert.match(response, /^HTTP\/1\.1 400 Bad Request\r\n/);
   assert.match(response.toLowerCase(), /x-content-type-options: nosniff/);
+});
+
+test('static path confinement accepts children and rejects traversal plus public-prefix siblings', () => {
+  const favicon = resolveStaticPath('icons/favicon-16x16.png');
+  assert.ok(favicon.endsWith(path.join('public', 'icons', 'favicon-16x16.png')));
+  assert.equal(resolveStaticPath('../publicity/secret.txt'), null,
+    'a sibling beginning with "public" must not pass the containment check');
+  assert.equal(resolveStaticPath('../../outside.txt'), null);
+  assert.equal(resolveStaticPath('/tmp/outside.txt'), null);
+});
+
+test('encoded traversal-shaped requests cannot reach files outside the fixed static routes', async () => {
+  for (const pathname of [
+    '/icons/%2e%2e/%2e%2e/publicity/secret.txt',
+    '/icons/..%2f..%2fpublicity%2fsecret.txt',
+    '/icons/%252e%252e/%252e%252e/publicity/secret.txt',
+  ]) {
+    const response = await hit(pathname);
+    assert.equal(response.status, 404, pathname);
+    assert.equal(response.body, 'not found', pathname);
+  }
 });
 
 test('/api/hosts carries the baseline security headers and is no-store (QA-26)', async () => {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title desc">
+  <title id="title">llmdash Double dash icon</title>
+  <desc id="desc">A cobalt rounded square with a long warm-white allowance bar and a shorter green headroom bar.</desc>
+  <defs>
+    <linearGradient id="blue" x1="20" y1="8" x2="82" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3478f6"/>
+      <stop offset="1" stop-color="#1747c3"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="24" fill="url(#blue)"/>
+  <rect x="17.75" y="21.75" width="64.5" height="15" rx="7.5" fill="#12379a"/>
+  <rect x="17.75" y="21.75" width="49.25" height="15" rx="7.5" fill="#f4f8ff"/>
+  <rect x="17" y="55" width="66" height="15" rx="7.5" fill="#12379a"/>
+  <rect x="17" y="55" width="35" height="15" rx="7.5" fill="#65dc8c"/>
+</svg>

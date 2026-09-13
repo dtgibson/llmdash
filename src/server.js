@@ -34,6 +34,10 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
 // Baseline hardening headers. Content is first-party and static.
@@ -45,9 +49,16 @@ const SECURITY_HEADERS = {
   'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
 };
 
+export function resolveStaticPath(file) {
+  const fp = path.resolve(publicDir, file);
+  const relative = path.relative(publicDir, fp);
+  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) return null;
+  return fp;
+}
+
 function serveStatic(res, file, head = false) {
-  const fp = path.join(publicDir, file);
-  if (!fp.startsWith(publicDir)) { res.writeHead(403); return res.end('forbidden'); }
+  const fp = resolveStaticPath(file);
+  if (!fp) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(fp, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
     res.writeHead(200, {
@@ -346,6 +357,15 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/styles.css') return serveStatic(res, 'styles.css', head);
   if (url.pathname === '/app.js') return serveStatic(res, 'app.js', head);
   if (url.pathname === '/settings.js') return serveStatic(res, 'settings.js', head);
+  if (url.pathname === '/favicon.ico') return serveStatic(res, 'favicon.ico', head);
+  if (url.pathname === '/manifest.webmanifest') return serveStatic(res, 'manifest.webmanifest', head);
+  if (url.pathname === '/icons/llmdash.svg') return serveStatic(res, 'icons/llmdash.svg', head);
+  if (url.pathname === '/icons/favicon-16x16.png') return serveStatic(res, 'icons/favicon-16x16.png', head);
+  if (url.pathname === '/icons/favicon-32x32.png') return serveStatic(res, 'icons/favicon-32x32.png', head);
+  if (url.pathname === '/icons/apple-touch-icon-180x180.png') return serveStatic(res, 'icons/apple-touch-icon-180x180.png', head);
+  if (url.pathname === '/icons/pwa-192x192.png') return serveStatic(res, 'icons/pwa-192x192.png', head);
+  if (url.pathname === '/icons/pwa-512x512.png') return serveStatic(res, 'icons/pwa-512x512.png', head);
+  if (url.pathname === '/icons/pwa-maskable-512x512.png') return serveStatic(res, 'icons/pwa-maskable-512x512.png', head);
   res.writeHead(404);
   res.end(head ? undefined : 'not found');
 });

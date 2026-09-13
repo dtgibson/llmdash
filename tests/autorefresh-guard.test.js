@@ -11,12 +11,15 @@ import { fileURLToPath } from 'node:url';
 // and the spawn-surface budget.
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
+const filesIn = (dir) => fs.readdirSync(path.join(root, dir), { withFileTypes: true })
+  .filter((entry) => entry.isFile())
+  .map((entry) => path.join(dir, entry.name));
 
 const runtimeSurfaces = [
   'config.js',
   'README.md',
-  ...fs.readdirSync(path.join(root, 'src')).map((f) => path.join('src', f)),
-  ...fs.readdirSync(path.join(root, 'public')).map((f) => path.join('public', f)),
+  ...filesIn('src'),
+  ...filesIn('public'),
   ...fs.readdirSync(path.join(root, 'scripts')).filter((f) => f.endsWith('.js')).map((f) => path.join('scripts', f)),
 ];
 
