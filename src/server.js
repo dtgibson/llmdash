@@ -86,15 +86,22 @@ export function toolWrap(source, label, plan, live, activity, nowMs, resetCredit
   const windows = {};
   for (const w of ['five_hour', 'seven_day']) {
     let usedPct = null, resetsAt = null, capturedAt = null;
+    let resetCapturedAt = null;
     if (live && live.windows[w]) {
       ({ usedPct, resetsAt } = live.windows[w]);
+      resetCapturedAt = live.windows[w].resetCapturedAt || null;
       capturedAt = live.capturedAt;
     } else if (!authoritativeWindowSet) {
       const s = stored.find(r => r.window === w);
-      if (s) { usedPct = Number(s.used_pct); resetsAt = s.resets_at; capturedAt = s.captured_at; }
+      if (s) {
+        usedPct = Number(s.used_pct);
+        resetsAt = s.resets_at && Date.parse(s.resets_at) > nowMs ? s.resets_at : null;
+        capturedAt = s.captured_at;
+      }
     }
     windows[w] = usedPct == null ? null : {
       usedPct, remainingPct: Math.max(0, 100 - usedPct), resetsAt, capturedAt,
+      ...(resetCapturedAt ? { resetCapturedAt } : {}),
     };
   }
   // Both windows get a pacing projection (5-hour and weekly), shown at once.
@@ -122,6 +129,7 @@ export function toolWrap(source, label, plan, live, activity, nowMs, resetCredit
       remainingPct: Math.max(0, 100 - Math.min(100, Math.max(0, usedPct))),
       resetsAt: m.resetsAt || null,
       capturedAt: m.capturedAt || (live && live.capturedAt) || null,
+      ...(m.resetCapturedAt ? { resetCapturedAt: m.resetCapturedAt } : {}),
     });
   }
   const unsupportedResetCredits = {

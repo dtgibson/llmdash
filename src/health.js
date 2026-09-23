@@ -77,7 +77,7 @@ export function freshnessModeLine(cfg = config) {
   }
   return `Claude limit readings auto-refresh: when the reading is older than ${threshold} while Claude has been active within ${staleBand} (newest transcript under ${cfg.projectsDir}), `
     + `llmdash spawns a short-lived Claude Code session in ${cfg.claudeRefreshCwd}, reads its /usage screen, and closes it — no message is sent and no plan usage is consumed. `
-    + `Real statusline captures still count and suppress the probe; off-switch: LLMDASH_CLAUDE_AUTOREFRESH=0. `
+    + `Fresh statusline captures suppress account refresh, while model caps get a separate active-use check at most every 15 minutes, including when no cap remains; off-switch: LLMDASH_CLAUDE_AUTOREFRESH=0. `
     + `Heads-up: Claude Code itself keeps a one-time "trust this folder" entry for that directory in ~/.claude.json and appends one line to ~/.claude/history.jsonl per refresh. ${bands}`;
 }
 
@@ -272,7 +272,7 @@ export function healthLines(h = dataSourceHealth()) {
   lines.push(!config.claudeAutoRefresh
     ? `  Claude refresh: auto-refresh disabled (LLMDASH_CLAUDE_AUTOREFRESH=0) — readings refresh only via real Claude Code sessions; unset the variable and restart to re-enable`
     : h.claudeCmd.resolved
-      ? `  Claude refresh: claude command OK (${h.claudeCmd.resolved}) — auto-refresh can probe /usage when the reading goes stale during Claude activity`
+      ? `  Claude refresh: claude command OK (${h.claudeCmd.resolved}) — auto-refresh can probe /usage during Claude activity when account readings are stale or model-cap evidence is due`
       : `  Claude refresh: claude command not found ("${h.claudeCmd.cmd}") — auto-refresh can't run, so a stale reading stays stale until a real CLI session refreshes it. Set LLMDASH_CLAUDE_CMD to the absolute path from 'which claude' and restart (the macOS installer does this when re-run).`);
   lines.push(h.codexCmd.resolved
     ? `  Codex limits:   codex command OK (${h.codexCmd.resolved})`

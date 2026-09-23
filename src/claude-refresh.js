@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { config } from '../config.js';
-import { modelLimitActiveAt, readClaudeLimits } from './claude-limits.js';
+import { modelLimitActiveAt, readClaudeLimits, toIso } from './claude-limits.js';
 import { resolveCommand } from './health.js';
 
 // Claude limit auto-refresh (the [R2-scrape] mechanism, spike-validated):
@@ -30,7 +30,7 @@ const BACKOFF_CAP_MS = 60 * 60_000; // …doubling to a 60m cap (FR-15)
 // day starved the caps until they expired unannounced. A fixed constant, not
 // an env knob; in this mode attempts are spaced by the same interval, so a cap
 // the pane no longer renders cannot re-arm a probe every cadence-floor tick.
-export const MODEL_LIMIT_REFRESH_MS = 60 * 60_000;
+export const MODEL_LIMIT_REFRESH_MS = 15 * 60_000;
 
 const state = {
   disabled: !config.claudeAutoRefresh,
@@ -95,15 +95,15 @@ export async function maybeRefreshClaude({
   if (disabled) return 'disabled';
 
   // 2. Freshness suppression: organic statusline captures count (FR-13) —
-  //    unless the newest active model cap has aged past MODEL_LIMIT_REFRESH_MS
-  //    (FM-C1), in which case the probe may proceed through the remaining
-  //    gates, at most once per that interval.
+  //    unless model-cap evidence has aged past MODEL_LIMIT_REFRESH_MS, or no
+  //    active cap remains. /usage is the only producer of model caps. Even an
+  //    empty pane is checked at most once per interval during active use.
   const reading = readReading();
   if (reading && reading.capturedAt) {
     const age = now - Date.parse(reading.capturedAt);
     if (Number.isFinite(age) && age < cfg.claudeMaxAgeMs) {
-      const capMs = newestModelCapMs(reading);
-      const capAged = capMs != null && now - capMs >= MODEL_LIMIT_REFRESH_MS;
+      const capMs = oldestModelCapMs(reading);
+      const capAged = capMs == null || now - capMs >= MODEL_LIMIT_REFRESH_MS;
       const spaced = state.lastAttemptAt == null || now - state.lastAttemptAt >= MODEL_LIMIT_REFRESH_MS;
       if (!capAged || !spaced) return 'fresh';
     }
@@ -158,15 +158,15 @@ export async function maybeRefreshClaude({
   }
 }
 
-// The newest active model cap's capture time (ms), or null when the reading
-// carries no cap — the model-cap-age input to the freshness gate (FM-C1).
-function newestModelCapMs(reading) {
-  let newest = null;
+// The oldest active model cap's capture time (ms), or null when the reading
+// carries no cap. A fresh second cap cannot mask an aging Fable reading.
+function oldestModelCapMs(reading) {
+  let oldest = null;
   for (const cap of Array.isArray(reading && reading.modelLimits) ? reading.modelLimits : []) {
     const ms = Date.parse((cap && (cap.capturedAt ?? cap.captured_at)) || '');
-    if (Number.isFinite(ms) && (newest == null || ms > newest)) newest = ms;
+    if (Number.isFinite(ms) && (oldest == null || ms < oldest)) oldest = ms;
   }
-  return newest;
+  return oldest;
 }
 
 // Current Claude subagents write below
@@ -575,10 +575,12 @@ function deAnsi(s) {
 // treated as account-wide windows: per-model meters and local-analysis blocks.
 // Model meters are parsed separately below so Fable/Sonnet caps can be shown
 // without contaminating the weekly account-wide reading.
-const SESSION_ANCHOR = /Current\s+session/g;
-const WEEK_ANCHOR = /Current\s+week\s+\(all models\)/g;
-const STOP_ANCHORS = [/Current\s+week\s+\((?!all models\))/g, /What'?s\s+contributing/g];
-const MODEL_WEEK_ANCHOR = /Current\s+week\s+\((?!all models\))([^)]+)\)/g;
+// The live pty occasionally drops one overwritten glyph ("Current" →
+// "Curr nt"). Keep the anchor narrow while accepting that observed redraw.
+const SESSION_ANCHOR = /Curr(?:e|\s)nt\s+session/g;
+const WEEK_ANCHOR = /Curr(?:e|\s)nt\s+week\s+\(all models\)/g;
+const STOP_ANCHORS = [/Curr(?:e|\s)nt\s+week\s+\((?!all models\))/g, /What'?s\s+contributing/g];
+const MODEL_WEEK_ANCHOR = /Curr(?:e|\s)nt\s+week\s+\((?!all models\))([^)]+)\)/g;
 
 function lastMatchIndex(re, s, from = 0) {
   re.lastIndex = from;
@@ -845,12 +847,56 @@ function mergeActiveModelLimits(payload, current, atMs) {
     }
     const prev = merged.get(key);
     if (prev && modelRowEvidenceMs(prev) > modelRowEvidenceMs(next)) return;
+    if (!requireUnexpired) {
+      const incomingReset = toIso(next.resets_at ?? next.resetsAt);
+      if (incomingReset) {
+        delete next.reset_captured_at;
+        delete next.resetCapturedAt;
+      } else if (prev) {
+        const oldReset = toIso(prev.resets_at ?? prev.resetsAt);
+        const observedAt = toIso(prev.reset_captured_at ?? prev.resetCapturedAt
+          ?? prev.captured_at ?? prev.capturedAt);
+        if (oldReset && Date.parse(oldReset) > atMs && observedAt
+          && Date.parse(observedAt) <= atMs) {
+          next.resets_at = prev.resets_at ?? prev.resetsAt;
+          next.reset_captured_at = observedAt;
+        }
+      }
+    }
     merged.set(key, next);
   };
 
   for (const row of rowsFromModelLimitPayload(current)) add(row, current?.capturedAt, true);
   for (const row of rowsFromModelLimitPayload(payload)) add(row, payload?.capturedAt, false);
   return [...merged.values()];
+}
+
+// A newer account percentage can omit reset timing. Keep each earlier
+// provider reset only while its timestamp is still in the future, and retain
+// the original observation time so the UI does not present it as freshly seen.
+function preserveAccountResets(payload, current, atMs) {
+  const limits = payload.rate_limits ?? payload.rateLimits;
+  const previous = current?.rate_limits ?? current?.rateLimits;
+  if (!limits || typeof limits !== 'object' || !previous || typeof previous !== 'object') return;
+  for (const key of ['five_hour', 'seven_day']) {
+    const window = limits[key];
+    const old = previous[key];
+    if (!window || typeof window !== 'object' || !old || typeof old !== 'object') continue;
+    limits[key] = { ...window };
+    const nextWindow = limits[key];
+    const incomingReset = toIso(window.resets_at ?? window.resetsAt);
+    if (incomingReset) {
+      delete nextWindow.reset_captured_at;
+      delete nextWindow.resetCapturedAt;
+      continue;
+    }
+    const oldReset = toIso(old.resets_at ?? old.resetsAt);
+    if (!oldReset || Date.parse(oldReset) <= atMs) continue;
+    const observedAt = toIso(old.reset_captured_at ?? old.resetCapturedAt ?? current.capturedAt);
+    if (!observedAt || Date.parse(observedAt) > atMs) continue;
+    nextWindow.resets_at = old.resets_at ?? old.resetsAt;
+    nextWindow.reset_captured_at = observedAt;
+  }
 }
 
 // Newest-capturedAt-wins, atomically (temp + rename): a probe capture must
@@ -880,6 +926,12 @@ export function writeReadingIfNewer(payload, cfg = config) {
     nextPayload = { ...current }; // the newer organic account windows stay
   } else {
     nextPayload = { ...payload };
+    const rawLimits = payload.rate_limits ?? payload.rateLimits;
+    if (rawLimits && typeof rawLimits === 'object') {
+      if (payload.rate_limits) nextPayload.rate_limits = { ...rawLimits };
+      else nextPayload.rateLimits = { ...rawLimits };
+    }
+    preserveAccountResets(nextPayload, current, newTs);
   }
   delete nextPayload.modelLimits;
   if (mergedModels.length) nextPayload.model_limits = mergedModels;

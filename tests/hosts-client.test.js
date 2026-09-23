@@ -380,6 +380,18 @@ test('a provider weekly reset wins a conflicting configured fallback and is labe
   assert.equal(tool.limits.seven_day.resetsAt, providerAt);
 });
 
+test('a retained Claude reset names its earlier provider observation in the dashboard', async () => {
+  const tool = claudeTool(3 * 3600_000, 36 * 3600_000);
+  tool.limits.five_hour.resetCapturedAt = iso(-40 * 60_000);
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([tool]),
+  }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  assert.match(els['device-health'].innerHTML,
+    /5-hour[\s\S]*Earlier provider reading · reset last updated [^<]+ · resets in/);
+});
+
 test('local fallback stays off unrelated peer lanes but follows a collapsed lane containing self', async () => {
   const local = claudeTool(3 * 3600_000, 2 * 86400_000);
   const peer = claudeTool(5 * 3600_000, 2 * 86400_000);
@@ -864,6 +876,21 @@ test('global allowances appear once at the top and never duplicate in lower tool
   assert.match(top, /Codex reset credits/);
   const lower = els['claude-details'].innerHTML + els['codex-details'].innerHTML;
   assert.doesNotMatch(lower, /Fable|Sonnet 4\.5|Future global cap|Codex reset credits|expiry-item/);
+});
+
+test('Fable shows a fresh percentage with separately aged reset evidence', async () => {
+  const claude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  const fable = modelLimit({ model: 'fable', label: 'Fable', remainingPct: 60,
+    capturedAt: iso(-2 * 60_000) });
+  fable.resetCapturedAt = iso(-52 * 60_000);
+  claude.modelLimits = [fable];
+  const combined = { hosts: [{
+    host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claude]),
+  }], generatedAt: iso(0) };
+  const { els } = await renderWith(combined);
+  assert.match(els['supplementary-limits'].innerHTML, /Fable[\s\S]*60<span class="unit">% left/);
+  assert.match(els['supplementary-limits'].innerHTML, /reset last updated 52m ago/);
 });
 
 test('minimal-DOM fallback keeps the complete account story visible', async () => {

@@ -328,12 +328,16 @@ function dashboardWindowReset(tool, windowKey, selection = null) {
     // history and account identity, but it is not current provider evidence.
     // Fall through so the independently resolved selection can drive display.
     if (Number.isFinite(providerMs) && (current || !claudeWeekly)) {
+      const resetCapturedAt = tool.source === 'claude-code' && win.resetCapturedAt
+        && Date.parse(win.resetCapturedAt) < Date.parse(win.capturedAt || '')
+        ? win.resetCapturedAt : null;
       return {
         nextResetAt: new Date(providerMs).toISOString(),
         resetMs: providerMs,
-        source: current ? 'live' : 'provider-reading',
-        label: current ? 'Live' : 'Provider reading',
+        source: resetCapturedAt ? 'earlier-provider-reading' : current ? 'live' : 'provider-reading',
+        label: resetCapturedAt ? 'Earlier provider reading' : current ? 'Live' : 'Provider reading',
         provider: true,
+        resetCapturedAt,
       };
     }
   }
@@ -366,6 +370,7 @@ function configuredResetMoment(reset) {
 
 function resetContextCopy(reset) {
   const parts = [reset.source === 'live' ? 'Live provider reading' : reset.label];
+  if (reset.resetCapturedAt) parts.push(`reset last ${fmtAge(reset.resetCapturedAt)}`);
   const configuredMoment = configuredResetMoment(reset);
   if (configuredMoment) parts.push(configuredMoment);
   return parts.join(' · ');
@@ -535,7 +540,9 @@ function modelLimitRowsHtml(tool) {
     const resetIn = Number.isFinite(resetMs) && resetMs > Date.now()
       ? `resets in ${fmtDur(resetMs - Date.now())}` : 'reset unavailable';
     const captured = typeof m.capturedAt === 'string' ? fmtAge(m.capturedAt) : null;
-    const evidence = captured ? `${resetIn} · ${captured}` : resetIn;
+    const earlierReset = m.resetCapturedAt && Date.parse(m.resetCapturedAt) < Date.parse(m.capturedAt || '')
+      ? `reset last ${fmtAge(m.resetCapturedAt)}` : null;
+    const evidence = [resetIn, earlierReset, captured].filter(Boolean).join(' · ');
     const barWidth = maxed ? 100 : remainingPct;
     const sub = maxed ? `<span class="is-crit">limit reached</span>` : `${used}% used`;
     return `<li class="model-limit"><div class="model-limit-head"><div class="model-limit-namewrap">`

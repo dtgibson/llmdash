@@ -283,6 +283,9 @@ function modelLimitRows(t) {
       label: lim.label || lim.model || 'Model',
       remaining: Math.max(0, Math.min(100, remaining)),
       resetsAt: lim.resetsAt || null,
+      capturedAt: lim.capturedAt || null,
+      resetCapturedAt: lim.resetCapturedAt || null,
+      showCaptureAge: t.source === 'claude-code',
       maxed: remainingRaw <= 0,
     });
   }
@@ -308,6 +311,9 @@ export function computeBadge(state) {
         label,
         remaining: Math.floor(win.remainingPct),
         resetsAt: resetPresentation ? resetPresentation.nextResetAt : (win.resetsAt || null),
+        capturedAt: win.capturedAt || null,
+        resetCapturedAt: win.resetCapturedAt || null,
+        showCaptureAge: t.source === 'claude-code',
         maxed: win.remainingPct <= 0,
       };
       if (resetPresentation && (resetPresentation.source === 'live'
@@ -644,11 +650,17 @@ function windowRowText(row) {
     ? fmtDur(resetMs - Date.now()) : fmtDur(null);
   const resetPresentation = row[RESET_PRESENTATION];
   const resetSource = resetPresentation && resetPresentation.source === 'configured' ? 'Configured'
-    : resetPresentation && resetPresentation.source === 'live' ? 'Live' : null;
+    : resetPresentation && resetPresentation.source === 'live' ? 'Live'
+      : row.resetCapturedAt && Date.parse(row.resetCapturedAt) < Date.parse(row.capturedAt || '')
+        ? 'Earlier provider reading' : null;
   const provenance = resetSource ? ` · ${resetSource}` : '';
+  const captureAge = row.showCaptureAge ? ageText(row.capturedAt) : '';
+  const resetAge = row.showCaptureAge && resetSource === 'Earlier provider reading'
+    ? ageText(row.resetCapturedAt) : '';
+  const ages = `${captureAge ? ` · captured ${captureAge}` : ''}${resetAge ? ` · reset seen ${resetAge}` : ''}`;
   if (row.remaining == null) return `${row.label}:  not available`;
-  if (row.maxed) return `${row.label}:  limit reached · resets ${resetIn}${provenance}`;
-  return `${row.label}:  ${row.remaining}% · resets ${resetIn}${provenance}`;
+  if (row.maxed) return `${row.label}:  limit reached · resets ${resetIn}${provenance}${ages}`;
+  return `${row.label}:  ${row.remaining}% · resets ${resetIn}${provenance}${ages}`;
 }
 
 function windowRowColor(row) {

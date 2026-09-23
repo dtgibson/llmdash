@@ -56,6 +56,21 @@ test('fresh reading (2m): freshness carried, no diagnostic (QA-16 server side)',
   assert.equal(c.limitsDiagnostic, null);
 });
 
+test('retained reset provenance reaches state, while expired or absent evidence stays unavailable', () => {
+  writeReading({ ageMs: 2 * 60_000 });
+  const raw = JSON.parse(fs.readFileSync(config.rateLimitsFile, 'utf8'));
+  raw.rate_limits.five_hour.reset_captured_at = iso(NOW - 40 * 60_000);
+  raw.rate_limits.seven_day.resets_at = iso(NOW - 60_000);
+  fs.writeFileSync(config.rateLimitsFile, JSON.stringify(raw));
+  const c = claudeState();
+  assert.equal(c.limits.five_hour.resetCapturedAt, iso(NOW - 40 * 60_000));
+  assert.equal(c.limits.seven_day.resetsAt, null);
+  assert.equal(c.limits.seven_day.resetCapturedAt, undefined);
+  raw.rate_limits.five_hour.resets_at = null;
+  fs.writeFileSync(config.rateLimitsFile, JSON.stringify(raw));
+  assert.equal(claudeState().limits.five_hour.resetsAt, null);
+});
+
 test('aging reading (7m): still no diagnostic — aging is a client-derived band (QA-17)', () => {
   writeReading({ ageMs: 7 * 60_000 });
   assert.equal(claudeState().limitsDiagnostic, null);

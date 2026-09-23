@@ -104,6 +104,18 @@ test('dropped-character tolerance: "Resets" → "Rests" still yields the reset c
   assert.equal(r.windows.seven_day.resetText, 'Jul 9 at 1am');
 });
 
+test('a dropped glyph in the live weekly title still yields account and Fable readings', () => {
+  const pane = 'Current session  4% used  Resets 2:09am (America/Los_Angeles) '
+    + 'Curr nt week (all models)  38% used  Resets Sep 25 at 10:59pm (America/Los_Angeles) '
+    + 'Current week (Fable)  40% used  Resets Sep 25 at 10:59pm (Ameri a/Los_Angeles)';
+  const parsed = parseUsagePane(pane);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.windows.five_hour.usedPct, 4);
+  assert.equal(parsed.windows.seven_day.usedPct, 38);
+  assert.equal(parsed.modelLimits[0].usedPct, 40);
+  assert.equal(parsed.modelLimits[0].resetText, null, 'the corrupt model zone remains unavailable');
+});
+
 test('used% is clamped 0–100 at ingest (externally-sourced percentage)', () => {
   const pane = 'Current session 999% used Resets 1pm (UTC)\n'
     + 'Current week (all models) 25% used Resets Jul 9 at 1am (UTC)\n';
@@ -211,6 +223,47 @@ test('newest-capturedAt-wins: older evidence never regresses the reading (FR-10,
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test('newer account percentages retain each future provider reset with its original observation time', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-account-resets-'));
+  const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  const first = '2026-07-02T06:00:00.000Z';
+  const second = '2026-07-02T07:00:00.000Z';
+  const third = '2026-07-02T07:30:00.000Z';
+  const fiveReset = Date.parse('2026-07-02T08:00:00.000Z') / 1000;
+  const weekReset = Date.parse('2026-07-05T08:00:00.000Z') / 1000;
+  const payload = (capturedAt, used, five, week) => ({
+    rate_limits: {
+      five_hour: { used_percentage: used, resets_at: five },
+      seven_day: { used_percentage: used + 1, resets_at: week },
+    }, capturedAt,
+  });
+  try {
+    writeReadingIfNewer(payload(first, 10, fiveReset, weekReset), cfg);
+    writeReadingIfNewer(payload(second, 20, null, null), cfg);
+    writeReadingIfNewer(payload(third, 30, null, null), cfg);
+    const saved = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+    assert.equal(saved.rate_limits.five_hour.used_percentage, 30);
+    assert.equal(saved.rate_limits.seven_day.used_percentage, 31);
+    assert.equal(saved.rate_limits.five_hour.resets_at, fiveReset);
+    assert.equal(saved.rate_limits.seven_day.resets_at, weekReset);
+    assert.equal(saved.rate_limits.five_hour.reset_captured_at, first);
+    assert.equal(saved.rate_limits.seven_day.reset_captured_at, first);
+    // One expired reset clears independently; the weekly provider evidence remains.
+    writeReadingIfNewer(payload('2026-07-02T08:01:00.000Z', 40, null, null), cfg);
+    const expired = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+    assert.equal(expired.rate_limits.five_hour.resets_at, null);
+    assert.equal(expired.rate_limits.five_hour.reset_captured_at, undefined);
+    assert.equal(expired.rate_limits.seven_day.resets_at, weekReset);
+    // A new provider reset replaces the retained one and drops the old provenance.
+    writeReadingIfNewer(payload('2026-07-02T08:02:00.000Z', 41, null,
+      Date.parse('2026-07-06T08:00:00.000Z') / 1000), cfg);
+    const replaced = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8'));
+    assert.equal(replaced.rate_limits.seven_day.reset_captured_at, undefined);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('newer account-only writes preserve active model caps without restamping them', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-refresh-merge-'));
   const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
@@ -280,6 +333,31 @@ test('new model rows replace matching old rows while other active model caps rem
     ['sonnet-4-5', 88, '2026-07-02T06:00:00.000Z'],
   ]);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('a fresh Fable percentage retains its earlier future reset when the pane zone is unreadable', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-fable-reset-'));
+  const cfg = { dataDir: tmp, rateLimitsFile: path.join(tmp, 'claude-ratelimits.json') };
+  const first = '2026-07-02T06:00:00.000Z';
+  const second = '2026-07-02T07:00:00.000Z';
+  const reset = Date.parse('2026-07-03T06:00:00.000Z') / 1000;
+  const account = (capturedAt, used, modelReset) => ({
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: null }, seven_day: { used_percentage: 20, resets_at: null } },
+    capturedAt,
+    model_limits: [{ source: 'claude-model:fable', model: 'fable', label: 'Fable', window: 'seven_day',
+      used_percentage: used, resets_at: modelReset, captured_at: capturedAt }],
+  });
+  try {
+    writeReadingIfNewer(account(first, 49, reset), cfg);
+    writeReadingIfNewer(account(second, 40, null), cfg);
+    const cap = JSON.parse(fs.readFileSync(cfg.rateLimitsFile, 'utf8')).model_limits[0];
+    assert.equal(cap.used_percentage, 40);
+    assert.equal(cap.captured_at, second);
+    assert.equal(cap.resets_at, reset);
+    assert.equal(cap.reset_captured_at, first);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('expired preserved model caps are dropped on the next newer write', () => {

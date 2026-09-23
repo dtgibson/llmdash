@@ -52,6 +52,8 @@ function normalizeModelLimit(raw, capturedAt) {
     : `claude-model:${model}`;
   const label = boundedDisplayText(raw.label ?? raw.model, model);
   const usedPct = Math.min(100, Math.max(0, usedNum));
+  const modelCapturedAt = toIso(raw.captured_at ?? raw.capturedAt) || capturedAt;
+  const resetCapturedAt = toIso(raw.reset_captured_at ?? raw.resetCapturedAt);
   return {
     source,
     provider: 'claude-code',
@@ -61,7 +63,9 @@ function normalizeModelLimit(raw, capturedAt) {
     usedPct,
     remainingPct: Math.max(0, 100 - usedPct),
     resetsAt: toIso(raw.resets_at ?? raw.resetsAt),
-    capturedAt: toIso(raw.captured_at ?? raw.capturedAt) || capturedAt,
+    capturedAt: modelCapturedAt,
+    ...(resetCapturedAt && Date.parse(resetCapturedAt) <= Date.parse(modelCapturedAt || '')
+      ? { resetCapturedAt } : {}),
   };
 }
 
@@ -148,9 +152,14 @@ export function readClaudeLimits(nowMs = Date.now()) {
     if (!w) continue;
     const usedNum = Number(w.used_percentage ?? w.usedPercentage ?? w.utilization);
     if (!Number.isFinite(usedNum)) continue; // skip missing or garbage windows
+    const resetIso = toIso(w.resets_at ?? w.resetsAt);
+    const resetCapturedAt = toIso(w.reset_captured_at ?? w.resetCapturedAt);
     windows[key] = {
       usedPct: Math.min(100, Math.max(0, usedNum)), // clamp to 0–100
-      resetsAt: toIso(w.resets_at ?? w.resetsAt),
+      resetsAt: resetIso && Date.parse(resetIso) > nowMs ? resetIso : null,
+      ...(resetIso && Date.parse(resetIso) > nowMs && resetCapturedAt
+        && Date.parse(resetCapturedAt) <= Date.parse(capturedAt || '')
+        ? { resetCapturedAt } : {}),
     };
   }
   const modelLimits = (Array.isArray(parsed.model_limits) ? parsed.model_limits : Array.isArray(parsed.modelLimits) ? parsed.modelLimits : [])

@@ -98,6 +98,21 @@ test('windowRowLine is the shared semantic presentation for account/model window
   );
 });
 
+test('Claude row ages name percentage and earlier reset observations separately', () => {
+  const now = Date.now();
+  const row = { label: '5-hour', remaining: 95, resetsAt: new Date(now + 2 * 3600_000).toISOString(),
+    capturedAt: new Date(now - 2 * 60_000).toISOString(),
+    resetCapturedAt: new Date(now - 40 * 60_000).toISOString(),
+    showCaptureAge: true, maxed: false };
+  assert.match(windowRowLine(row),
+    /5-hour: {2}95% · resets .+ · Earlier provider reading · captured 2m ago · reset seen 40m ago \|/);
+  assert.match(windowRowLine({ ...row, resetCapturedAt: null }),
+    /5-hour: {2}95% · resets .+ · captured 2m ago \|/);
+  assert.doesNotMatch(windowRowLine({ ...row, resetCapturedAt: null }), /reset seen|Earlier provider/);
+  assert.doesNotMatch(windowRowLine({ ...row, showCaptureAge: false, resetCapturedAt: null }), /captured/,
+    'Codex rows keep their existing format');
+});
+
 function resetView(source, nextResetAt) {
   return {
     resetSchedule: source === 'configured'
@@ -152,7 +167,7 @@ test('configured weekly fallback fills only local Claude presentation and keeps 
   'only the disposable menu row receives the configured countdown');
   const out = emit(badge);
   assert.equal(badge.state, 'stale', 'configured timing never freshens usage');
-  assert.match(out, /^ {2}Weekly: {2}\d+% · resets .+ · Configured \|/m);
+  assert.match(out, /^ {2}Weekly: {2}\d+% · resets .+ · Configured · captured .+ ago \|/m);
   assert.match(out, /^ {2}Stale reading —/m, 'the stale diagnostic remains visible');
 });
 
@@ -170,6 +185,28 @@ test('a current provider weekly reset wins a conflicting configured fallback', (
   assert.equal(claude.limits.seven_day.resetsAt, providerAt);
   const out = emit(computeBadge(state));
   assert.doesNotMatch(out, /Configured/, 'the provider row is not mislabeled as configured');
+});
+
+test('the menu identifies a reset retained from an earlier provider reading', () => {
+  const now = Date.now();
+  const state = loadFixture('state-fresh', now);
+  const claude = state.tools.find((tool) => tool.source === 'claude-code');
+  claude.limits.five_hour.resetCapturedAt = new Date(now - 40 * 60_000).toISOString();
+  const out = emit(computeBadge(state));
+  assert.match(out, /^ {2}5-hour: {2}\d+% · resets .+ · Earlier provider reading · captured .+ ago · reset seen 40m ago \|/m);
+});
+
+test('the menu identifies a Fable reset retained alongside a fresh cap percentage', () => {
+  const now = Date.now();
+  const state = loadFixture('state-fresh', now);
+  const claude = state.tools.find((tool) => tool.source === 'claude-code');
+  claude.modelLimits = [{ source: 'claude-model:fable', model: 'fable', label: 'Fable',
+    window: 'seven_day', usedPct: 40, remainingPct: 60,
+    resetsAt: new Date(now + 86400_000).toISOString(),
+    capturedAt: new Date(now - 2 * 60_000).toISOString(),
+    resetCapturedAt: new Date(now - 52 * 60_000).toISOString() }];
+  const out = emit(computeBadge(state));
+  assert.match(out, /^ {4}Fable: {2}60% · resets .+ · Earlier provider reading · captured 2m ago · reset seen 52m ago \|/m);
 });
 
 test('invalid, unavailable, or expired reset views do nothing and never synthesize a weekly window', () => {
@@ -428,8 +465,8 @@ test('emit: Claude model-specific limits render under the account windows only i
   assert.ok(modelIndex > claudeIndex, 'model label appears inside Claude section');
   assert.ok(codexIndex > modelIndex, 'model rows appear before Codex section');
   assert.equal((out.match(/^ {2}Model limits \|/gm) || []).length, 1);
-  assert.match(out, /^ {4}Fable: {2}84% · resets .+ \| font=Menlo size=12 color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
-  assert.match(out, /^ {4}Sonnet 4\.5: {2}34% · resets .+ \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {4}Fable: {2}84% · resets .+ · captured 1m ago \| font=Menlo size=12 color=#17783c bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {4}Sonnet 4\.5: {2}34% · resets .+ · captured 1m ago \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 test('emit: a model-specific limit with a malformed reset degrades to a dash', () => {
@@ -439,7 +476,7 @@ test('emit: a model-specific limit with a malformed reset degrades to a dash', (
   ];
 
   const out = emit(computeBadge(state));
-  assert.match(out, /^ {4}Fable: {2}44% · resets — \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
+  assert.match(out, /^ {4}Fable: {2}44% · resets — · captured just now \| font=Menlo size=12 color=#8a5a00 bash=\/usr\/bin\/true terminal=false refresh=false$/m);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

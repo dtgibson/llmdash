@@ -435,6 +435,7 @@ function normalizeWindow(w) {
   if (!w || typeof w !== 'object') return null;
   const usedPct = clampPct(w.usedPct);
   if (usedPct == null) return null; // no usable reading for this window
+  const resetCapturedAt = normalizeIso(w.resetCapturedAt);
   return {
     usedPct,
     // Derive remainingPct from the clamped used-% so the pair stays consistent
@@ -442,6 +443,8 @@ function normalizeWindow(w) {
     remainingPct: Math.max(0, 100 - usedPct),
     resetsAt: normalizeIso(w.resetsAt),
     capturedAt: normalizeIso(w.capturedAt),
+    ...(resetCapturedAt && Date.parse(resetCapturedAt) <= Date.parse(w.capturedAt || '')
+      ? { resetCapturedAt } : {}),
   };
 }
 
@@ -481,6 +484,8 @@ function normalizeModelLimit(m, toolSource) {
   if (!model) return null;
   const usedPct = clampPct(m.usedPct ?? m.used_percentage ?? m.usedPercentage ?? m.utilization);
   if (usedPct == null) return null;
+  const capturedAt = normalizeIso(m.capturedAt ?? m.captured_at);
+  const resetCapturedAt = normalizeIso(m.resetCapturedAt ?? m.reset_captured_at);
   return {
     source: normalizeModelSource(m.source, model, toolSource),
     provider: boundedDisplayText(m.provider, toolSource),
@@ -490,7 +495,9 @@ function normalizeModelLimit(m, toolSource) {
     usedPct,
     remainingPct: Math.max(0, 100 - usedPct),
     resetsAt: normalizeIso(m.resetsAt ?? m.resets_at),
-    capturedAt: normalizeIso(m.capturedAt ?? m.captured_at),
+    capturedAt,
+    ...(resetCapturedAt && Date.parse(resetCapturedAt) <= Date.parse(capturedAt || '')
+      ? { resetCapturedAt } : {}),
   };
 }
 

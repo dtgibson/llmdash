@@ -61,6 +61,17 @@ test('a valid but skewed capturedAt is preserved as-is, never re-stamped to now 
   assert.equal(s.tools[0].freshness.capturedAt, new Date(Date.parse(skewed)).toISOString());
 });
 
+test('a peer keeps bounded reset provenance only with a valid earlier observation', () => {
+  const capturedAt = iso(-2 * 60_000);
+  const observedAt = iso(-40 * 60_000);
+  const s = normalizePeerState({ tools: [{ source: 'claude-code', limits: {
+    five_hour: { usedPct: 40, resetsAt: iso(3600_000), capturedAt, resetCapturedAt: observedAt },
+    seven_day: { usedPct: 20, resetsAt: iso(86400_000), capturedAt, resetCapturedAt: iso(60_000) },
+  } }] });
+  assert.equal(s.tools[0].limits.five_hour.resetCapturedAt, observedAt);
+  assert.equal(s.tools[0].limits.seven_day.resetCapturedAt, undefined);
+});
+
 test('a non-canonical but parseable ISO string is round-tripped to canonical', () => {
   // The wire always carries ISO strings; a non-canonical offset form normalizes.
   assert.equal(normalizeIso('2026-07-02T12:00:00+00:00'), '2026-07-02T12:00:00.000Z');

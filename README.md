@@ -116,7 +116,11 @@ than 5 minutes while Claude has been active in the last 10 (newest transcript
 under `~/.claude/projects`), the dashboard spawns a **short-lived Claude Code
 session** in a dedicated folder, reads its `/usage` screen, and closes it —
 typically a few seconds of lifetime, at most one attempt per 5 minutes. The
-probe types only the `/usage` command: **no message is ever sent, no plan
+model-specific caps in that screen are checked at most once every 15 minutes
+during active use, even when statusline captures keep account limits fresh or
+no active cap remains. The two account windows keep earlier provider reset
+times only until those times pass, and label the earlier observation when used.
+The probe types only the `/usage` command: **no message is ever sent, no plan
 usage is consumed, and no transcript is written**, so your activity stats stay
 clean. While Claude is idle the dashboard does zero refresh work — the reading
 can't have changed, and the age label carries the truth. Failed attempts back
