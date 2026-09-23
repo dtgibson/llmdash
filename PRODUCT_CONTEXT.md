@@ -8,8 +8,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 
 ## Shipped Capabilities
 - **Claude Code live dashboard** — the leading 5-hour and weekly cards keep
-  remaining quota and compact reset timing aligned while full reset provenance
-  and schedules live in pacing alongside both-window predictors, provider-reported
+  remaining quota and compact reset timing aligned while full reset provenance,
+  including the separate age of an earlier still-valid provider reset, and
+  schedules live in pacing alongside both-window predictors, provider-reported
   model caps, and local-log activity stats, with limit snapshots logged to SQLite.
 - **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
   Claude in the leading account-limit comparison with the same aging/stale
@@ -36,10 +37,11 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
   and keeps itself fresh automatically while Claude is active (including nested
   subagent work) and the Claude CLI is authenticated: the activity-gated probe
-  also refreshes aged model caps during active use, retries at a bounded cadence
-  after timeouts, cleans up across reloads and exits, degrades honestly when
-  failing or disabled, discloses an expired model cap with its last observation
-  rather than dropping it silently, and costs no usage quota.
+  checks Fable and other model caps every 15 minutes during active use even with
+  fresh account readings or no active cap, retries at a bounded cadence after
+  timeouts, cleans up across reloads and exits, degrades honestly when failing or
+  disabled, discloses an expired model cap with its last observation rather than
+  dropping it silently, and costs no usage quota.
 - **macOS menu-bar badge** — a glanceable badge in the menu bar (via SwiftBar/xbar)
   showing the most-constrained remaining % across Claude Code and Codex (both
   windows), with a dropdown carrying the full per-tool picture, including Claude
@@ -101,10 +103,13 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   metadata scan, spawns a short-lived session, sends `/usage`, and scrapes that
   pane into the same reading file. A timeout preserves the last good reading;
   advancing activity can retry at the normal cadence, and startup/shutdown clean
-  only marker-owned probe remnants. The `/usage` scrape can also add model-specific
-  caps, and account-only statusline captures preserve those active model caps until
-  their explicit reset, or for seven days from the original capture when the
-  provider omits reset timing, without restamping the evidence. Activity stats are
+  only marker-owned probe remnants. The `/usage` scrape accepts the current pane's
+  dropped weekly-heading character and can add model-specific caps; account-only
+  statusline captures preserve those active model caps until their explicit reset,
+  or for seven days from the original capture when the provider omits reset timing,
+  without restamping the evidence. Newer percentages preserve an earlier provider
+  reset only while it is still in the future, with its original observation age
+  kept separate; expired or absent resets remain unavailable. Activity stats are
   computed on demand from `~/.claude/projects/**/*.jsonl`.
 - Codex limits, reset-credit entitlements, and account facts come from `codex
   app-server` (polled on the interval, not per request) with a rollout-file

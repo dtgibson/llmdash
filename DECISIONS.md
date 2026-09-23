@@ -1,5 +1,27 @@
 # Decisions — llmdash
 
+## Claude reset and Fable readings — preserve evidence provenance — 2026-09-23 (fix)
+
+**Bug:** Newer Claude statusline percentages erased earlier future account resets
+when the new capture omitted reset fields; fresh account readings also delayed or
+suppressed Fable checks, and the current `/usage` pane could drop a character from
+a weekly heading.
+**Cause:** The shared writer replaced omitted resets with null, while the model-cap
+probe depended on account freshness and a 60-minute cap age; the pane parser
+required the intact heading text.
+**Resolution:** Each earlier provider reset survives only while still in the
+future, with its original observation time separate from the newer percentage
+capture; absent or expired evidence remains unavailable. Active Claude use checks
+model caps every 15 minutes even with fresh account readings or no active cap.
+Fresh Fable percentages may likewise retain an earlier future provider reset when
+new reset text is unreadable. The parser accepts the observed dropped heading
+character while still requiring both account windows. The dashboard and menu show
+percentage capture age and, when different, the earlier reset observation age.
+**Implications:** Future merges and UI clients must keep percentage freshness and
+provider reset provenance separate, and must never present a retained reset as a
+new observation. The model-cap cadence remains activity-gated, single-flight,
+and subject to failure backoff; unfamiliar pane layouts still fail honestly.
+
 ## Product-owned Double dash identity — 2026-09-12 (improve)
 
 **Decision:** llmdash's product mark is the provider-neutral **Double dash**: a
@@ -75,8 +97,9 @@ opt-out needs an installer/template change. Prior decisions modified:
 the tunnel-down loopback fallback; 2026-07-01 — "Codex is not retrofitted" is
 reversed, Codex now carries a server-supplied freshness band; 2026-07-02 /
 2026-07-16 — the probe's freshness gate gains a model-cap-age condition (activity
-gate, single flight, cadence floor, and backoff preserved; attempts in that mode
-are spaced by the 60-minute age threshold); 2026-07-11 / 2026-08-27 — probe caps
+gate, single flight, cadence floor, and backoff preserved; the 2026-09-23 fix
+reduced active-use model-cap checks to 15 minutes, including when no cap remains);
+2026-07-11 / 2026-08-27 — probe caps
 merge regardless of which writer wins the timestamp race, the reset branch gets
 the same 5-minute skew grace, and TTL/reset expiry is disclosed as
 `model-cap-expired` with last-observed evidence read from bounded SQLite snapshots
@@ -87,8 +110,9 @@ never `unsupported`. **Open:** the per-request `getLatestModelSnapshots()` `LIKE
 prefix is a full index scan (Low; the fix is a `>= / <` range predicate); peer
 ingest still drops the new diagnostic fields and the `stale` credit status (safe
 direction, a multi-host honesty gap); why Codex 0.153.0 omits `five_hour` is
-unconfirmed — its new `rateLimitsByLimitId` map is unread; the pre-existing
-`/usage` `parse-failed` probes are a parser problem this change did not fix.
+unconfirmed — its new `rateLimitsByLimitId` map is unread; the later 2026-09-23
+parser fix accepts the observed dropped weekly-heading character, while other
+unfamiliar `/usage` layouts can still fail to parse.
 
 ## Codex model-token attribution — exact future pricing and conservative historical estimates — 2026-08-27 (fix)
 

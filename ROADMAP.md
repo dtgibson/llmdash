@@ -53,8 +53,9 @@ blindly trust an old reading or invent a missing expiration.
   honest as the local one.
 - **Index-seekable model-snapshot query** — replace the per-request `LIKE` scan
   in `getLatestModelSnapshots()` with a range predicate (or a per-tick cache).
-- **`/usage` parser reliability** — the pre-existing `parse-failed` probes; a
-  layout the scrape can read again, or a sturdier parse.
+- **`/usage` parser reliability** — the observed dropped weekly-heading character
+  is now accepted, but future pane layouts can still cause `parse-failed` probes;
+  keep the scrape resilient without inventing partial readings.
 - **Codex per-limit map** — read Codex 0.153.0's `rateLimitsByLimitId` to
   explain (or fill) the missing 5-hour window.
 - A fourth source slots in via the source-aware path if ever wanted

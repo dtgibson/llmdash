@@ -237,8 +237,16 @@
   `LLMDASH_CLAUDE_AUTOREFRESH=0`. The TUI scrape is version-brittle; a layout it
   can't parse fails loudly as `parse-failed`, never a partial or fabricated reading.
   A gate that refreshes aged *secondary* evidence (the model-cap-age condition)
-  spaces its attempts by the same interval as its age threshold, so evidence that
-  never refreshes cannot drive a probe loop.
+  checks every 15 minutes during active Claude use, even when account readings
+  remain fresh or no cap is active; single-flight and failure backoff still apply.
+  Evidence that never refreshes must not drive a probe loop.
+- **Keep provider reset provenance separate from percentage freshness.** A newer
+  Claude percentage capture that omits a reset may retain an earlier provider
+  reset only while it remains in the future, keeping the original reset observation
+  time distinct from the percentage capture; an expired or genuinely absent reset
+  is unavailable. Apply the same rule when a fresh model-cap percentage arrives
+  with unreadable reset text. UI clients show both ages when they differ, rather
+  than presenting the retained reset as freshly observed.
 - **Any outbound HTTP llmdash makes follows the hardened-fetch template** in
   `src/hosts.js` (`fetchPeerState`). A peer/host read is the one outbound surface,
   and it is SSRF-shaped. The rules: target
