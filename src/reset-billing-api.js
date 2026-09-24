@@ -209,6 +209,12 @@ export function getResetBillingView({ refresh = true, nowMs = Date.now() } = {})
   const selection = currentResetSelection(snapshot, nowMs);
   logSelection(selection);
   const legacy = readSubscriptions();
+  const promotion = snapshot.config?.claudePromotion ?? null;
+  const observedMs = promotion ? Date.parse(promotion.observedAt) : NaN;
+  const promotionState = !promotion ? null : promotion.status === 'observed'
+    ? (Number.isFinite(observedMs) && observedMs <= nowMs + 5 * 60_000
+      && nowMs - observedMs <= 24 * 60 * 60_000 ? 'observed' : 'stale')
+    : promotion.status;
   return {
     schemaVersion: 1,
     version: snapshot.config?.version ?? null,
@@ -216,6 +222,14 @@ export function getResetBillingView({ refresh = true, nowMs = Date.now() } = {})
     csrfToken,
     resetSchedule: snapshot.config?.resetSchedule ?? null,
     recurringPlans: snapshot.config?.recurringPlans ?? [],
+    claudePromotion: promotion ? {
+      ...promotion,
+      state: promotionState,
+      expiresLabel: 'Oct 22',
+      expiryPrecision: 'year-and-time-unconfirmed',
+      source: 'Owner observation · Claude Settings → Usage',
+      checkUrl: 'https://claude.ai/settings/usage',
+    } : null,
     resetSelection: selection,
     sources: {
       accountConfig: { status: snapshot.state, reason: snapshot.reason },

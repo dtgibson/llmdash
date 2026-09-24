@@ -4,6 +4,7 @@
 const REFRESH_MS = 60_000;
 let state = null;
 let dashboardResetSelection = null;
+let dashboardPromotion = null;
 let resetSelectionRequestSequence = 0;
 let resetSelectionRequestInFlight = null;
 
@@ -251,8 +252,8 @@ function healthHistoryHtml(health, hostLabel, chartIndex = 0) {
     + `<span><i class="legend-line health-series-ram"></i>RAM used</span>`
     + `<span><i class="legend-line health-series-disk"></i>Disk available</span></span>`
     + `<span class="health-coverage">${coverage} · ${gapCopy}</span></figcaption>`
-    + `<table class="sr-only"><caption>Exact bounded ${esc(label)} health history. Missing metrics were not measured and are not zero.</caption>`
-    + `<thead><tr><th>Time</th><th>CPU used</th><th>RAM used</th><th>Disk available</th></tr></thead><tbody>${rows}</tbody></table></figure>`;
+    + `<div class="sr-only"><table><caption>Exact bounded ${esc(label)} health history. Missing metrics were not measured and are not zero.</caption>`
+    + `<thead><tr><th>Time</th><th>CPU used</th><th>RAM used</th><th>Disk available</th></tr></thead><tbody>${rows}</tbody></table></div></figure>`;
 }
 
 function deviceHealthHtml(health, hostLabel) {
@@ -700,7 +701,30 @@ function globalToolGroupHtml(tool, suffix) {
     + `<span class="global-limit-meta">provider-reported</span></div>${body}</section>`;
 }
 
-function supplementaryLimitsHtml(tools, suffix = 'account') {
+function promotionHtml(promotion) {
+  if (!promotion) return '';
+  const observedMs = Date.parse(promotion.observedAt);
+  const status = promotion.state === 'observed'
+    && (Date.now() - observedMs > 24 * 60 * 60_000 || observedMs > Date.now() + 5 * 60_000)
+    ? 'stale' : promotion.state;
+  const copy = status === 'observed' ? 'Seen in Claude Usage'
+    : status === 'stale' ? 'Recheck required'
+      : status === 'claimed' ? 'Marked claimed' : 'Dismissed';
+  const age = fmtAge(promotion.observedAt);
+  return `<section class="global-limit-group promotion-group" aria-label="Claude promotional offer">`
+    + `<div class="global-limit-head"><h3 class="global-limit-title">◆ Claude offer</h3>`
+    + `<span class="global-limit-meta">owner observed</span></div>`
+    + `<p class="promotion-title">${status === 'observed' ? 'Reset for free' : 'Promotional reset'} · Opus 5.5</p>`
+    + `<p class="promotion-detail">Get extra wiggle room to explore Opus 5.5. Expires Oct 22 (year and exact time not shown).</p>`
+    + `<p class="promotion-detail"><strong>${copy}</strong>${age ? ` · ${esc(age)}` : ''}. `
+    + `${status === 'observed' ? 'Check Claude before claiming; availability may have changed.'
+      : status === 'stale' ? 'The last observation is over a day old; check Claude for the current offer.'
+        : 'This is no longer presented as claimable.'}</p>`
+    + `<a class="promotion-link" href="https://claude.ai/settings/usage" rel="noopener noreferrer">Check in Claude Usage</a>`
+    + `</section>`;
+}
+
+function supplementaryLimitsHtml(tools, suffix = 'account', promotion = null) {
   const order = (source) => {
     const index = ['claude-code', 'codex'].indexOf(source);
     return index === -1 ? 99 : index;
@@ -712,7 +736,8 @@ function supplementaryLimitsHtml(tools, suffix = 'account') {
   return `<section class="supplementary" aria-labelledby="${id}">`
     + `<div class="supplementary-heading"><h2 class="section-label" id="${id}">Other global limits</h2>`
     + `<span class="supplementary-scope">same account · before pacing and local activity</span></div>`
-    + `<div class="supplement-grid">${ordered.map((tool) => globalToolGroupHtml(tool, suffix)).join('')}</div>`
+    + `<div class="supplement-grid">${ordered.map((tool) => globalToolGroupHtml(tool, suffix)).join('')}`
+    + `${ordered.some((tool) => tool.source === 'claude-code') ? promotionHtml(promotion) : ''}</div>`
     + `</section><p class="account-honesty">All readings in this block are account-wide. Machine-local usage begins below.</p>`;
 }
 
@@ -1133,7 +1158,7 @@ function accountOverviewView(hosts, groups, localResetSelection = null) {
       + `<div class="account-identity"><h2 class="account-number" id="${accountId}">${accountLabel}</h2>`
       + `<span class="account-members"><strong>Shown once</strong> · ${membership}</span></div>`
       + `<div class="limit-tools">${lanes}</div>`
-      + supplementaryLimitsHtml(supplementaryTools, accountId) + `</article>`;
+      + supplementaryLimitsHtml(supplementaryTools, accountId, containsSelf ? dashboardPromotion : null) + `</article>`;
   }).join('');
   const overview = `<section class="limits-overview multi-limits" aria-labelledby="multi-limits-title">`
     + `<div class="limits-heading"><div><div class="section-kicker">Capacity now</div>`
@@ -1305,7 +1330,7 @@ function renderHosts(combined) {
     const membership = `from ${joinLabels([hosts[0].label])}`;
     const identity = `<h2 class="account-number" id="single-account-title">Account</h2>`
       + `<span class="account-members"><strong>Shown once</strong> · ${membership}</span>`;
-    const supplementary = supplementaryLimitsHtml(st.tools || [], 'single-account');
+    const supplementary = supplementaryLimitsHtml(st.tools || [], 'single-account', hosts[0].self ? dashboardPromotion : null);
     if (accountIdentity) accountIdentity.innerHTML = identity;
     if (supplementaryEl) supplementaryEl.innerHTML = supplementary;
     const notes = limitNotesHtml(limitEntries);
@@ -1437,11 +1462,18 @@ function refreshDashboardResetSelection() {
       if (request !== resetSelectionRequestSequence) return;
       dashboardResetSelection = normalizeDashboardResetSelection(
         view && view.resetSelection, view && view.resetSchedule);
+      const offer = view && view.claudePromotion;
+      dashboardPromotion = offer && offer.id === 'opus-5-5-reset-oct-22'
+        && ['observed', 'stale', 'claimed', 'dismissed'].includes(offer.state)
+        && typeof offer.observedAt === 'string' && Number.isFinite(Date.parse(offer.observedAt))
+        ? { state: offer.state === 'observed' && Date.now() - Date.parse(offer.observedAt) > 24 * 60 * 60_000
+          ? 'stale' : offer.state, observedAt: new Date(Date.parse(offer.observedAt)).toISOString() } : null;
     } catch {
       if (request !== resetSelectionRequestSequence) return;
       // A failed configuration read must not leave an old fallback presenting as
       // current. Provider readings remain independently available from /api/hosts.
       dashboardResetSelection = null;
+      dashboardPromotion = null;
     }
     if (state) render();
   })();

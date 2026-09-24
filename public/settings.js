@@ -131,6 +131,13 @@
     const currentOrEmpty = accountStatus === 'current' || accountServing === 'current'
       || accountStatus === 'empty' || accountServing === 'empty';
     const hasWriteProof = Number.isSafeInteger(raw.version) && typeof raw.etag === 'string';
+    const offer = raw.claudePromotion;
+    if (offer !== null && offer !== undefined && (!isRecord(offer)
+      || offer.id !== 'opus-5-5-reset-oct-22'
+      || !['observed', 'stale', 'claimed', 'dismissed'].includes(offer.state)
+      || typeof offer.observedAt !== 'string' || !Number.isFinite(Date.parse(offer.observedAt)))) {
+      throw new Error('invalid configuration response');
+    }
 
     return {
       schemaVersion: 1,
@@ -141,6 +148,7 @@
       csrfToken: raw.csrfToken,
       resetSchedule,
       recurringPlans,
+      claudePromotion: offer || null,
       resetSelection: {
         source: selection.source,
         nextResetAt: selection.nextResetAt,
@@ -578,6 +586,47 @@
     renderConfiguredProvenance(true);
   }
 
+  function renderPromotion(view) {
+    const offer = view.claudePromotion;
+    const state = byId('settings-promotion-state');
+    const detail = byId('settings-promotion-detail');
+    const action = byId('settings-promotion-action');
+    const confirm = byId('settings-promotion-confirm');
+    action.value = 'none';
+    action.disabled = !view.editable;
+    action.querySelector('option[value="claim"]').disabled = !offer || offer.state !== 'observed';
+    action.querySelector('option[value="dismiss"]').disabled = !offer || offer.state === 'dismissed';
+    confirm.checked = false;
+    confirm.disabled = true;
+    byId('settings-promotion-confirm-copy').textContent = 'Choose an offer action to confirm.';
+    if (!offer) {
+      state.textContent = 'No observation recorded';
+      detail.textContent = 'Check Claude Usage for the offer before recording it here.';
+      return;
+    }
+    const observed = new Date(offer.observedAt).toLocaleString();
+    state.textContent = offer.state === 'observed' ? 'Observed · recheck before claiming'
+      : offer.state === 'stale' ? 'Observation stale · recheck required'
+        : offer.state === 'claimed' ? 'Marked claimed' : 'Dismissed';
+    detail.textContent = `Owner observed in Claude Usage ${observed}. ${offer.state === 'stale'
+      ? 'More than 24 hours old; observe again only if the offer is still visible.'
+      : offer.state === 'observed' ? 'This is a claimable offer, not an automatic reset.'
+        : 'No longer presented as claimable.'}`;
+  }
+
+  function updatePromotionAction() {
+    const action = byId('settings-promotion-action').value;
+    const confirm = byId('settings-promotion-confirm');
+    confirm.checked = false;
+    confirm.disabled = action === 'none' || !baseView?.editable;
+    byId('settings-promotion-confirm-copy').textContent = action === 'observe'
+      ? 'I confirm I can currently see this Opus 5.5 reset offer in Claude Usage.'
+      : action === 'claim' ? 'I confirm I claimed the offer in Claude.'
+        : action === 'dismiss' ? 'I confirm this offer should be dismissed from the dashboard.'
+          : 'Choose an offer action to confirm.';
+    updateDirtyState();
+  }
+
   function hydrate(view) {
     baseView = view;
     conflicted = false;
@@ -596,6 +645,7 @@
       codex: planStateAtToday(view.recurringPlans, 'codex'),
     };
     TOOLS.forEach((tool) => renderPlan(tool, planStates[tool]));
+    renderPromotion(view);
     const legacySource = findSource(view.sources, ['subscription', 'legacy']);
     const legacyCopy = sourceStatusCopy(legacySource, 'legacy fixed-period source status unavailable').toLowerCase();
     byId('settings-history-note').textContent = '';
@@ -627,6 +677,7 @@
   function isDirty() {
     if (!baseView || !baseView.editable) return false;
     if (!sameSchedule(readScheduleDraft(), baseView.resetSchedule)) return true;
+    if (byId('settings-promotion-action').value !== 'none') return true;
     return TOOLS.some((tool) => byId(`${tool}-action`).value !== 'none');
   }
 
@@ -637,6 +688,7 @@
     const bits = [];
     if (scheduleChanged) bits.push('reset schedule');
     if (planChanges) bits.push(`${planChanges} plan ${planChanges === 1 ? 'action' : 'actions'}`);
+    if (byId('settings-promotion-action').value !== 'none') bits.push('Claude offer action');
     byId('settings-change-summary').textContent = dirty ? `Unsaved ${bits.join(' · ')}` : 'No unsaved changes';
     const readOnly = !baseView || !baseView.editable;
     saveButton.disabled = readOnly || !dirty || submitting || conflicted;
@@ -759,7 +811,18 @@
         }
       }
     }
-    return { valid: firstInvalid === null, firstInvalid, schedule, billingChanges };
+    const promotionAction = byId('settings-promotion-action').value;
+    let promotionChange = null;
+    if (promotionAction !== 'none') {
+      if (!['observe', 'claim', 'dismiss'].includes(promotionAction)
+        || (promotionAction === 'claim' && baseView.claudePromotion?.state !== 'observed')
+        || (promotionAction === 'dismiss' && !baseView.claudePromotion)) {
+        firstInvalid ||= fieldError('settings-promotion-action');
+      } else if (!byId('settings-promotion-confirm').checked) {
+        firstInvalid ||= fieldError('settings-promotion-confirm');
+      } else promotionChange = { action: promotionAction, confirmed: true };
+    }
+    return { valid: firstInvalid === null, firstInvalid, schedule, billingChanges, promotionChange };
   }
 
   function normalizeFieldErrors(value) {
@@ -789,6 +852,7 @@
       if (path.endsWith('resetSchedule.isoWeekday')) fieldId = 'settings-weekday';
       else if (path.endsWith('resetSchedule.localTime')) fieldId = 'settings-reset-time';
       else if (path.endsWith('resetSchedule.timeZone')) fieldId = 'settings-time-zone';
+      else if (path.startsWith('promotionChange')) fieldId = 'settings-promotion-action';
       else {
         const match = path.match(/billingChanges\.(\d+)\.([A-Za-z]+)$/);
         if (match) {
@@ -885,6 +949,7 @@
       baseVersion: baseView.version,
       resetSchedule: result.schedule,
       billingChanges: result.billingChanges,
+      ...(result.promotionChange ? { promotionChange: result.promotionChange } : {}),
     };
     setSubmitting(true);
     setBanner('', 'Saving configuration…', `Validating version ${baseView.version} and writing one atomic local update.`);
@@ -925,7 +990,7 @@
       const saved = normalizeView(payload);
       hydrate(saved);
       setBanner('saved', 'Configuration saved',
-        `Version ${saved.version} is active. The reset schedule and plan actions were written atomically.`);
+        `Version ${saved.version} is active. Confirmed changes were written atomically.`);
       announce(`Configuration saved. Version ${saved.version} is active.`);
     } catch {
       setBanner('error', 'Configuration was not saved',
@@ -982,6 +1047,16 @@
         updateDirtyState();
       });
     });
+  });
+  byId('settings-promotion-action').addEventListener('change', () => {
+    clearErrors();
+    updatePromotionAction();
+    if (!conflicted && baseView?.editable) hideBanner();
+  });
+  byId('settings-promotion-confirm').addEventListener('input', () => {
+    byId('settings-promotion-confirm').removeAttribute('aria-invalid');
+    byId('settings-promotion-confirm-error').hidden = true;
+    updateDirtyState();
   });
   form.addEventListener('submit', saveConfig);
   discardButton.addEventListener('click', () => {

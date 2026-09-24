@@ -15,7 +15,7 @@ process.env.LLMDASH_CODEX_DIR = path.join(root, 'codex');
 process.env.LLMDASH_CODEX_CMD = path.join(root, 'missing-codex');
 
 const { server } = await import('../src/server.js');
-const { isTrustedResetBillingAuthority } = await import('../src/reset-billing-api.js');
+const { getResetBillingView, isTrustedResetBillingAuthority } = await import('../src/reset-billing-api.js');
 const { clearAccountConfigCache } = await import('../src/account-config.js');
 
 let port;
@@ -127,6 +127,30 @@ test('same-origin CSRF/ETag PUT atomically saves one version and stale writes co
   });
   assert.equal(stale.status, 412);
   assert.equal(JSON.parse(stale.text).currentVersion, 1);
+});
+
+test('protected offer action records server time and returns a distinct source-labeled view', async () => {
+  const current = JSON.parse((await hit('/api/config/reset-billing')).text);
+  const body = JSON.stringify({ schemaVersion: 1, baseVersion: current.version,
+    resetSchedule: current.resetSchedule, billingChanges: [],
+    promotionChange: { action: 'observe', confirmed: true } });
+  const response = await hit('/api/config/reset-billing', {
+    method: 'PUT', headers: writeHeaders(current), body,
+  });
+  assert.equal(response.status, 200, response.text);
+  const view = JSON.parse(response.text);
+  assert.equal(view.claudePromotion.state, 'observed');
+  assert.equal(view.claudePromotion.id, 'opus-5-5-reset-oct-22');
+  assert.equal(view.claudePromotion.expiresLabel, 'Oct 22');
+  assert.equal(view.claudePromotion.expiryPrecision, 'year-and-time-unconfirmed');
+  assert.match(view.claudePromotion.source, /Owner observation/);
+  assert.ok(Math.abs(Date.now() - Date.parse(view.claudePromotion.observedAt)) < 10_000);
+  const file = JSON.parse(fs.readFileSync(path.join(dataDir, 'account-config.json'), 'utf8'));
+  assert.equal(file.claudePromotion.status, 'observed');
+  assert.equal(file.claudePromotion.observedAt, view.claudePromotion.observedAt);
+  const later = getResetBillingView({ refresh: false,
+    nowMs: Date.parse(view.claudePromotion.observedAt) + 24 * 60 * 60_000 + 1 });
+  assert.equal(later.claudePromotion.state, 'stale');
 });
 
 test('untrusted Host cannot read config, tokens, resources, or write through a matching Origin', async () => {

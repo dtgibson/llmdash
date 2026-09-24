@@ -49,6 +49,38 @@ test('strict account-config schema validates canonical history and rejects unkno
   assert.equal(parseAccountConfig({ ...value, recurringPlans: [{ ...value.recurringPlans[0], amountCents: 0 }] }).ok, false);
 });
 
+test('owner observed Opus offer keeps its own state and survives reset edits', () => {
+  const first = applyAccountConfigUpdate(empty(), update(0, {
+    promotionChange: { action: 'observe', confirmed: true },
+  }), '2026-09-23T18:00:00.000Z').config;
+  assert.deepEqual(first.claudePromotion, {
+    id: 'opus-5-5-reset-oct-22', status: 'observed',
+    observedAt: '2026-09-23T18:00:00.000Z', statusAt: '2026-09-23T18:00:00.000Z',
+  });
+  assert.equal(parseAccountConfig(JSON.parse(canonicalAccountConfig(first))).ok, true);
+  const edited = applyAccountConfigUpdate(first, update(1, { resetSchedule: null }),
+    '2026-09-23T18:10:00.000Z').config;
+  assert.deepEqual(edited.claudePromotion, first.claudePromotion);
+  const claimed = applyAccountConfigUpdate(edited, update(2, {
+    resetSchedule: null, promotionChange: { action: 'claim', confirmed: true },
+  }), '2026-09-23T18:20:00.000Z').config;
+  assert.equal(claimed.claudePromotion.status, 'claimed');
+  assert.equal(claimed.claudePromotion.observedAt, first.claudePromotion.observedAt);
+  const dismissed = applyAccountConfigUpdate(claimed, update(3, {
+    resetSchedule: null, promotionChange: { action: 'dismiss', confirmed: true },
+  }), '2026-09-23T18:30:00.000Z').config;
+  assert.equal(dismissed.claudePromotion.status, 'dismissed');
+  assert.equal(parseAccountConfig({ ...dismissed, claudePromotion: { ...dismissed.claudePromotion, extra: true } }).ok, false);
+  assert.equal(parseAccountConfig({ ...dismissed, claudePromotion: { ...dismissed.claudePromotion,
+    observedAt: '2026-09-23T18:00:00Z' } }).ok, false);
+  assert.throws(() => applyAccountConfigUpdate(first, update(1, {
+    promotionChange: { action: 'claim', confirmed: true },
+  }), '2026-09-24T18:00:01.000Z'), AccountConfigError);
+  assert.throws(() => applyAccountConfigUpdate(empty(), update(0, {
+    promotionChange: { action: 'observe', confirmed: false },
+  }), '2026-09-23T18:00:00.000Z'), AccountConfigError);
+});
+
 test('canonical bytes and strong ETags are stable and version-bound', () => {
   const first = applyAccountConfigUpdate(empty(), update(0), '2026-07-23T18:15:30.000Z').config;
   const bytes = canonicalAccountConfig(first);

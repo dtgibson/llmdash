@@ -174,6 +174,36 @@ const withResetCredits = (tool, snapshot) => {
   return tool;
 };
 const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
+
+test('owner observed Claude offer is separate from model caps and loses claimable copy when stale or claimed', async () => {
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787,
+    self: true, reachable: true, fetchedAt: iso(0), state: stateOf([claudeTool(3600_000, 86400_000)]) }],
+  generatedAt: iso(0) };
+  const offer = { id: 'opus-5-5-reset-oct-22', state: 'observed', observedAt: iso(-60_000) };
+  const resetSelection = { source: 'unavailable', nextResetAt: null };
+  const renderOffer = async (claudePromotion) => {
+    const { els } = await renderWith(combined, { resetSchedule: null, resetSelection, claudePromotion });
+    return els['supplementary-limits'].innerHTML;
+  };
+  const fresh = await renderOffer(offer);
+  assert.match(fresh, /Claude offer/);
+  assert.match(fresh, /Reset for free · Opus 5\.5/);
+  assert.match(fresh, /year and exact time not shown/);
+  assert.match(fresh, /Check in Claude Usage/);
+  assert.doesNotMatch(fresh, /claude-model:opus/);
+  const stale = await renderOffer({ ...offer, state: 'stale' });
+  assert.match(stale, /Recheck required/);
+  assert.doesNotMatch(stale, /promotion-title">Reset for free/);
+  const aged = await renderOffer({ ...offer, state: 'observed', observedAt: iso(-25 * 3600_000) });
+  assert.match(aged, /Recheck required/);
+  assert.doesNotMatch(aged, /promotion-title">Reset for free/);
+  const claimed = await renderOffer({ ...offer, state: 'claimed' });
+  assert.match(claimed, /Marked claimed/);
+  assert.doesNotMatch(claimed, /promotion-title">Reset for free/);
+  const remote = { ...combined, hosts: [{ ...combined.hosts[0], self: false, host: 'peer' }] };
+  const remoteView = await renderWith(remote, { resetSchedule: null, resetSelection, claudePromotion: offer });
+  assert.doesNotMatch(remoteView.els['supplementary-limits'].innerHTML, /Claude offer/);
+});
 const healthState = (capturedAt = iso(-60_000)) => ({
   scope: 'device', pollIntervalMs: 60_000,
   cpu: { status: 'available', usedPct: 42, capturedAt, attemptedAt: capturedAt, updateStatus: 'ok', reason: null, intervalMs: 60_000 },
@@ -512,6 +542,8 @@ test('health history renders accessible segmented series and an exact bounded ta
   assert.match(html, /path class="health-point health-point-disk/);
   assert.match(html, /Not measured/);
   assert.match(html, /&lt;Owner Mac&gt; device health history/);
+  assert.match(html, /<div class="sr-only"><table><caption>Exact bounded &lt;Owner Mac&gt; health history/,
+    'a clipping wrapper contains the table without changing its table semantics');
   const table = html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0] || '';
   assert.equal((table.match(/<tr>/g) || []).length, 3);
   sandbox.probeHistory = hostState.deviceHealth.history;

@@ -134,11 +134,11 @@ async function browser(fetchImpl, { DateImpl = Date, stateImpl = null } = {}) {
       if (id.endsWith('-action')) {
         const options = {
           set: fakeElement('', 'option'), cancel: fakeElement('', 'option'), none: fakeElement('', 'option'),
+          observe: fakeElement('', 'option'), claim: fakeElement('', 'option'), dismiss: fakeElement('', 'option'),
         };
-        options.set.value = 'set'; options.cancel.value = 'cancel'; options.none.value = 'none';
+        Object.entries(options).forEach(([name, option]) => { option.value = name; });
         el.options = Object.values(options);
-        el.querySelector = (selector) => selector.includes('"set"') ? options.set
-          : selector.includes('"cancel"') ? options.cancel : options.none;
+        el.querySelector = (selector) => options[selector.match(/value="([a-z]+)"/)?.[1]] || null;
         el.value = 'none';
       }
       els.set(id, el);
@@ -190,6 +190,33 @@ test('dashboard navigation and standalone settings shell follow the approved hie
   assert.doesNotMatch(accountConfigJs, /later boundary for the current plan/);
   assert.doesNotMatch(settingsJs, /There is no current plan to cancel\./);
   assert.doesNotMatch(settingsHtml, /\$100\.00|\$20\.00|value="2026-/);
+});
+
+test('Claude offer observation requires explicit confirmation and uses the protected versioned save', async () => {
+  const initial = view();
+  const observed = { id: 'opus-5-5-reset-oct-22', state: 'observed', status: 'observed',
+    observedAt: '2026-09-23T18:00:00.000Z', statusAt: '2026-09-23T18:00:00.000Z' };
+  const writes = [];
+  const h = await browser(async (_url, options) => {
+    if (options.method === 'PUT') {
+      writes.push(options);
+      return { ok: true, status: 200, json: async () => view({ version: 4, etag: '"v4"', claudePromotion: observed }) };
+    }
+    return { ok: true, status: 200, json: async () => initial };
+  });
+  h.get('settings-promotion-action').value = 'observe';
+  h.get('settings-promotion-action').onchange();
+  assert.equal(h.get('settings-save').disabled, false);
+  await h.form.onsubmit({ preventDefault() {} });
+  assert.equal(writes.length, 0, 'confirmation is required before writing');
+  h.get('settings-promotion-confirm').checked = true;
+  h.get('settings-promotion-confirm').oninput();
+  await h.form.onsubmit({ preventDefault() {} });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].headers['If-Match'], initial.etag);
+  assert.equal(writes[0].headers['X-LLMDash-CSRF'], initial.csrfToken);
+  assert.deepEqual(JSON.parse(writes[0].body).promotionChange, { action: 'observe', confirmed: true });
+  assert.match(h.get('settings-promotion-state').textContent, /Observed/);
 });
 
 test('settings styles are namespaced, responsive, focused, and reduced-motion compatible', () => {

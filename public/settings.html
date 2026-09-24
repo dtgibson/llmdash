@@ -219,6 +219,37 @@
             <p class="settings-history-note" id="settings-history-note"><strong>History stays immutable.</strong> Recurring versions and legacy fixed periods remain separate.</p>
           </section>
 
+          <section class="settings-section" aria-labelledby="settings-promotion-title">
+            <div class="settings-section-head">
+              <div>
+                <h2 id="settings-promotion-title">Claude promotional offer</h2>
+                <p>Owner-confirmed observation from Claude Settings → Usage. This is separate from usage limits and scheduled resets.</p>
+              </div>
+              <span>Opus 5.5 · manual</span>
+            </div>
+            <div class="settings-promotion-summary">
+              <strong id="settings-promotion-state">No observation recorded</strong>
+              <p id="settings-promotion-detail">Check Claude Usage for the offer before recording it here.</p>
+              <p>Screenshot wording: “Reset for free” · expires Oct 22. The year and exact expiry time were not shown.</p>
+              <a href="https://claude.ai/settings/usage" rel="noopener noreferrer" target="_blank">Open Claude Usage</a>
+            </div>
+            <div class="settings-field settings-promotion-action">
+              <label for="settings-promotion-action">Offer action</label>
+              <select id="settings-promotion-action" aria-describedby="settings-promotion-action-error">
+                <option value="none">No change</option>
+                <option value="observe">I see the offer now in Claude Usage</option>
+                <option value="claim">Mark as claimed</option>
+                <option value="dismiss">Dismiss the offer</option>
+              </select>
+              <p class="settings-field-error" id="settings-promotion-action-error" hidden>Choose a valid offer action.</p>
+            </div>
+            <label class="settings-confirm-row" for="settings-promotion-confirm">
+              <input id="settings-promotion-confirm" type="checkbox" aria-describedby="settings-promotion-confirm-error" disabled />
+              <span id="settings-promotion-confirm-copy">Choose an offer action to confirm.</span>
+            </label>
+            <p class="settings-field-error" id="settings-promotion-confirm-error" hidden>Confirm the offer action before saving.</p>
+          </section>
+
           <section class="settings-section" aria-labelledby="settings-resources-title">
             <div class="settings-section-head">
               <div>

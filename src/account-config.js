@@ -18,12 +18,16 @@ const TIME_RE = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const AMOUNT_RE = /^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$/;
 const TOP_KEYS = new Set(['schemaVersion', 'version', 'updatedAt', 'resetSchedule', 'recurringPlans']);
+const TOP_KEYS_WITH_PROMOTION = new Set([...TOP_KEYS, 'claudePromotion']);
+const PROMOTION_KEYS = new Set(['id', 'status', 'observedAt', 'statusAt']);
 const RESET_KEYS = new Set(['isoWeekday', 'localTime', 'timeZone']);
 const PLAN_KEYS = new Set([
   'tool', 'amountCents', 'effectiveStartDate', 'effectiveEndDate',
   'billingAnchorDay', 'createdInVersion', 'closedInVersion',
 ]);
 const UPDATE_KEYS = new Set(['schemaVersion', 'baseVersion', 'resetSchedule', 'billingChanges']);
+const UPDATE_KEYS_WITH_PROMOTION = new Set([...UPDATE_KEYS, 'promotionChange']);
+const PROMOTION_CHANGE_KEYS = new Set(['action', 'confirmed']);
 const SET_KEYS = new Set(['action', 'tool', 'amountUsd', 'effectiveDate', 'billingAnchorDay', 'confirmed']);
 const CANCEL_KEYS = new Set(['action', 'tool', 'effectiveDate', 'confirmed']);
 
@@ -56,6 +60,17 @@ function canonicalTimeZone(value) {
 }
 function schedulesEqual(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function validatePromotion(value) {
+  if (value === null) return null;
+  if (!exactKeys(value, PROMOTION_KEYS) || value.id !== 'opus-5-5-reset-oct-22'
+    || !['observed', 'claimed', 'dismissed'].includes(value.status)
+    || !canonicalInstant(value.observedAt) || !canonicalInstant(value.statusAt)
+    || Date.parse(value.statusAt) < Date.parse(value.observedAt)) {
+    fail('claudePromotion', 'invalid_promotion', 'Use a valid owner-observed Opus promotion state.');
+  }
+  return { id: value.id, status: value.status, observedAt: value.observedAt, statusAt: value.statusAt };
 }
 
 export class AccountConfigError extends Error {
@@ -156,7 +171,9 @@ function validatePlanHistory(plans) {
 
 export function parseAccountConfig(value, { previous = null } = {}) {
   try {
-    if (!exactKeys(value, TOP_KEYS)) fail('', 'invalid_file', 'The account configuration has unexpected fields.');
+    if (!exactKeys(value, TOP_KEYS) && !exactKeys(value, TOP_KEYS_WITH_PROMOTION)) {
+      fail('', 'invalid_file', 'The account configuration has unexpected fields.');
+    }
     if (value.schemaVersion !== 1) fail('schemaVersion', 'unsupported_schema', 'Only account configuration schema 1 is supported.');
     if (!safeVersion(value.version)) fail('version', 'invalid_version', 'The configuration version must be a positive safe integer.');
     if (!canonicalInstant(value.updatedAt)) fail('updatedAt', 'invalid_timestamp', 'The update time must be canonical UTC.');
@@ -170,7 +187,8 @@ export function parseAccountConfig(value, { previous = null } = {}) {
       fail('recurringPlans', 'invalid_order', 'Recurring plans must be sorted by tool, start date, and creation version.');
     }
     validatePlanHistory(recurringPlans);
-    const parsed = { schemaVersion: 1, version: value.version, updatedAt: value.updatedAt, resetSchedule, recurringPlans };
+    const parsed = { schemaVersion: 1, version: value.version, updatedAt: value.updatedAt, resetSchedule, recurringPlans,
+      claudePromotion: validatePromotion(value.claudePromotion ?? null) };
     if (previous && !historyExtends(previous, parsed)) {
       fail('recurringPlans', 'history_rewritten', 'A newer file cannot delete or rewrite prior recurring plan history.');
     }
@@ -225,6 +243,7 @@ export function canonicalAccountConfig(value) {
       createdInVersion: plan.createdInVersion,
       closedInVersion: plan.closedInVersion,
     })),
+    ...(value.claudePromotion ? { claudePromotion: value.claudePromotion } : {}),
   }, null, 2)}\n`;
 }
 
@@ -234,11 +253,12 @@ export function accountConfigEtag(value, canonical = canonicalAccountConfig(valu
 }
 
 function emptyConfig() {
-  return { schemaVersion: 1, version: 0, updatedAt: null, resetSchedule: null, recurringPlans: [] };
+  return { schemaVersion: 1, version: 0, updatedAt: null, resetSchedule: null, recurringPlans: [], claudePromotion: null };
 }
 
 function freezeConfig(value) {
   if (value.resetSchedule) Object.freeze(value.resetSchedule);
+  if (value.claudePromotion) Object.freeze(value.claudePromotion);
   for (const plan of value.recurringPlans) Object.freeze(plan);
   Object.freeze(value.recurringPlans);
   return Object.freeze(value);
@@ -249,6 +269,7 @@ function snapshot(state, reason, value, canonical, file, stat = null, sourceBuff
     ...value,
     resetSchedule: value.resetSchedule ? { ...value.resetSchedule } : null,
     recurringPlans: value.recurringPlans.map((plan) => ({ ...plan })),
+    claudePromotion: value.claudePromotion ? { ...value.claudePromotion } : null,
   }) : null;
   return Object.freeze({
     state,
@@ -341,7 +362,9 @@ export function parseAmountCents(value) {
 }
 
 export function validateAccountConfigUpdate(value) {
-  if (!exactKeys(value, UPDATE_KEYS)) fail('', 'invalid_object', 'Use schemaVersion, baseVersion, resetSchedule, and billingChanges only.');
+  if (!exactKeys(value, UPDATE_KEYS) && !exactKeys(value, UPDATE_KEYS_WITH_PROMOTION)) {
+    fail('', 'invalid_object', 'Use schemaVersion, baseVersion, resetSchedule, billingChanges, and an optional promotionChange only.');
+  }
   if (value.schemaVersion !== 1) fail('schemaVersion', 'unsupported_schema', 'Only schema 1 updates are supported.');
   if (!safeVersion(value.baseVersion, true)) fail('baseVersion', 'invalid_version', 'The base version is invalid.');
   const resetSchedule = validateResetSchedule(value.resetSchedule);
@@ -375,7 +398,16 @@ export function validateAccountConfigUpdate(value) {
       effectiveDate: raw.effectiveDate, billingAnchorDay: raw.billingAnchorDay, confirmed: true,
     };
   });
-  return { schemaVersion: 1, baseVersion: value.baseVersion, resetSchedule, billingChanges };
+  let promotionChange = null;
+  if (value.promotionChange !== undefined) {
+    const raw = value.promotionChange;
+    if (!exactKeys(raw, PROMOTION_CHANGE_KEYS) || !['observe', 'claim', 'dismiss'].includes(raw.action)
+      || raw.confirmed !== true) {
+      fail('promotionChange', 'invalid_promotion_action', 'Confirm an observe, claim, or dismiss action.');
+    }
+    promotionChange = { action: raw.action, confirmed: true };
+  }
+  return { schemaVersion: 1, baseVersion: value.baseVersion, resetSchedule, billingChanges, promotionChange };
 }
 
 export function applyAccountConfigUpdate(current, rawUpdate, now = new Date().toISOString()) {
@@ -388,7 +420,23 @@ export function applyAccountConfigUpdate(current, rawUpdate, now = new Date().to
   const nextVersion = current.version + 1;
   const plans = current.recurringPlans.map((plan) => ({ ...plan }));
   const changedFields = [];
+  let claudePromotion = current.claudePromotion ?? null;
   if (!schedulesEqual(current.resetSchedule, update.resetSchedule)) changedFields.push('resetSchedule');
+  if (update.promotionChange) {
+    const action = update.promotionChange.action;
+    if (action === 'observe') {
+      claudePromotion = { id: 'opus-5-5-reset-oct-22', status: 'observed', observedAt: now, statusAt: now };
+    } else {
+      if (!claudePromotion) fail('promotionChange', 'no_promotion', 'Record an observed offer before changing its state.');
+      if (action === 'claim' && (claudePromotion.status !== 'observed'
+        || Date.parse(now) - Date.parse(claudePromotion.observedAt) > 24 * 60 * 60_000
+        || Date.parse(claudePromotion.observedAt) > Date.parse(now) + 5 * 60_000)) {
+        fail('promotionChange', 'stale_promotion', 'Recheck and record the current offer before marking it claimed.');
+      }
+      claudePromotion = { ...claudePromotion, status: action === 'claim' ? 'claimed' : 'dismissed', statusAt: now };
+    }
+    if (JSON.stringify(claudePromotion) !== JSON.stringify(current.claudePromotion)) changedFields.push('claudePromotion');
+  }
   for (let index = 0; index < update.billingChanges.length; index++) {
     const change = update.billingChanges[index];
     const planIndexes = plans.map((plan, planIndex) => ({ plan, planIndex }))
@@ -436,6 +484,7 @@ export function applyAccountConfigUpdate(current, rawUpdate, now = new Date().to
     updatedAt: now,
     resetSchedule: update.resetSchedule,
     recurringPlans: plans,
+    claudePromotion,
   };
   const checked = parseAccountConfig(candidate, { previous: current.version > 0 ? current : null });
   if (!checked.ok) throw new AccountConfigError('validation_failed', 'Configuration validation failed', checked.fieldErrors);
