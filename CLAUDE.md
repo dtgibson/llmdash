@@ -403,6 +403,11 @@
 - Charts are plain SVG built into `innerHTML`. Verify the UI actually **renders**
   (not just that the page loads) — a blank-bar regression once passed a
   "page loads" check.
+- **Visually hidden exact-data tables must stay within the mobile viewport while
+  remaining accessible.** Constrain an intrinsically wide table inside its
+  clipped wrapper; with populated rows, verify document and body widths at 320px
+  and common phone widths, then confirm the caption, headers, and rows remain in
+  the browser accessibility tree.
 - **Verify an artifact the way its host actually runs it, not just the way a test
   is convenient.** This generalizes the "renders, not just loads" rule to
   out-of-process / host-run artifacts. The menu-bar badge passed every unit test

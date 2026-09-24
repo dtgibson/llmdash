@@ -1,5 +1,25 @@
 # Decisions — llmdash
 
+## Mobile health history and Claude Opus offer — 2026-09-23 (fix)
+
+**Bug:** A populated, visually hidden health-history table widened the dashboard
+beyond a 320px phone viewport, while an owner-observed Claude Opus 5.5 “Reset for
+free” offer was absent from llmdash.
+**Cause:** The table's intrinsic width escaped its one-pixel clipping rule; the
+promotion appears in Claude desktop/web Settings → Usage but not in Claude Code
+`/usage` or machine-readable limit readings.
+**Resolution:** Clip the semantic table inside a constrained wrapper so the page
+fits phone widths and the exact rows remain accessible. Keep the promotion as a
+separate, owner-confirmed record in protected Settings, stamped with its Claude
+Usage observation time and shown with a source link and age. After 24 hours, or
+after the owner marks it claimed or dismissed, remove claimable wording; do not
+infer an expiry year or instant from the screenshot's “Oct 22.”
+**Implications:** Future manual offers must stay distinct from provider-reported
+model caps, scheduled account resets, and Codex reset credits. The production
+release has no offer record: a fresh owner check in Claude Usage is required
+before recording one. Future hidden data tables need populated mobile geometry
+and accessibility-tree verification.
+
 ## Claude reset and Fable readings — preserve evidence provenance — 2026-09-23 (fix)
 
 **Bug:** Newer Claude statusline percentages erased earlier future account resets

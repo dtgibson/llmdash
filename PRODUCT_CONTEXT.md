@@ -30,6 +30,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   Claude weekly fallback, maintain automatically recurring monthly Claude/Codex
   access-cost history, and view or download every fixed billing input over the
   same local or Tailscale origin while current provider reset evidence still wins.
+- **Claude promotional offer** — after checking Claude Usage, an owner can record
+  the Opus 5.5 “Reset for free” offer, which appears with its source and observation
+  age separately from Fable model caps and Codex reset credits and stops looking
+  claimable when stale, claimed, or dismissed.
 - **Usage trends** — each tool group closes with its own vanilla-SVG limit burn,
   tokens-per-day, and cache-rate charts under one shared 24h / 7d / 30d range
   switch.
