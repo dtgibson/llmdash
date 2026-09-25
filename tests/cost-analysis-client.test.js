@@ -187,11 +187,13 @@ test('session-inferred Codex usage and active-rollout retries are labeled precis
   data.scopes.codex.usageCoverage.inferredModelTokens = 8_269_043_843;
   data.scopes.combined.usageCoverage.inferredModelRecords = 91;
   data.scopes.combined.usageCoverage.inferredModelTokens = 8_269_043_843;
+  data.scopes.combined.usageCoverage.fallbackIdentityRecords = 23;
   data.scopes.combined.summary.observedCache = metric(20_000_000, 'partial', ['active_rollout_pending']);
   const { els } = await browser(async () => ({ ok: true, json: async () => data }));
   const html = els['cost-surface'].innerHTML;
   assert.match(html, /91 Codex records use session-level model estimates/);
   assert.match(html, /Codex: 91 records \/ 8,269,043,843 tokens use the session’s sole explicit model as a personal estimate/);
+  assert.match(html, /23 counted records lack a stable cross-file identity; duplicate copies may remain/);
   assert.match(html, /active Codex rollout is still changing/);
   assert.match(html, /last complete evidence remains visible/);
   assert.doesNotMatch(html, /usage root could not be read/);

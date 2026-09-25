@@ -222,11 +222,13 @@ function hasTokenUsageEvidence(event, outerType, payload) {
 function definiteNonUsageOversizedPrefix(prefix) {
   if (typeof prefix !== 'string') return false;
   // Current rollout message/tool-output rows can be large, but token accounting
-  // is emitted as event_msg/token_count. Match only generated top-level header
-  // orders and a narrow non-usage type allowlist; an unfamiliar prefix stays
-  // unsupported. Newer rollouts insert a numeric ordinal after the timestamp.
+  // is emitted as event_msg/token_count. Compaction snapshots can also be
+  // large; their top-level type is not a token event. Match only generated
+  // top-level header orders; an unfamiliar prefix stays unsupported. Newer
+  // rollouts insert a numeric ordinal after the timestamp.
   const current = prefix.match(/^\s*\{\s*"timestamp"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*(?:"ordinal"\s*:\s*\d+\s*,\s*)?"type"\s*:\s*"([a-z_]+)"\s*,\s*"payload"\s*:\s*\{\s*"type"\s*:\s*"([a-z_]+)"/);
   if (current) return OVERSIZED_NON_USAGE_HEADERS.has(`${current[1]}:${current[2]}`);
+  if (/^\s*\{\s*"timestamp"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*(?:"ordinal"\s*:\s*\d+\s*,\s*)?"type"\s*:\s*"compacted"\s*,\s*"payload"\s*:\s*\{/.test(prefix)) return true;
   return /^\s*\{\s*"type"\s*:\s*"response_item"\s*,\s*"payload"\s*:\s*\{\s*"type"\s*:\s*"(?:message|custom_tool_call_output)"/.test(prefix);
 }
 

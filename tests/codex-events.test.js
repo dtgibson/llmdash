@@ -403,7 +403,7 @@ test('oversized streamed usage lines are explicit omissions rather than non-obje
   }
 });
 
-test('oversized streamed response rows are definite non-usage and do not weaken coverage', () => {
+test('oversized streamed response and compaction rows are definite non-usage and do not weaken coverage', () => {
   clearCodexEventCache();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codex-events-oversized-response-'));
   const rollout = path.join(directory, 'rollout-oversized-response.jsonl');
@@ -415,7 +415,11 @@ test('oversized streamed response rows are definite non-usage and do not weaken 
     timestamp: at(2), ordinal: 2, type: 'event_msg',
     payload: { type: 'item_completed', item: { output: 'x'.repeat(1_048_576) } },
   });
-  fs.writeFileSync(rollout, `${oversizedResponse}\n${oversizedCompletedItem}\n${token(at(3), { input_tokens: 4, output_tokens: 1 })}\n`);
+  const oversizedCompaction = JSON.stringify({
+    timestamp: at(3), ordinal: 3, type: 'compacted',
+    payload: { replacement_history: ['x'.repeat(1_048_576)] },
+  });
+  fs.writeFileSync(rollout, `${oversizedResponse}\n${oversizedCompletedItem}\n${oversizedCompaction}\n${token(at(4), { input_tokens: 4, output_tokens: 1 })}\n`);
   try {
     const scan = scanCodexRollouts(Date.parse(at(0)), {
       sessionsDir: directory,

@@ -1,8 +1,13 @@
 {
   "schemaVersion": 1,
   "currency": "USD",
-  "asOf": "2026-08-27T00:00:00.000Z",
+  "asOf": "2026-09-25T00:00:00.000Z",
   "sources": [
+    {
+      "id": "anthropic-fable-5-1-launch-2026-09-01",
+      "label": "Anthropic Fable 5.1 model release and API pricing",
+      "publishedAt": "2026-09-01T00:00:00.000Z"
+    },
     {
       "id": "anthropic-fable-5-launch-2026-06-09",
       "label": "Anthropic Fable 5 launch and API pricing",
@@ -22,6 +27,11 @@
       "id": "anthropic-opus-5-launch-2026-07-24",
       "label": "Anthropic Claude Opus 5 model overview and API pricing",
       "publishedAt": "2026-07-24T00:00:00.000Z"
+    },
+    {
+      "id": "anthropic-opus-5-5-launch-2026-09-22",
+      "label": "Anthropic Claude Opus 5.5 model release and API pricing",
+      "publishedAt": "2026-09-22T00:00:00.000Z"
     },
     {
       "id": "anthropic-sonnet-5-launch-2026-06-30",
@@ -52,9 +62,22 @@
       "id": "openai-gpt-5-6-terra-luna-pricing-2026-07-30",
       "label": "OpenAI GPT-5.6 Terra and Luna pricing and July 2026 changelog",
       "publishedAt": "2026-07-30T00:00:00.000Z"
+    },
+    {
+      "id": "openai-gpt-6-sol-launch-2026-09-22",
+      "label": "OpenAI GPT-6 Sol API launch, model documentation, and standard pricing",
+      "publishedAt": "2026-09-22T00:00:00.000Z"
     }
   ],
   "rates": [
+    {
+      "tool": "claude",
+      "model": "claude-fable-5-1",
+      "effectiveFrom": "2026-09-01T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "anthropic-fable-5-1-launch-2026-09-01",
+      "usdPerMillionTokens": { "input": "10.00", "output": "50.00", "cacheWrite5m": "12.50", "cacheWrite1h": "20.00", "cacheRead": "0.25" }
+    },
     {
       "tool": "claude",
       "model": "claude-fable-5",
@@ -78,6 +101,14 @@
       "effectiveTo": null,
       "sourceId": "anthropic-opus-5-launch-2026-07-24",
       "usdPerMillionTokens": { "input": "5.00", "output": "25.00", "cacheWrite5m": "6.25", "cacheWrite1h": "10.00", "cacheRead": "0.50" }
+    },
+    {
+      "tool": "claude",
+      "model": "claude-opus-5-5",
+      "effectiveFrom": "2026-09-22T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "anthropic-opus-5-5-launch-2026-09-22",
+      "usdPerMillionTokens": { "input": "4.00", "output": "20.00", "cacheWrite5m": "5.00", "cacheWrite1h": "8.00", "cacheRead": "0.20" }
     },
     {
       "tool": "claude",
@@ -192,6 +223,20 @@
         {
           "aboveInputTokens": 272000,
           "usdPerMillionTokens": { "input": "0.40", "output": "1.80", "cacheRead": "0.04" }
+        }
+      ]
+    },
+    {
+      "tool": "codex",
+      "model": "gpt-6-sol",
+      "effectiveFrom": "2026-09-22T00:00:00.000Z",
+      "effectiveTo": null,
+      "sourceId": "openai-gpt-6-sol-launch-2026-09-22",
+      "usdPerMillionTokens": { "input": "2.00", "output": "10.00", "cacheRead": "0.20" },
+      "inputTokenTiers": [
+        {
+          "aboveInputTokens": 272000,
+          "usdPerMillionTokens": { "input": "4.00", "output": "15.00", "cacheRead": "0.40" }
         }
       ]
     }

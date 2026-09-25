@@ -188,9 +188,11 @@ test('tracked rate card validates and includes reviewed provider provenance', ()
   const parsed = readRateCard();
   assert.equal(parsed.status, 'valid');
   assert.deepEqual(parsed.sources.map((item) => item.id), [
+    'anthropic-fable-5-1-launch-2026-09-01',
     'anthropic-fable-5-launch-2026-06-09',
     'anthropic-haiku-4-5-launch-2025-10-15',
     'anthropic-opus-4-8-launch-2026-05-28',
+    'anthropic-opus-5-5-launch-2026-09-22',
     'anthropic-opus-5-launch-2026-07-24',
     'anthropic-sonnet-5-launch-2026-06-30',
     'openai-gpt-5-3-codex-launch-2026-02-05',
@@ -198,6 +200,7 @@ test('tracked rate card validates and includes reviewed provider provenance', ()
     'openai-gpt-5-6-sol-preview-2026-06-26',
     'openai-gpt-5-6-sol-promo-2026-08-27',
     'openai-gpt-5-6-terra-luna-pricing-2026-07-30',
+    'openai-gpt-6-sol-launch-2026-09-22',
   ]);
   const current = Date.parse('2026-08-27T12:00:00.000Z');
   assert.ok(findRate(parsed, 'claude', 'claude-fable-5', current));
@@ -231,4 +234,15 @@ test('tracked rate card validates and includes reviewed provider provenance', ()
   assert.equal(findRate(parsed, 'codex', 'gpt-5.6-terra', Date.parse('2026-07-29T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.6-luna', Date.parse('2026-07-29T23:59:59.999Z')), null);
   assert.equal(findRate(parsed, 'codex', 'gpt-5.5-codex', current), null);
+  const september1 = Date.parse('2026-09-01T00:00:00.000Z');
+  const september22 = Date.parse('2026-09-22T00:00:00.000Z');
+  assert.equal(findRate(parsed, 'claude', 'claude-fable-5-1', september1 - 1), null);
+  assert.equal(findRate(parsed, 'claude', 'claude-fable-5-1', september1).rates.cacheRead, 250_000n);
+  assert.equal(findRate(parsed, 'claude', 'claude-opus-5-5', september22 - 1), null);
+  assert.equal(findRate(parsed, 'claude', 'claude-opus-5-5', september22).rates.cacheWrite1h, 8_000_000n);
+  assert.equal(findRate(parsed, 'codex', 'gpt-6-sol', september22 - 1), null);
+  const sol = findRate(parsed, 'codex', 'gpt-6-sol', september22);
+  assert.equal(ratesForInput(sol, 272000).input, 2_000_000n);
+  assert.equal(ratesForInput(sol, 272001).output, 15_000_000n);
+  assert.equal(findRate(parsed, 'codex', 'gpt-6', september22), null);
 });

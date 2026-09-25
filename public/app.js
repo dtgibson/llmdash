@@ -2077,7 +2077,7 @@ const COST_REASON_COPY = Object.freeze({
   timestamp_invalid: 'Usage with an invalid timestamp was excluded.',
   token_record_invalid: 'Usage with an invalid token tuple was excluded.',
   source_missing: 'A local usage root is not present.',
-  source_unreadable: 'A local usage root could not be read.',
+  source_unreadable: 'A local usage source or part of its tree could not be read.',
   active_rollout_pending: 'An active Codex rollout is still changing. It will be retried while the last complete evidence remains visible.',
   source_traversal_error: 'Part of a local usage tree could not be traversed.',
   file_too_large: 'An oversized local usage file was omitted.',
@@ -2282,7 +2282,13 @@ function costDiagnosticsHtml(data) {
   const estimate = inferredRecords
     ? [`Codex: ${inferredRecords.toLocaleString()} record${inferredRecords === 1 ? '' : 's'} / ${inferredTokens.toLocaleString()} tokens use the session’s sole explicit model as a personal estimate.`]
     : [];
-  const notes = estimate.concat(omissions, reasons.filter((reason) => !detailedReasons.has(reason)).map((reason) =>
+  const fallbackRecords = Number.isSafeInteger(data.scopes?.combined?.usageCoverage?.fallbackIdentityRecords)
+    && data.scopes.combined.usageCoverage.fallbackIdentityRecords > 0
+    ? data.scopes.combined.usageCoverage.fallbackIdentityRecords : 0;
+  const identity = fallbackRecords
+    ? [`${fallbackRecords.toLocaleString()} counted record${fallbackRecords === 1 ? '' : 's'} lack a stable cross-file identity; duplicate copies may remain.`] : [];
+  const notes = estimate.concat(identity, omissions, reasons.filter((reason) => reason !== 'dedupe_fallback'
+    && !detailedReasons.has(reason)).map((reason) =>
     Object.hasOwn(COST_REASON_COPY, reason) ? COST_REASON_COPY[reason] : 'Some evidence could not be included.'));
   if (!notes.length) return '';
   return `<div class="cost-diagnostics" role="note"><strong>Evidence notes</strong><ul>`
