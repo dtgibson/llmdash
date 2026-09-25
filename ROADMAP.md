@@ -8,15 +8,15 @@ product. Update it freely.
 
 ## Shipped
 
-32 features shipped.
+33 features shipped.
 
-- **Last shipped:** Tailnet bind and reporting resilience — the dashboard now
+- **Last shipped:** Cost evidence completeness — verified exact-model rates and
+  convergent scans improve local API-equivalent cost estimates while unpriced
+  usage and fallback identities remain explicit.
+- **Previously:** Tailnet bind and reporting resilience — the dashboard now
   refuses non-tailnet connections by default (`LLMDASH_ALLOW_LAN=1` opts back in),
   and Claude model caps and Codex windows/resets say why they are missing instead
   of vanishing.
-- **Previously:** Dashboard density and health trends — the first read moves from
-  canonical account capacity to compact host operations, with health history kept
-  separate per machine.
 
 ---
 
@@ -41,6 +41,9 @@ blindly trust an old reading or invent a missing expiration.
 
 ## On the Horizon
 
+- **Cost evidence gaps** — add a rate for unsuffixed `gpt-6` only with exact
+  provider evidence, resolve `Other` to exact model IDs before pricing, and
+  improve cross-file identity evidence before claiming fallback records unique.
 - **tmux / terminal statusline emitter** — the same `/api/state` → most-
   constrained-glyph logic feeding the terminal statusline the user lives in.
   Would reuse the badge's selection + honesty model and (per CLAUDE.md) ship a

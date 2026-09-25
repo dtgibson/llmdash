@@ -24,8 +24,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   API-equivalent values for the same retained Claude/Codex usage under observed
   and no-cache pricing, with signed cache effect, reconciled histories,
   provenance, conservative session-level estimates for model-less Codex history,
-  bounded scan-progress diagnostics, and exact counts for estimated or recognized
-  usage that cannot be priced on this machine.
+  bounded scan-progress diagnostics, and exact counts for session estimates,
+  unpriced `gpt-6` / `Other` usage, and included records without stable
+  cross-file identity.
 - **Reset and billing settings** — an owner can save a daylight-saving-aware
   Claude weekly fallback, maintain automatically recurring monthly Claude/Codex
   access-cost history, and view or download every fixed billing input over the

@@ -1,5 +1,27 @@
 # Decisions — llmdash
 
+## Cost evidence completeness — verified rates and explicit residual gaps — 2026-09-25 (improve)
+
+**Decision:** Add provider-verified, effective-dated standard API rates for
+`claude-fable-5-1` from 2026-09-01 (input/output/cache read/5-minute write/1-hour
+write: $10/$50/$0.25/$12.50/$20 per million tokens) and for
+`claude-opus-5-5` from 2026-09-22 ($4/$20/$0.20/$5/$8). Add `gpt-6-sol` from
+2026-09-22 (input/output/cached input: $2/$10/$0.20, or $4/$15/$0.40 for the
+full request above 272,000 input tokens). Leave unsuffixed `gpt-6` and `Other`
+unpriced without an exact provider rate or mapping.
+**Rationale:** Official model, pricing, and release-date documents establish
+the three exact IDs and intervals, but not an API price or alias for `gpt-6`.
+The 2026-08-27 coverage decision is refined: an oversized generated top-level
+Codex `compacted` header is known non-usage, while an oversized token event
+still makes coverage incomplete.
+**Implications:** A bounded fresh-process scan must converge and reconcile
+7d / 30d / 90d records, tokens, daily and cumulative observed/no-cache values,
+and signed cache effect for both tools and their combined view. Included Codex
+records without stable cross-file identity remain counted and explicitly
+disclosed as potentially duplicated; terminal scanning alone does not prove
+their uniqueness. API-equivalent estimates remain separate from configured
+subscription spend and provider charges.
+
 ## Mobile health history and Claude Opus offer — 2026-09-23 (fix)
 
 **Bug:** A populated, visually hidden health-history table widened the dashboard

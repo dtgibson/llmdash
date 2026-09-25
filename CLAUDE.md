@@ -328,6 +328,9 @@
   may inherit a model only from its complete session, only when that session has
   exactly one non-`Other` explicit normalized model; carry the inference as
   provenance and disclose exact inferred record/token totals as an estimate.
+  Terminal source coverage does not erase cross-file identity uncertainty:
+  include fallback-identity records in totals, disclose their exact count and
+  possible duplicate copies, and keep `Other` or an unverified exact ID unpriced.
 - **Recurring access-cost history is append-only and effective-dated.** Expand an
   owner-confirmed monthly plan in memory from its preserved billing anchor (days
   29–31 clamp without drifting), close prior records at validated boundaries, and
@@ -481,6 +484,11 @@
   run the bounded cold scan through convergence, then measure forced-GC cache and
   heap occupancy against the explicit ceilings. Fixtures alone do not prove that
   multi-gigabyte cold-start behavior remains bounded and complete.
+- **Current-corpus cost changes also require full reconciliation:** after terminal
+  scan convergence, check 7d / 30d / 90d for Claude, Codex, and combined scopes:
+  recognized minus comparable records and tokens equal exact omission rows;
+  observed and no-cache daily sums and final cumulative values equal their
+  summaries; signed cache effect equals no-cache less observed.
 - **An installer/setup step must never dirty the tracked checkout.** Generate
   machine-specific artifacts (a wrapper that `exec`s an absolute node against the
   tracked plugin) *beside* the tracked source — never rewrite a tracked file in
