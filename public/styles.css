@@ -622,7 +622,9 @@ header {
 .promotion-title { margin: 0 0 5px; color: var(--text); font-family: var(--mono); font-size: .9rem; font-weight: 650; }
 .promotion-detail { margin: 5px 0; color: var(--muted); font-size: .7rem; line-height: 1.5; overflow-wrap: anywhere; }
 .promotion-detail strong { color: var(--text); }
-.promotion-link { display: inline-block; min-height: 32px; margin-top: 6px; padding: 6px 0; color: var(--accent); font-size: .72rem; font-weight: 650; }
+.promotion-link { display: inline-block; min-height: 32px; margin-top: 6px; padding: 6px 0; color: var(--accent); font-size: .72rem; font-weight: 650; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color 140ms ease-out; }
+.promotion-link:hover { text-decoration-color: currentColor; }
+.promotion-link:focus-visible { border-radius: 6px; outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .global-limit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
 .global-limit-title {
   display: flex;
@@ -665,6 +667,24 @@ header {
 .evidence-note.critical { --note-color: var(--crit); --note-bg: var(--crit-bg); }
 .empty-evidence { --note-color: var(--faint); --note-bg: var(--panel); margin-top: 0; }
 .unavailable-metric { color: var(--muted); font-family: var(--mono); font-size: 0.74rem; font-weight: 650; }
+/* Credit balance: a third account fact under its own heading, separated from
+   reset credits by a hairline. Status is a word, never a second large numeral;
+   the opaque provider balance stays in a muted sentence and wraps anywhere. */
+.credit-block { min-width: 0; }
+.credit-block-lead { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.credit-block-lead > .nested-limit-title { margin-top: 0; }
+.credit-block-tail { margin-top: 12px; border-top: 1px solid var(--border); }
+.credit-block-tail > .nested-limit-title { margin-top: 12px; }
+.credit-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; min-width: 0; margin: -2px 0 8px; }
+.credit-status { color: var(--text); font-family: var(--mono); font-size: 0.9rem; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
+.credit-status.is-none { color: var(--muted); }
+.credit-last { min-width: 0; color: var(--muted); font-size: 0.67rem; overflow-wrap: anywhere; }
+.credit-balance { min-width: 0; margin: 4px 0 8px; color: var(--muted); font-size: 0.67rem; line-height: 1.5; overflow-wrap: anywhere; }
+.credit-balance-value { color: var(--text); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; unicode-bidi: isolate; overflow-wrap: anywhere; word-break: break-word; }
+.credit-age { margin: 0 0 6px; color: var(--faint); font-size: 0.62rem; font-variant-numeric: tabular-nums; }
+.credit-pointer { margin: 8px 0 0; color: var(--muted); font-size: 0.68rem; line-height: 1.45; }
+.credit-block .promotion-link { margin-top: 4px; }
+.credit-block .evidence-note + .evidence-note { margin-top: 6px; }
 .account-honesty { display: flex; align-items: flex-start; gap: 8px; margin: 11px 2px 0; color: var(--faint); font-size: 0.65rem; }
 .account-honesty::before { color: var(--good); content: "●"; font-size: 0.5rem; line-height: 2.1; }
 

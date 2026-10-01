@@ -61,11 +61,12 @@ function fakeCheckout() {
   // The badge now reads its display prefs via src/host-config.js (badge-display-
   // options) — it runs IN-PLACE from the live checkout (unlike the self-contained
   // teardown helper), so its real dependency tree (config.js + src/host-config.js
-  // + src/hosts.js + src/net.js) must be present, exactly as in a real checkout.
+  // + src/hosts.js + its src/net.js and src/account-credits.js imports) must be
+  // present, exactly as in a real checkout.
   fs.copyFileSync(path.join(repoRoot, 'config.js'), path.join(dir, 'config.js'));
   const src = path.join(dir, 'src');
   fs.mkdirSync(src, { recursive: true });
-  for (const f of ['host-config.js', 'hosts.js', 'net.js']) {
+  for (const f of ['host-config.js', 'hosts.js', 'net.js', 'account-credits.js']) {
     fs.copyFileSync(path.join(repoRoot, 'src', f), path.join(src, f));
   }
   return dir;

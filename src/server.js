@@ -4,11 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import { getDb, getLatestModelSnapshots, getLatestPerWindow } from './db.js';
-import { expiredModelCap, readClaudeLimits } from './claude-limits.js';
+import { claudeCredits, expiredModelCap, readClaudeLimits } from './claude-limits.js';
+import { unsupportedCredits } from './account-credits.js';
 import { getRefreshState } from './claude-refresh.js';
 import { effectivePollInterval, getDeviceHealthSnapshot } from './device-health.js';
 import {
   cachedCodexLimits,
+  codexCredits,
   codexLimitsDiagnostic,
   codexPlanLabel,
   codexResetCredits,
@@ -73,7 +75,10 @@ function serveStatic(res, file, head = false) {
 // reads its statusline file cheaply per request; Codex is subprocess-free here).
 // Claude may fall back to its latest stored snapshot; Codex never does because
 // independent history rows cannot establish the current set of account windows.
-export function toolWrap(source, label, plan, live, activity, nowMs, resetCredits = null) {
+// `credits` defaults to the honest generic for a tool whose credit standing has
+// not been wired; Claude and Codex always pass their own producer's block.
+export function toolWrap(source, label, plan, live, activity, nowMs, resetCredits = null,
+  credits = unsupportedCredits('never-observed')) {
   const stored = getLatestPerWindow(source);
   // A complete Codex poll is authoritative for the set of live windows. The DB
   // stores each window independently for trends, so falling back one missing
@@ -143,6 +148,7 @@ export function toolWrap(source, label, plan, live, activity, nowMs, resetCredit
   const accountLimits = {
     scope: 'account-wide',
     resetCredits: resetCredits || unsupportedResetCredits,
+    credits,
   };
   return {
     source,
@@ -186,10 +192,11 @@ export function computeHeadroom(tools) {
 // mechanism state maintained by the poller (src/claude-refresh.js).
 export function buildState(nowMs = Date.now(), refresh = getRefreshState()) {
   const claude = toolWrap('claude-code', 'Claude Code', 'Max',
-    readClaudeLimits(nowMs), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs);
+    readClaudeLimits(nowMs), { ...computeClaudeActivity(nowMs), hasData: true }, nowMs,
+    null, claudeCredits());
   const codexReading = cachedCodexLimits();
   const codex = toolWrap('codex', 'Codex', codexPlanLabel(),
-    codexReading, computeCodexActivity(nowMs), nowMs, codexResetCredits(nowMs));
+    codexReading, computeCodexActivity(nowMs), nowMs, codexResetCredits(nowMs), codexCredits(nowMs));
   // Reading-age freshness. The client derives the fresh/aging/stale band live
   // from these server-supplied thresholds — the thresholds live here, the
   // ticking happens there. Cheap date math only: no subprocess, no poller work

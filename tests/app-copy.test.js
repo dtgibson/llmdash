@@ -115,3 +115,10 @@ test('ages re-derive live and clamp negative to "just now"', () => {
   // Hour-scale ages keep minutes via fmtDur ("updated 1h 24m ago").
   assert.match(appJs, /'updated ' \+ fmtDur\(ms\) \+ ' ago'/);
 });
+
+test('the README discloses the Codex credit standing and that Claude Code reports no credit balance (FR-29, QA-30)', () => {
+  const readme = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8');
+  assert.match(readme, /provider-reported credit\s+standing \(Unlimited, Credits available, or No credits\)/);
+  assert.match(readme, /Claude Code does not report a\s+usage-credit balance/);
+});

@@ -14,6 +14,10 @@
 import http from 'node:http';
 import { config } from '../config.js';
 import { tailnetIPv4 } from './net.js';
+import {
+  CREDIT_FRESH_STATUSES, CREDIT_REASONS, CREDIT_STATUSES,
+  boundedCreditBalance, unsupportedCredits,
+} from './account-credits.js';
 
 // ── Host/port sanitizer ──────────────────────────────────────────────────────
 // Generalizes the badge's sanitizeHostPort (its fixed Low): a real host/IP and
@@ -212,10 +216,16 @@ function unsupportedResetCredits() {
 }
 
 function unsupportedAccountLimits() {
-  return { scope: 'account-wide', resetCredits: unsupportedResetCredits() };
+  return {
+    scope: 'account-wide',
+    resetCredits: unsupportedResetCredits(),
+    credits: unsupportedCredits('peer-omitted'),
+  };
 }
 
-const RESET_CREDIT_STATUSES = new Set(['available', 'zero', 'partial', 'unsupported']);
+// `stale` is the producer's aged-but-retained band; it survives re-normalization
+// so an old peer reading never reads as fresh here.
+const RESET_CREDIT_STATUSES = new Set(['available', 'zero', 'partial', 'stale', 'unsupported']);
 
 // Normalize one peer's account reset evidence into a detached, bounded shape.
 // The local clock filters known expirations and lowers the effective count by
@@ -251,13 +261,36 @@ export function normalizeResetCredits(value, nowMs = Date.now()) {
   const missingExpirationCount = Math.max(0, availableCount - expirations.length);
   return {
     available: true,
-    status: availableCount === 0 ? 'zero'
-      : missingExpirationCount > 0 ? 'partial' : 'available',
+    status: value.status === 'stale' ? 'stale'
+      : availableCount === 0 ? 'zero'
+        : missingExpirationCount > 0 ? 'partial' : 'available',
     availableCount,
     expirations: [...expirations],
     missingExpirationCount,
     capturedAt,
   };
+}
+
+// Whitelist one peer's credit standing into a detached block of the exact wire
+// shape. The peer balance is re-stripped and re-bounded here (the remote
+// sanitizer is not trusted across the wire). A fresh or stale block without a
+// valid capture clock cannot age honestly, so it degrades to peer-omitted, as
+// does a block from an older llmdash that never sent one.
+export function normalizeCredits(value) {
+  if (!isPlainObject(value) || !CREDIT_STATUSES.has(value.status)) {
+    return unsupportedCredits('peer-omitted');
+  }
+  if (value.status === 'unsupported') {
+    return unsupportedCredits(CREDIT_REASONS.has(value.reason) ? value.reason : 'peer-omitted');
+  }
+  const capturedAt = typeof value.capturedAt === 'string' ? normalizeIso(value.capturedAt) : null;
+  if (!capturedAt) return unsupportedCredits('peer-omitted');
+  const balance = boundedCreditBalance(value.balance) ?? null;
+  if (value.status === 'stale') {
+    if (!CREDIT_FRESH_STATUSES.has(value.lastStatus)) return unsupportedCredits('peer-omitted');
+    return { status: 'stale', lastStatus: value.lastStatus, balance, capturedAt };
+  }
+  return { status: value.status, balance, capturedAt };
 }
 
 export function normalizeAccountLimits(value, nowMs = Date.now()) {
@@ -267,6 +300,7 @@ export function normalizeAccountLimits(value, nowMs = Date.now()) {
   return {
     scope: 'account-wide',
     resetCredits: normalizeResetCredits(value.resetCredits, nowMs),
+    credits: normalizeCredits(value.credits),
   };
 }
 

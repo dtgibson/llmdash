@@ -197,6 +197,9 @@ test('refresh scans once for all ranges; getters are pure cache reads and a fail
   assert.equal(getCodexInsights('24h').range, '24h');
   assert.equal(getCodexInsights('7d').summary.turns.count, 2);
   assert.equal(getCodexInsights('30d').range, '30d');
+  // The credit standing has one wire home (/api/state accountLimits.credits);
+  // the insights account object carries the plan only (FR-28, QA-29).
+  assert.deepEqual(Object.keys(getCodexInsights('7d').account).sort(), ['plan', 'scope']);
   assert.equal(computeCodexActivity().hasData, true);
   assert.equal(calls, 1, 'cache getters never rescan');
   assert.equal(refreshCodexAnalytics(NOW + 1, () => { throw new Error('boom'); }), false);

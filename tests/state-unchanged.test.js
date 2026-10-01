@@ -108,7 +108,13 @@ test('model-specific limits are explicit supplemental tool data', () => {
   assert.deepEqual(codex.modelLimits, []);
 });
 
-test('account limits are additive, bounded, and unsupported when no reset evidence exists', () => {
+test('account limits are additive, bounded, and unsupported when no reset or credit evidence exists (QA-01, QA-13)', () => {
+  // Claude never reports a credit balance, even with a fresh statusline reading
+  // and model caps present; Codex has observed nothing in this sandbox.
+  const credits = {
+    'claude-code': { status: 'unsupported', reason: 'not-reported', balance: null, capturedAt: null },
+    codex: { status: 'unsupported', reason: 'never-observed', balance: null, capturedAt: null },
+  };
   for (const tool of buildState(FIXED).tools) {
     assert.deepEqual(tool.accountLimits, {
       scope: 'account-wide',
@@ -120,6 +126,7 @@ test('account limits are additive, bounded, and unsupported when no reset eviden
         missingExpirationCount: 0,
         capturedAt: null,
       },
+      credits: credits[tool.source],
     });
   }
 });

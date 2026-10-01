@@ -39,7 +39,6 @@ function insightPayload(range = '7d', overrides = {}) {
     account: {
       scope: 'account-wide',
       plan: { available: true, label: 'ChatGPT Pro' },
-      credits: { available: true, status: 'available', balance: null, resetCreditsAvailable: 2 },
     },
     summary: {
       reasoning: { available: true, share: 0.18, tokens: 180, outputTokens: 1000 },
@@ -147,14 +146,12 @@ test('Codex insight shell is dashboard-only, scoped, independently ranged, and i
     'timer refreshes stay quiet for screen readers');
 });
 
-test('supported aggregate renders account facts without duplicating top reset credits, plus summary, mix, context, timing, and charts', async () => {
+test('supported aggregate renders the plan without duplicating top account allowances, plus summary, mix, context, timing, and charts', async () => {
   const { els } = await makeBrowser(async () => ({ ok: true, json: async () => insightPayload() }));
   const html = els['insights-surface'].innerHTML;
-  assert.match(html, /Account-wide/);
-  assert.match(html, /ChatGPT Pro/);
-  assert.match(html, /Credits available/);
-  assert.doesNotMatch(html, /reset credits|resetCreditsAvailable|>2 resets?</i,
-    'the legacy count remains API-compatible but renders only in the top account area');
+  assert.match(html, /<div class="insights-account"><strong>Account-wide<\/strong><span>ChatGPT Pro<\/span><\/div>/);
+  assert.doesNotMatch(html, /reset credits|resetCreditsAvailable|>2 resets?<|Credits available|No credits|Unlimited|Balance/i,
+    'reset credits and the credit standing render only in the top account area');
   assert.match(html, /Reasoning share/);
   assert.match(html, />18%/);
   assert.match(html, /12 recorded turns/);
@@ -277,25 +274,25 @@ test('duration rounding never emits a 60-second component', async () => {
   assert.doesNotMatch(html, /60s/);
 });
 
-test('a maximum-length opaque credit balance stays bounded and wrap-safe', async () => {
-  const balance = 'A'.repeat(64);
-  const payload = insightPayload();
-  payload.account.credits.balance = balance;
-  const { els } = await makeBrowser(async () => ({ ok: true, json: async () => payload }));
-  assert.match(els['insights-surface'].innerHTML, new RegExp(`Balance ${balance}`));
+test('a legacy payload carrying account credits renders the plan label only (QA-28)', async () => {
+  // An older server still sends account.credits; the row ignores it entirely,
+  // and the plan label stays bounded, bidi-stripped, and wrap-safe.
+  for (const credits of [
+    { available: true, status: 'available', balance: 'A'.repeat(64), resetCreditsAvailable: 2 },
+    { available: true, status: 'none', balance: '0', resetCreditsAvailable: 0 },
+    { available: true, status: 'unlimited', balance: null, resetCreditsAvailable: null },
+    { available: true, status: 'constructor', balance: 'A\u202eB', resetCreditsAvailable: null },
+  ]) {
+    const payload = insightPayload();
+    payload.account.credits = credits;
+    payload.account.plan.label = 'Chat\u202eGPT\u2028 Pro';
+    const { els } = await makeBrowser(async () => ({ ok: true, json: async () => payload }));
+    const html = els['insights-surface'].innerHTML;
+    assert.match(html, /<div class="insights-account"><strong>Account-wide<\/strong><span>Chat GPT  Pro<\/span><\/div>/);
+    assert.doesNotMatch(html, /Credits available|No credits|Unlimited|Balance|Credit status|AAAA|[\u202e\u2028]/u);
+  }
   assert.match(styles, /\.insights-account > \*\s*\{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/s);
   assert.match(styles, /\.insights-account > \*\s*\{[^}]*unicode-bidi: isolate;/s);
-});
-
-test('credit labels strip bidi controls and reject inherited status names', async () => {
-  const payload = insightPayload();
-  payload.account.credits.balance = 'A\u202eB\u202c\u2028C';
-  payload.account.credits.status = 'constructor';
-  const { els } = await makeBrowser(async () => ({ ok: true, json: async () => payload }));
-  const html = els['insights-surface'].innerHTML;
-  assert.doesNotMatch(html, /[\u202e\u202c\u2028]/u);
-  assert.match(html, /Credit status unavailable/);
-  assert.doesNotMatch(html, /Credits available|Unlimited|No credits/);
 });
 
 test('daily insights accept canonical UTC day buckets only', async () => {

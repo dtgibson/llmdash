@@ -5,13 +5,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // One long-lived module instance receives several live app-server polls so the
-// test exercises the real sparse-update cache. The fake command reads a JSON-RPC
-// response from the environment on every spawn, then lingers until the parser
-// has consumed and killed it.
+// test exercises the real sparse-update cache. The fake command records each
+// spawn, reads a JSON-RPC response from the environment, then lingers until the
+// parser has consumed and killed it (or exits at once to simulate a failed
+// app-server read).
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-codexfacts-'));
 const fake = path.join(tmp, 'codex');
+const spawnLog = path.join(tmp, 'spawns.log');
 fs.writeFileSync(fake, [
   '#!/bin/sh',
+  `echo spawn >> '${spawnLog}'`,
+  '[ -n "$LLMDASH_FAKE_CODEX_FAIL" ] && exit 1',
   `printf '%s\n' "$LLMDASH_FAKE_CODEX_RESPONSE"`,
   'sleep 5',
   '',
@@ -25,10 +29,15 @@ process.env.LLMDASH_CODEX_TIMEOUT_MS = '4000';
 
 const {
   readCodexLimits,
+  cachedCodexLimits,
   codexAccountFacts,
+  codexCredits,
   codexPlanLabel,
   codexResetCredits,
 } = await import('../src/codex-limits.js');
+
+const neverObserved = { status: 'unsupported', reason: 'never-observed', balance: null, capturedAt: null };
+const spawns = () => (fs.existsSync(spawnLog) ? fs.readFileSync(spawnLog, 'utf8').split('\n').filter(Boolean).length : 0);
 
 const windows = {
   primary: { usedPercent: 42, resetsAt: 1767225600 },
@@ -51,26 +60,20 @@ async function poll(rateLimits, rateLimitResetCredits) {
 }
 
 test('live account facts are bounded, sparse-update safe, and use explicit status precedence', async () => {
+  // A fresh process has observed nothing (QA-05); the insights account object
+  // carries the plan only (FR-28).
   assert.deepEqual(codexAccountFacts(), {
     scope: 'account-wide',
     plan: { available: false, label: null },
-    credits: {
-      available: false,
-      status: null,
-      balance: null,
-      resetCreditsAvailable: null,
-    },
   });
+  assert.deepEqual(codexCredits(), neverObserved);
 
-  // A reset-credit count is useful on its own, but it cannot invent a status.
-  await poll({ planType: 'pro' }, { availableCount: 2 });
-  assert.deepEqual(codexAccountFacts().credits, {
-    available: true,
-    status: null,
-    balance: null,
-    resetCreditsAvailable: 2,
-  });
+  // A balance without a standing flag is not shown (FR-05, QA-06). A reset-credit
+  // count cannot invent a standing either.
+  await poll({ planType: 'pro', credits: { balance: '5' } }, { availableCount: 2 });
+  assert.deepEqual(codexCredits(), neverObserved);
 
+  const beforeObservation = Date.now();
   await poll({
     credits: {
       balance: ' \u0007\u202e12.5\u202c\u2028 ',
@@ -89,68 +92,67 @@ test('live account facts are bounded, sparse-update safe, and use explicit statu
   assert.deepEqual(codexAccountFacts(), {
     scope: 'account-wide',
     plan: { available: true, label: 'ChatGPT Pro' },
-    credits: {
-      available: true,
-      status: 'available',
-      balance: '12.5',
-      resetCreditsAvailable: 2,
-    },
   });
+  const available = codexCredits();
+  assert.deepEqual(Object.keys(available).sort(), ['balance', 'capturedAt', 'status']);
+  assert.equal(available.status, 'available');
+  assert.equal(available.balance, '12.5', 'control, bidi, and separator characters are stripped at ingest');
+  assert.equal(available.capturedAt, new Date(Date.parse(available.capturedAt)).toISOString());
+  assert.ok(Date.parse(available.capturedAt) >= beforeObservation && Date.parse(available.capturedAt) <= Date.now());
 
   // Null and missing fields are sparse live updates, not instructions to erase
-  // values that were already recognized.
+  // values that were already recognized, and never restamp the observation (QA-07).
   await poll({
     planType: null,
     credits: { balance: null, hasCredits: null, unlimited: null },
   }, { availableCount: null });
+  await poll({ planType: null });
   assert.equal(codexPlanLabel(), 'ChatGPT Pro');
-  assert.equal(codexAccountFacts().credits.status, 'available');
-  assert.equal(codexAccountFacts().credits.balance, '12.5');
-  assert.equal(codexAccountFacts().credits.resetCreditsAvailable, 2);
+  assert.deepEqual(codexCredits(), available);
 
+  // Explicit standing precedence (FR-04, QA-04): unlimited wins over hasCredits.
   const longBalance = 'x'.repeat(70);
   await poll({
     credits: { balance: longBalance, hasCredits: false, unlimited: true },
   }, { availableCount: 2_000_000 });
-  let facts = codexAccountFacts();
-  assert.equal(facts.credits.status, 'unlimited');
-  assert.equal(facts.credits.balance, 'x'.repeat(64));
-  assert.equal(facts.credits.resetCreditsAvailable, 1_000_000);
+  let credits = codexCredits();
+  assert.equal(credits.status, 'unlimited');
+  assert.equal(credits.balance, 'x'.repeat(64));
+  assert.equal(codexResetCredits().availableCount, 1_000_000);
 
   // Turning unlimited off exposes the next supported status in precedence;
-  // an explicit unknown plan clears the stale label instead of inventing one.
+  // an explicit unknown plan clears the stale label instead of inventing one,
+  // and clears prior-account credit facts before this response re-observes them.
   await poll({
     planType: 'unknown',
     credits: { hasCredits: false, unlimited: false },
   }, { availableCount: -3 });
-  facts = codexAccountFacts();
   assert.equal(codexPlanLabel(), 'Plan unavailable');
-  assert.deepEqual(facts.plan, { available: false, label: null });
-  assert.equal(facts.credits.status, 'none');
-  assert.equal(facts.credits.balance, null, 'an explicit account/plan change clears prior-account facts');
-  assert.equal(facts.credits.resetCreditsAvailable, null);
+  assert.deepEqual(codexAccountFacts().plan, { available: false, label: null });
+  credits = codexCredits();
+  assert.equal(credits.status, 'none', 'hasCredits: false is an explicit none, not an absence');
+  assert.equal(credits.balance, null, 'an explicit account/plan change clears prior-account facts');
 
-  // Wrongly typed fields are ignored, and each call returns a detached object.
+  // Wrongly typed fields are ignored (a numeric balance is never coerced), and
+  // each call returns a detached object.
   await poll({ credits: { balance: 99, hasCredits: 'true', unlimited: 'true' } }, { availableCount: '7' });
-  facts = codexAccountFacts();
-  assert.equal(facts.credits.status, 'none');
-  assert.equal(facts.credits.balance, null);
-  assert.equal(facts.credits.resetCreditsAvailable, null);
-  facts.credits.balance = 'mutated';
-  assert.equal(codexAccountFacts().credits.balance, null);
+  credits = codexCredits();
+  assert.equal(credits.status, 'none');
+  assert.equal(credits.balance, null);
+  credits.balance = 'mutated';
+  assert.equal(codexCredits().balance, null);
 
   // Sparse values are useful only for a bounded interval. A logout or
   // same-plan account switch that provides no identity signal cannot retain
   // prior facts indefinitely.
-  const expired = codexAccountFacts(Date.now() + 24 * 60 * 60_000);
-  assert.deepEqual(expired.plan, { available: false, label: null });
-  assert.deepEqual(expired.credits, {
-    available: false,
-    status: null,
-    balance: null,
-    resetCreditsAvailable: null,
-  });
-  assert.equal(codexPlanLabel(Date.now() + 24 * 60 * 60_000), 'Plan unavailable');
+  const expiredAt = Date.now() + 24 * 60 * 60_000;
+  assert.deepEqual(codexAccountFacts(expiredAt).plan, { available: false, label: null });
+  assert.deepEqual(codexCredits(expiredAt), neverObserved);
+  assert.equal(codexPlanLabel(expiredAt), 'Plan unavailable');
+
+  // An unknown plan on a response that carries no credits clears the standing (QA-09).
+  await poll({ planType: 'unknown' });
+  assert.deepEqual(codexCredits(), neverObserved);
 });
 
 test('reset-credit snapshots retain only bounded availability and expiration evidence', async () => {
@@ -252,8 +254,6 @@ test('reset-credit snapshots preserve partial, sparse, zero, capped, TTL, and ac
   assert.equal(snapshot.status, 'zero');
   assert.equal(snapshot.availableCount, 0);
   assert.deepEqual(snapshot.expirations, []);
-  assert.equal(codexAccountFacts().credits.resetCreditsAvailable, 0,
-    'the legacy account-facts count remains compatible with explicit zero');
 
   const expired = codexResetCredits(Date.parse(snapshot.capturedAt) + 24 * 60 * 60_000);
   assert.deepEqual(expired, {
@@ -291,7 +291,6 @@ test('reset credits past the account-fact TTL are served as stale with their cap
   assert.equal(stale.availableCount, 2);
   assert.deepEqual(stale.expirations, fresh.expirations);
   assert.equal(stale.capturedAt, fresh.capturedAt, 'the original observation time is preserved (the client shows its age)');
-  assert.equal(codexAccountFacts(observedMs + 10 * 60_000).credits.resetCreditsAvailable, 2);
 
   // Still stale right up to the hard cap…
   assert.equal(codexResetCredits(observedMs + 24 * 60 * 60_000 - 1).status, 'stale');
@@ -300,12 +299,57 @@ test('reset credits past the account-fact TTL are served as stale with their cap
     available: false, status: 'unsupported', availableCount: null,
     expirations: [], missingExpirationCount: 0, capturedAt: null,
   });
-  assert.equal(codexAccountFacts(observedMs + 24 * 60 * 60_000).credits.resetCreditsAvailable, null);
 
   // The explicit-plan-change clearing rule is unchanged: a recognized plan
   // switch drops the evidence immediately, stale or not.
   await poll({ planType: 'plus' }, undefined);
   assert.equal(codexResetCredits().status, 'unsupported');
+});
+
+test('the credit standing ages as one block, survives the rollout fallback unchanged, and clears on a plan change (FR-07…FR-09)', async () => {
+  await poll({ planType: 'pro', credits: { hasCredits: true, unlimited: false, balance: '0' } });
+  const fresh = codexCredits();
+  assert.equal(fresh.status, 'available');
+  assert.equal(fresh.balance, '0', 'an explicit zero balance is carried as the literal "0"');
+  const observedMs = Date.parse(fresh.capturedAt);
+  const ttlMs = 5 * 60_000; // TTL is 5×poll = 5 min in this sandbox
+
+  // Fresh through the TTL, then stale with the last standing, balance, and the
+  // original capture time; cleared at the 24 h hard cap (QA-08).
+  assert.deepEqual(codexCredits(observedMs + ttlMs - 1000), fresh);
+  assert.deepEqual(codexCredits(observedMs + ttlMs + 1000), {
+    status: 'stale', lastStatus: 'available', balance: '0', capturedAt: fresh.capturedAt,
+  });
+  assert.equal(codexCredits(observedMs + 24 * 60 * 60_000 - 1).status, 'stale');
+  assert.deepEqual(codexCredits(observedMs + 24 * 60 * 60_000), neverObserved);
+  assert.deepEqual(codexCredits(), fresh, 'reading past the hard cap does not mutate the cache');
+
+  // Reading the standing is in-memory only: no spawn, poll, or file read (QA-03).
+  const before = spawns();
+  for (let i = 0; i < 3; i++) codexCredits();
+  assert.equal(spawns(), before);
+
+  // With the app-server failing, the rollout fallback supplies the reading but
+  // never credits: its snake_cased credits object is not read (FR-09, QA-10).
+  const sessions = path.join(process.env.LLMDASH_CODEX_DIR, 'sessions', '2026', '10', '01');
+  fs.mkdirSync(sessions, { recursive: true });
+  const rolloutAt = new Date().toISOString();
+  fs.writeFileSync(path.join(sessions, 'rollout-credits.jsonl'), JSON.stringify({
+    timestamp: rolloutAt,
+    payload: { rate_limits: {
+      primary: { used_percent: 10, window_minutes: 300, resets_at: windows.primary.resetsAt },
+      plan_type: 'pro',
+      credits: { has_credits: false, hasCredits: false, unlimited: true, balance: '999' },
+    } },
+  }) + '\n');
+  process.env.LLMDASH_FAKE_CODEX_FAIL = '1';
+  try { await readCodexLimits(); } finally { delete process.env.LLMDASH_FAKE_CODEX_FAIL; }
+  assert.equal(cachedCodexLimits().capturedAt, rolloutAt, 'the rollout fallback supplied the reading');
+  assert.deepEqual(codexCredits(), fresh, 'the fallback never restamps or rewrites the credit standing');
+
+  // A recognized plan change clears the standing immediately (FR-08, QA-09).
+  await poll({ planType: 'plus' });
+  assert.deepEqual(codexCredits(), neverObserved);
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

@@ -34,6 +34,16 @@ supporting activity, diagnostics, cost, and long-range trends. Allowances still
 have one canonical account location; pacing and health stay attached to the
 machine that reported them.
 
+The Codex group under **Other global limits** shows the provider-reported credit
+standing (Unlimited, Credits available, or No credits) above its reset credits,
+with the provider's own balance as an opaque, unconverted figure and its capture
+age; past the account-fact TTL it reads as stale with that age, and it is never
+shown as zero unless Codex literally reports `0`. Claude Code does not report a
+usage-credit balance, so the Claude group says so instead of showing a figure.
+The credit standing travels in `/api/state`, so any machine allowed to reach this
+llmdash (tailnet-only by default) can read it, and a multi-host monitor re-serves
+a peer's standing in its own `/api/hosts`.
+
 Each reachable machine shows a compact current snapshot plus up to 60 recent
 collection attempts: CPU used, RAM used, and disk available. At the default
 minute cadence this covers about the latest hour. Multi-host histories are never

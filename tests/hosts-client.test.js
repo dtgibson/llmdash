@@ -173,6 +173,24 @@ const withResetCredits = (tool, snapshot) => {
   tool.accountLimits = { scope: 'account-wide', resetCredits: snapshot };
   return tool;
 };
+const withCredits = (tool, credits) => {
+  tool.accountLimits = { ...tool.accountLimits, credits };
+  return tool;
+};
+// The Codex "Credit balance" sub-block and the "Reset credits" sub-block that
+// follows it, cut from rendered supplementary HTML.
+const RESET_HEADING = '<h4 class="nested-limit-title">Reset credits</h4>';
+const codexGroup = (h) => h.slice(h.indexOf('<section class="global-limit-group tool-codex"'));
+const creditBlock = (h) => codexGroup(h).slice(0, codexGroup(h).indexOf(RESET_HEADING));
+const resetBlock = (h) => {
+  const group = codexGroup(h);
+  return group.slice(group.indexOf(RESET_HEADING) + RESET_HEADING.length, group.indexOf('</section>'));
+};
+const claudeGroup = (h) => {
+  const group = h.slice(h.indexOf('<section class="global-limit-group tool-claude"'));
+  return group.slice(0, group.indexOf('</section>'));
+};
+const USAGE_HREF = /href="https:\/\/claude\.ai\/settings\/usage"/g;
 const stateOf = (tools) => ({ tools, headroom: null, generatedAt: iso(0) });
 
 test('owner observed Claude offer is separate from model caps and loses claimable copy when stale or claimed', async () => {
@@ -703,7 +721,7 @@ test('single-host top area shows three resets and every visible expiration date'
   const { els } = await renderWith(combined);
   const h = els['supplementary-limits'].innerHTML;
   assert.match(h, /Other global limits/);
-  assert.match(h, /Codex reset credits/);
+  assert.match(h, /Codex credits &amp; resets/);
   assert.match(h, /<strong>3<\/strong><span>available<\/span>/);
   assert.equal((h.match(/<time class="expiry-date"/g) || []).length, 3);
   for (const expiry of expirations) {
@@ -787,11 +805,223 @@ for (const fixture of [
       hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([codex]),
     }], generatedAt: iso(0) };
     const { els } = await renderWith(combined);
-    const h = els['supplementary-limits'].innerHTML;
+    const h = resetBlock(els['supplementary-limits'].innerHTML);
     for (const pattern of fixture.matches) assert.match(h, pattern);
     for (const pattern of fixture.misses || []) assert.doesNotMatch(h, pattern);
   });
 }
+
+// QA-20: the reset-credit sub-block must render byte-for-byte what it rendered
+// before the credit standing joined the group. The golden fixture was captured
+// from the pre-feature app.js with this same fixed clock; only the
+// locale-formatted expiry date label is replaced by a placeholder.
+test('reset-credit HTML for every state is unchanged by the credit sub-block (QA-20)', async () => {
+  const golden = JSON.parse(fs.readFileSync(path.join(here, 'fixtures', 'reset-credits-html.json'), 'utf8'));
+  const NOW = Date.UTC(2026, 9, 1, 12, 0, 0);
+  const at = (ms) => new Date(NOW + ms).toISOString();
+  const snap = (o) => ({ available: true, missingExpirationCount: 0, expirations: [], capturedAt: at(-3 * 60_000), ...o });
+  const states = {
+    available: [snap({ status: 'available', availableCount: 2, expirations: [at(3600_000), at(26 * 3600_000)] })],
+    zero: [snap({ status: 'zero', availableCount: 0 })],
+    partial: [snap({ status: 'partial', availableCount: 3, expirations: [at(3600_000)], missingExpirationCount: 2 })],
+    stale: [snap({ status: 'stale', availableCount: 1, expirations: [at(3600_000)], capturedAt: at(-(6 * 3600_000 + 41 * 60_000)) })],
+    'source-error': [snap({ status: 'available', availableCount: 1, expirations: [at(3600_000)] }),
+      { reason: 'codex-cmd-failed', cmd: 'codex', detail: 'not found' }],
+    unsupported: [{ available: false, status: 'unsupported', availableCount: null, expirations: [], missingExpirationCount: 0, capturedAt: null }],
+    malformed: [{ available: false, status: 'malformed', availableCount: 'three', expirations: ['not-a-date'], missingExpirationCount: 0, capturedAt: null }],
+  };
+  assert.deepEqual(Object.keys(states).sort(), Object.keys(golden).sort());
+  for (const [name, [resetCredits, diagnostic]] of Object.entries(states)) {
+    const codex = {
+      ...codexTool(0), limitsDiagnostic: diagnostic || null,
+      limits: { five_hour: null, seven_day: { usedPct: 41, remainingPct: 59, resetsAt: at(5 * 86400_000), capturedAt: at(-20_000) } },
+      accountLimits: { scope: 'account-wide', resetCredits }, dataAt: at(-20_000),
+    };
+    const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+      hostDiagnostic: null, fetchedAt: at(0), state: { tools: [codex], headroom: null, generatedAt: at(0) } }], generatedAt: at(0) };
+    const { els } = await renderWith(combined, null, { DateImpl: controlledClock(NOW).DateImpl });
+    const reset = resetBlock(els['supplementary-limits'].innerHTML)
+      .replace(/(<time class="expiry-date" datetime="[^"]+">)[^<]*(<\/time>)/g, '$1@DATE@$2');
+    assert.equal(reset, golden[name], `reset-credit HTML changed for the ${name} state`);
+  }
+});
+
+const localWith = (tools) => ({ hosts: [{
+  host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+  hostDiagnostic: null, fetchedAt: iso(0), state: stateOf(tools),
+}], generatedAt: iso(0) });
+
+for (const fixture of [
+  {
+    name: 'unlimited with no reported balance',
+    credits: { status: 'unlimited', balance: null, capturedAt: iso(-60_000) },
+    matches: [/credit-status">Unlimited</, /Provider balance · not reported/, /credit-age">updated 1m ago</],
+    misses: [/credit-balance-value/, /evidence-note/],
+  },
+  {
+    name: 'available with an opaque balance',
+    credits: { status: 'available', balance: '62500', capturedAt: iso(-3 * 60_000) },
+    matches: [/credit-status">Credits available</,
+      /Provider balance <bdi class="credit-balance-value">62500<\/bdi> · provider's own figure; not converted/,
+      /updated 3m ago/],
+  },
+  {
+    name: 'an explicit zero balance',
+    credits: { status: 'available', balance: '0', capturedAt: iso(-3 * 60_000) },
+    matches: [/<bdi class="credit-balance-value">0<\/bdi>/],
+    misses: [/[$€£]|0\.00/],
+  },
+  {
+    name: 'no credits',
+    credits: { status: 'none', balance: null, capturedAt: iso(-2 * 60_000) },
+    matches: [/credit-status is-none">No credits</, /Provider balance · not reported/],
+    misses: [/credit-balance-value">0</],
+  },
+  {
+    name: 'a stale standing',
+    credits: { status: 'stale', lastStatus: 'available', balance: '62500', capturedAt: iso(-(6 * 3600_000 + 41 * 60_000)) },
+    matches: [/state-pill pill-warn">stale · 6h 41m ago</, /credit-last">last reading: Credits available</,
+      /<bdi class="credit-balance-value">62500<\/bdi>/, /The last good credit reading is old;<\/strong> the balance may have changed\./],
+    misses: [/credit-status"/, /evidence-note critical/],
+  },
+  {
+    name: 'a stale no-credits standing',
+    credits: { status: 'stale', lastStatus: 'none', balance: null, capturedAt: iso(-2 * 3600_000) },
+    matches: [/last reading: No credits/, /Provider balance · not reported/],
+    misses: [/credit-balance-value">0</],
+  },
+  {
+    name: 'a failed account read',
+    credits: { status: 'available', balance: '62500', capturedAt: iso(-9 * 60_000) },
+    diagnostic: { reason: 'codex-cmd-failed', cmd: 'codex', detail: 'not found' },
+    matches: [/credit-status">Credits available</,
+      /evidence-note critical"><strong>The latest Codex account read failed\.<\/strong> Showing the last good credit reading\./],
+  },
+  {
+    name: 'a missing live reading',
+    credits: { status: 'none', balance: null, capturedAt: iso(-9 * 60_000) },
+    diagnostic: { reason: 'no-reading', cmd: 'codex', detail: null },
+    matches: [/No credits/, /The latest Codex account read failed\./],
+  },
+  {
+    name: 'a never-observed standing',
+    credits: { status: 'unsupported', reason: 'never-observed', balance: null, capturedAt: null },
+    matches: [/unavailable-metric">Unavailable</,
+      /<strong>No credit standing has been observed from Codex yet\.<\/strong> The standard Codex windows above are unaffected\./],
+    misses: [/Provider balance/, /credit-age/, /updated/],
+  },
+  {
+    name: 'a peer that omitted its standing',
+    credits: { status: 'unsupported', reason: 'peer-omitted', balance: null, capturedAt: null },
+    matches: [/<strong>This host did not report a credit standing\.<\/strong>/],
+    misses: [/Provider balance/],
+  },
+  {
+    name: 'an unknown reason',
+    credits: { status: 'unsupported', reason: 'bogus', balance: null, capturedAt: null },
+    matches: [/Unavailable/],
+    misses: [/empty-evidence/, /bogus/],
+  },
+  {
+    name: 'an inherited-name status',
+    credits: { status: 'constructor', balance: '5', capturedAt: iso(-60_000) },
+    matches: [/Unavailable/],
+    misses: [/constructor|empty-evidence|Provider balance|function|\[object/],
+  },
+  {
+    name: 'a stale block with an inherited-name last status',
+    credits: { status: 'stale', lastStatus: 'toString', balance: '5', capturedAt: iso(-60_000) },
+    matches: [/Unavailable/],
+    misses: [/toString|stale ·|Provider balance/],
+  },
+  {
+    name: 'a hostile balance',
+    credits: { status: 'available', balance: '<img src=x onerror=alert(1)>\u202e\u2029', capturedAt: iso(-60_000) },
+    matches: [/<bdi class="credit-balance-value">&lt;img src=x onerror=alert\(1\)&gt;<\/bdi>/],
+    misses: [/<img/, /[\u202e\u2029]/u],
+  },
+  {
+    name: 'a block missing from the tool',
+    credits: undefined,
+    matches: [/Unavailable/],
+    misses: [/empty-evidence|Provider balance/],
+  },
+]) {
+  test(`Codex credit balance renders ${fixture.name} (QA-21…QA-24, QA-31…QA-33)`, async () => {
+    const codex = codexTool(5 * 86400_000);
+    if (fixture.credits !== undefined) withCredits(codex, fixture.credits);
+    codex.limitsDiagnostic = fixture.diagnostic || null;
+    const { els } = await renderWith(localWith([codex]));
+    const h = creditBlock(els['supplementary-limits'].innerHTML);
+    assert.match(h, /<h4 class="nested-limit-title">Credit balance<\/h4>/);
+    for (const pattern of fixture.matches) assert.match(h, pattern);
+    for (const pattern of fixture.misses || []) assert.doesNotMatch(h, pattern);
+  });
+}
+
+test('the Codex group reads credit balance, then reset credits, then model caps, as distinct facts (QA-20, QA-25, QA-34)', async () => {
+  const claude = claudeTool(3 * 3600_000, 3 * 86400_000);
+  const codex = withCredits(withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
+    availableCount: 2, expirations: [iso(60 * 60_000), iso(2 * 60 * 60_000)],
+  })), { status: 'available', balance: '62500', capturedAt: iso(-3 * 60_000) });
+  codex.modelLimits = [{ ...modelLimit({ model: 'codex-max', label: 'Codex Max', remainingPct: 40 }), provider: 'codex' }];
+  const offer = { id: 'opus-5-5-reset-oct-22', state: 'observed', observedAt: iso(-60_000) };
+  const { els } = await renderWith(localWith([claude, codex]), {
+    resetSchedule: null, resetSelection: { source: 'unavailable', nextResetAt: null }, claudePromotion: offer,
+  });
+  const h = els['supplementary-limits'].innerHTML;
+  const group = codexGroup(h).slice(0, codexGroup(h).indexOf('</section>'));
+  assert.match(group, /aria-labelledby="(global-limit-[^"]+)"[\s\S]*<h3 class="global-limit-title" id="\1">[\s\S]*Codex credits &amp; resets<\/h3>/);
+  const order = ['Credit balance', 'Reset credits', 'Model caps'].map((title) =>
+    group.indexOf(`<h4 class="nested-limit-title">${title}</h4>`));
+  assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], `sub-block order ${order}`);
+  // The credit standing carries no reset count, no offer copy, and no total.
+  const credit = creditBlock(h);
+  assert.doesNotMatch(credit, /reset-count|Reset for free|expiry|total/i);
+  assert.match(credit, /credit-block credit-block-lead/);
+  // Three facts, three headings: credit balance, reset credits, and the offer.
+  assert.equal((h.match(/<h4 class="nested-limit-title">Credit balance<\/h4>/g) || []).length, 2);
+  assert.equal((h.match(/<h4 class="nested-limit-title">Reset credits<\/h4>/g) || []).length, 1);
+  assert.match(h, /<h3 class="global-limit-title">◆ Claude offer<\/h3>/);
+  assert.doesNotMatch(h, /title="/, 'no information is conveyed by a title attribute alone');
+});
+
+test('the Claude credit row states it is not reported and keeps exactly one Usage link per section (QA-26, QA-27)', async () => {
+  const claude = withCredits(claudeTool(3 * 3600_000, 3 * 86400_000),
+    { status: 'unsupported', reason: 'not-reported', balance: null, capturedAt: null });
+  const offer = { id: 'opus-5-5-reset-oct-22', state: 'observed', observedAt: iso(-60_000) };
+  const resetSelection = { source: 'unavailable', nextResetAt: null };
+
+  // With the offer rendered, its link is the section's one link; the credit row points to it in text.
+  const withOffer = (await renderWith(localWith([claude]), { resetSchedule: null, resetSelection, claudePromotion: offer }))
+    .els['supplementary-limits'].innerHTML;
+  const claudeRow = claudeGroup(withOffer);
+  assert.match(claudeRow, /credit-block credit-block-tail"><h4 class="nested-limit-title">Credit balance<\/h4>/);
+  assert.match(claudeRow, /unavailable-metric">Unavailable</);
+  assert.match(claudeRow, /<strong>Claude Code does not report a usage-credit balance\.<\/strong> No figure is inferred from the statusline or the usage pane\./);
+  assert.match(claudeRow, /<p class="credit-pointer">Check in Claude Usage, linked under the Claude offer below\.<\/p>/);
+  assert.equal((withOffer.match(USAGE_HREF) || []).length, 1);
+  assert.doesNotMatch(claudeRow, USAGE_HREF);
+  assert.match(withOffer.slice(withOffer.indexOf('promotion-group')), USAGE_HREF);
+
+  // Without the offer (e.g. a peer-only account), the credit row's pointer is the one link.
+  const withoutOffer = (await renderWith(localWith([claude]))).els['supplementary-limits'].innerHTML;
+  assert.doesNotMatch(withoutOffer, /promotion-group/);
+  assert.equal((withoutOffer.match(USAGE_HREF) || []).length, 1);
+  assert.match(claudeGroup(withoutOffer),
+    /<a class="promotion-link" href="https:\/\/claude\.ai\/settings\/usage" rel="noopener noreferrer">Check in Claude Usage<\/a>/);
+
+  const peerOnly = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]) },
+    { host: 'remote', label: 'Work laptop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-1000),
+      state: stateOf([withCredits(claudeTool(60 * 60_000, 6 * 86400_000), { status: 'unsupported', reason: 'not-reported', balance: null, capturedAt: null })]) },
+  ], generatedAt: iso(0) };
+  const blocks = (await renderWith(peerOnly, { resetSchedule: null, resetSelection, claudePromotion: offer }))
+    .els.hosts.innerHTML.split('<article class="account-block"').slice(1);
+  assert.equal(blocks.length, 2);
+  for (const block of blocks) assert.equal((block.match(USAGE_HREF) || []).length, 1);
+  assert.match(claudeGroup(blocks[1]), USAGE_HREF, 'the peer-only account carries its one link in the credit row');
+});
 
 test('one-second render tick removes a reset at its exact expiry boundary', async () => {
   const startMs = Date.now();
@@ -841,6 +1071,10 @@ test('same-account hosts select newest supplementary evidence on its own clocks'
     capturedAt: iso(-20_000),
   }));
   peerCodex.limits.seven_day.resetsAt = localCodex.limits.seven_day.resetsAt;
+  // Credits run on their own clock (QA-18): the member with the newest reset
+  // evidence carries the OLDER credit standing, so it must not drag it along.
+  withCredits(localCodex, { status: 'available', balance: 'LOCAL-NEWER', capturedAt: iso(-60_000) });
+  withCredits(peerCodex, { status: 'none', balance: 'PEER-OLDER', capturedAt: iso(-120_000) });
   const combined = { hosts: [
     { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([localClaude, localCodex]) },
     { host: 'peer', label: 'Desktop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-1000), state: stateOf([peerClaude, peerCodex]) },
@@ -848,11 +1082,23 @@ test('same-account hosts select newest supplementary evidence on its own clocks'
 
   const { els } = await renderWith(combined);
   const overview = els.hosts.innerHTML.slice(0, els.hosts.innerHTML.indexOf('class="host '));
-  assert.equal((overview.match(/Codex reset credits/g) || []).length, 1);
+  assert.equal((overview.match(/Codex credits &amp; resets/g) || []).length, 1);
   assert.match(overview, /Fable[\s\S]*77<span class="unit">% left/);
   assert.doesNotMatch(overview, /Fable[\s\S]*12<span class="unit">% left/);
   assert.match(overview, /reset-count"><strong>2<\/strong><span>available<\/span>/);
   assert.doesNotMatch(overview, /reset-count"><strong>1<\/strong><span>available<\/span>/);
+  assert.match(creditBlock(overview), /Credits available[\s\S]*LOCAL-NEWER/);
+  assert.doesNotMatch(overview, /PEER-OLDER|No credits/);
+  assert.equal(localCodex.accountLimits.credits.balance, 'LOCAL-NEWER', 'member objects are never mutated');
+
+  // With no member reporting a standing, the representative's reason is shown.
+  withCredits(localCodex, { status: 'unsupported', reason: 'never-observed', balance: null, capturedAt: null });
+  withCredits(peerCodex, { status: 'unsupported', reason: 'peer-omitted', balance: null, capturedAt: null });
+  const { els: unsupportedEls } = await renderWith(combined);
+  const allUnsupported = creditBlock(unsupportedEls.hosts.innerHTML);
+  assert.match(allUnsupported, /Unavailable/);
+  assert.match(allUnsupported, /No credit standing has been observed from Codex yet\./,
+    'the newest-reading representative (this machine) supplies the reason');
 });
 
 test('different accounts keep model caps and reset evidence in separate account blocks', async () => {
@@ -867,6 +1113,8 @@ test('different accounts keep model caps and reset evidence in separate account 
     availableCount: 3,
     expirations: [iso(2 * 60 * 60_000), iso(3 * 60 * 60_000), iso(4 * 60 * 60_000)],
   }));
+  withCredits(localCodex, { status: 'available', balance: 'ACCOUNT-ONE', capturedAt: iso(-30_000) });
+  withCredits(remoteCodex, { status: 'available', balance: 'ACCOUNT-TWO', capturedAt: iso(-10_000) });
   const combined = { hosts: [
     { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([localClaude, localCodex]) },
     { host: 'remote', label: 'Work laptop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-1000), state: stateOf([remoteClaude, remoteCodex]) },
@@ -883,6 +1131,11 @@ test('different accounts keep model caps and reset evidence in separate account 
   assert.match(blocks[1], /Sonnet 4\.5/);
   assert.doesNotMatch(blocks[1], /Fable/);
   assert.match(blocks[1], /reset-count"><strong>3<\/strong><span>available<\/span>/);
+  // Credit blocks are never merged, compared, or borrowed across accounts (QA-19).
+  assert.match(blocks[0], /ACCOUNT-ONE/);
+  assert.doesNotMatch(blocks[0], /ACCOUNT-TWO/);
+  assert.match(blocks[1], /ACCOUNT-TWO/);
+  assert.doesNotMatch(blocks[1], /ACCOUNT-ONE/);
 });
 
 test('global allowances appear once at the top and never duplicate in lower tool details', async () => {
@@ -905,9 +1158,9 @@ test('global allowances appear once at the top and never duplicate in lower tool
   assert.match(top, /Fable/);
   assert.match(top, /Sonnet 4\.5/);
   assert.match(top, /Future global cap/);
-  assert.match(top, /Codex reset credits/);
+  assert.match(top, /Codex credits &amp; resets/);
   const lower = els['claude-details'].innerHTML + els['codex-details'].innerHTML;
-  assert.doesNotMatch(lower, /Fable|Sonnet 4\.5|Future global cap|Codex reset credits|expiry-item/);
+  assert.doesNotMatch(lower, /Fable|Sonnet 4\.5|Future global cap|Codex credits &amp; resets|expiry-item/);
 });
 
 test('Fable shows a fresh percentage with separately aged reset evidence', async () => {
@@ -940,7 +1193,7 @@ test('minimal-DOM fallback keeps the complete account story visible', async () =
   assert.match(els.tools.innerHTML, /Shown once/);
   assert.match(els.tools.innerHTML, /Other global limits/);
   assert.match(els.tools.innerHTML, /Fable/);
-  assert.match(els.tools.innerHTML, /Codex reset credits/);
+  assert.match(els.tools.innerHTML, /Codex credits &amp; resets/);
   assert.match(els.tools.innerHTML, /<strong>1<\/strong><span>available<\/span>/);
 });
 

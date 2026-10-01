@@ -274,11 +274,12 @@ test('legacy peers and hostile reset-credit values degrade to the fixed unsuppor
     missingExpirationCount: 0,
     capturedAt: null,
   };
+  const peerOmitted = { status: 'unsupported', reason: 'peer-omitted', balance: null, capturedAt: null };
   assert.deepEqual(normalizeAccountLimits(undefined), {
-    scope: 'account-wide', resetCredits: unsupported,
+    scope: 'account-wide', resetCredits: unsupported, credits: peerOmitted,
   });
   assert.deepEqual(normalizeAccountLimits({ scope: 'machine', resetCredits: {} }), {
-    scope: 'account-wide', resetCredits: unsupported,
+    scope: 'account-wide', resetCredits: unsupported, credits: peerOmitted,
   });
   for (const value of [
     null,
@@ -291,7 +292,81 @@ test('legacy peers and hostile reset-credit values degrade to the fixed unsuppor
 
   const legacy = normalizePeerState({ tools: [{ source: 'codex', limits: {} }] });
   assert.deepEqual(legacy.tools[0].accountLimits, {
-    scope: 'account-wide', resetCredits: unsupported,
+    scope: 'account-wide', resetCredits: unsupported, credits: peerOmitted,
+  });
+});
+
+// The credits whitelist and the stale reset-credit pass-through ship together
+// through the real normalizePeerState path (NFR-08).
+test('peer credit standings are whitelisted, canonical, re-sanitized, and honest when omitted (QA-14, QA-15, QA-32)', () => {
+  const peerOmitted = { status: 'unsupported', reason: 'peer-omitted', balance: null, capturedAt: null };
+  const credits = (value) => normalizePeerState({ tools: [{
+    source: 'codex', limits: {}, accountLimits: { scope: 'account-wide', credits: value },
+  }] }).tools[0].accountLimits.credits;
+
+  // A valid fresh block passes through with canonical ISO and no extra keys.
+  assert.deepEqual(credits({
+    status: 'available', balance: '62500', capturedAt: '2026-10-01T05:00:00-07:00', extra: '<img>',
+  }), { status: 'available', balance: '62500', capturedAt: '2026-10-01T12:00:00.000Z' });
+  assert.deepEqual(credits({ status: 'none', balance: null, capturedAt: '2026-10-01T12:00:00Z' }),
+    { status: 'none', balance: null, capturedAt: '2026-10-01T12:00:00.000Z' });
+  assert.deepEqual(credits({
+    status: 'stale', lastStatus: 'unlimited', balance: '0', capturedAt: '2026-10-01T12:00:00Z',
+  }), { status: 'stale', lastStatus: 'unlimited', balance: '0', capturedAt: '2026-10-01T12:00:00.000Z' });
+
+  // The peer balance is re-stripped and re-bounded here, never trusted (NFR-03).
+  const hostile = credits({
+    status: 'available', capturedAt: '2026-10-01T12:00:00Z',
+    balance: `\u202e12\u2029${'9'.repeat(100)}\u0000`,
+  });
+  assert.doesNotMatch(hostile.balance, /[\u202e\u2029\u0000]/u);
+  assert.equal([...hostile.balance].length, 64);
+  assert.equal(credits({ status: 'available', capturedAt: '2026-10-01T12:00:00Z', balance: 12.5 }).balance, null,
+    'a non-string peer balance is dropped, never coerced');
+
+  // A block that cannot age honestly, or that the enum does not know, degrades.
+  for (const value of [
+    undefined,
+    null,
+    [],
+    { status: 'stale', balance: '5', capturedAt: '2026-10-01T12:00:00Z' },
+    { status: 'stale', lastStatus: 'stale', capturedAt: '2026-10-01T12:00:00Z' },
+    { status: 'stale', lastStatus: 'constructor', capturedAt: '2026-10-01T12:00:00Z' },
+    { status: 'stale', lastStatus: 'available', balance: '5' },
+    { status: 'available', balance: '5' },
+    { status: 'available', balance: '5', capturedAt: 'not-a-date' },
+    { status: 'bogus', capturedAt: '2026-10-01T12:00:00Z' },
+    { status: 'constructor', capturedAt: '2026-10-01T12:00:00Z' },
+    { status: 'unsupported', reason: 'bogus', balance: '9', capturedAt: '2026-10-01T12:00:00Z' },
+  ]) assert.deepEqual(credits(value), peerOmitted);
+
+  // A known unsupported reason survives; balance and clock are forced to null.
+  assert.deepEqual(credits({ status: 'unsupported', reason: 'not-reported', balance: '9', capturedAt: '2026-10-01T12:00:00Z' }),
+    { status: 'unsupported', reason: 'not-reported', balance: null, capturedAt: null });
+  assert.deepEqual(credits({ status: 'unsupported', reason: 'never-observed' }),
+    { status: 'unsupported', reason: 'never-observed', balance: null, capturedAt: null });
+});
+
+test('a peer\'s stale reset credits stay stale with a locally re-filtered count (QA-16)', () => {
+  const now = Date.UTC(2026, 9, 1, 12, 0, 0);
+  const at = (ms) => new Date(now + ms).toISOString();
+  const peer = normalizePeerState({ tools: [{ source: 'codex', limits: {}, accountLimits: {
+    scope: 'account-wide',
+    resetCredits: {
+      available: true, status: 'stale', availableCount: 2,
+      expirations: [at(-60_000), at(3600_000)], missingExpirationCount: 0,
+      capturedAt: at(-6 * 3600_000),
+    },
+  } }] });
+  // normalizePeerState filters by the real clock; normalizeResetCredits shows the
+  // same pass-through at a pinned clock.
+  assert.equal(peer.tools[0].accountLimits.resetCredits.status, 'stale');
+  assert.deepEqual(normalizeResetCredits({
+    available: true, status: 'stale', availableCount: 2,
+    expirations: [at(-60_000), at(3600_000)], capturedAt: at(-6 * 3600_000),
+  }, now), {
+    available: true, status: 'stale', availableCount: 1,
+    expirations: [at(3600_000)], missingExpirationCount: 0, capturedAt: at(-6 * 3600_000),
   });
 });
 

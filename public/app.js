@@ -680,14 +680,108 @@ function resetCreditsHtml(tool) {
   return html;
 }
 
-function globalToolGroupHtml(tool, suffix) {
+// Provider-reported credit standing: an account fact separate from reset
+// credits and the Claude offer. Codes map to copy through own-key lookups only;
+// a code outside a table renders "Unavailable" and never reaches the DOM raw.
+const CREDITS_STATUS_COPY = Object.freeze({
+  unlimited: 'Unlimited',
+  available: 'Credits available',
+  none: 'No credits',
+});
+const CREDITS_REASON_COPY = Object.freeze({
+  'never-observed': ['No credit standing has been observed from Codex yet.',
+    'The standard Codex windows above are unaffected.'],
+  'peer-omitted': ['This host did not report a credit standing.',
+    'An older llmdash on that machine, or a block the peer check could not verify.'],
+  'not-reported': ['Claude Code does not report a usage-credit balance.',
+    'No figure is inferred from the statusline or the usage pane.'],
+});
+const ownKey = (table, code) => Object.prototype.hasOwnProperty.call(table, code);
+
+// Defense in depth over the ingest sanitizers: the same strip and bound, and an
+// empty balance stays absent (never a placeholder word).
+function boundedCreditBalanceLabel(value) {
+  if (typeof value !== 'string') return null;
+  const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim();
+  return clean ? [...clean].slice(0, 64).join('') : null;
+}
+
+function creditsForDisplay(tool) {
+  const raw = tool && tool.accountLimits && tool.accountLimits.scope === 'account-wide'
+    ? tool.accountLimits.credits : null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { state: 'unsupported', reason: null };
+  if (raw.status === 'unsupported') {
+    return { state: 'unsupported', reason: ownKey(CREDITS_REASON_COPY, raw.reason) ? raw.reason : null };
+  }
+  const standing = raw.status === 'stale' ? raw.lastStatus : raw.status;
+  const capturedMs = typeof raw.capturedAt === 'string' ? Date.parse(raw.capturedAt) : NaN;
+  // A standing that cannot be aged is not shown as current.
+  if (!ownKey(CREDITS_STATUS_COPY, standing) || !Number.isFinite(capturedMs)) {
+    return { state: 'unsupported', reason: null };
+  }
+  const d = tool.limitsDiagnostic;
+  return {
+    state: raw.status === 'stale' ? 'stale' : standing,
+    standing,
+    balance: boundedCreditBalanceLabel(raw.balance),
+    capturedAt: new Date(capturedMs).toISOString(),
+    // A failed account read is a note only: the standing keeps its own status.
+    sourceError: !!(d && (d.reason === 'codex-cmd-failed' || d.reason === 'no-reading')),
+  };
+}
+
+// The "Credit balance" sub-block. `usageLinkElsewhere` is true when the Claude
+// offer (which owns the section's one claude.ai Usage link) renders in the same
+// section; otherwise the not-reported pointer is that one link.
+function creditsHtml(tool, { usageLinkElsewhere = false } = {}) {
+  const credit = creditsForDisplay(tool);
+  let html = '<h4 class="nested-limit-title">Credit balance</h4>';
+  if (credit.state === 'unsupported') {
+    html += '<div class="credit-summary"><span class="unavailable-metric">Unavailable</span></div>';
+    if (!credit.reason) return html;
+    const [lead, tail] = CREDITS_REASON_COPY[credit.reason];
+    html += `<p class="empty-evidence"><strong>${lead}</strong> ${tail}</p>`;
+    if (credit.reason === 'not-reported') {
+      html += usageLinkElsewhere
+        ? '<p class="credit-pointer">Check in Claude Usage, linked under the Claude offer below.</p>'
+        : '<a class="promotion-link" href="https://claude.ai/settings/usage" rel="noopener noreferrer">Check in Claude Usage</a>';
+    }
+    return html;
+  }
+  html += credit.state === 'stale'
+    ? `<div class="credit-summary">${resetStatePill('stale', credit.capturedAt)}`
+      + `<span class="credit-last">last reading: ${CREDITS_STATUS_COPY[credit.standing]}</span></div>`
+    : `<div class="credit-summary"><span class="credit-status${credit.state === 'none' ? ' is-none' : ''}">`
+      + `${CREDITS_STATUS_COPY[credit.state]}</span></div>`;
+  html += credit.balance === null
+    ? '<p class="credit-balance">Provider balance · not reported</p>'
+    : `<p class="credit-balance">Provider balance <bdi class="credit-balance-value">${esc(credit.balance)}</bdi>`
+      + ` · provider's own figure; not converted</p>`;
+  const age = fmtAge(credit.capturedAt);
+  if (age) html += `<p class="credit-age">${esc(age)}</p>`;
+  if (credit.sourceError) {
+    html += '<p class="evidence-note critical"><strong>The latest Codex account read failed.</strong> Showing the last good credit reading.</p>';
+  }
+  if (credit.state === 'stale') {
+    html += '<p class="evidence-note"><strong>The last good credit reading is old;</strong> the balance may have changed.</p>';
+  }
+  return html;
+}
+
+function globalToolGroupHtml(tool, suffix, { usageLinkElsewhere = false } = {}) {
   const codex = tool && tool.source === 'codex';
-  const mark = tool && tool.source === 'claude-code' ? '◆' : codex ? '▲' : '';
-  const title = codex ? 'Codex reset credits'
-    : tool && tool.source === 'claude-code' ? 'Claude model caps' : `${tool && tool.label ? tool.label : 'Provider'} model caps`;
+  const claude = tool && tool.source === 'claude-code';
+  const mark = claude ? '◆' : codex ? '▲' : '';
+  const title = codex ? 'Codex credits & resets'
+    : claude ? 'Claude model caps' : `${tool && tool.label ? tool.label : 'Provider'} model caps`;
   const id = `global-limit-${suffix}-${String(tool && tool.source || 'provider').replace(/[^a-z0-9]+/gi, '-')}`;
   const rows = modelLimitRowsHtml(tool);
-  let body = codex ? resetCreditsHtml(tool) : '';
+  // Credit balance and reset credits are two facts under two headings; the
+  // reset-credit block itself is rendered exactly as before.
+  let body = codex
+    ? `<div class="credit-block credit-block-lead">${creditsHtml(tool, { usageLinkElsewhere })}</div>`
+      + `<h4 class="nested-limit-title">Reset credits</h4>${resetCreditsHtml(tool)}`
+    : '';
   if (rows) {
     body += codex ? '<h4 class="nested-limit-title">Model caps</h4>' : '';
     body += `<ul class="model-limit-list">${rows}</ul>`;
@@ -695,6 +789,7 @@ function globalToolGroupHtml(tool, suffix) {
   } else if (!codex) {
     body += modelCapEmptyHtml(tool);
   }
+  if (claude) body += `<div class="credit-block credit-block-tail">${creditsHtml(tool, { usageLinkElsewhere })}</div>`;
   return `<section class="global-limit-group ${toolToneClass(tool)}" aria-labelledby="${id}">`
     + `<div class="global-limit-head"><h3 class="global-limit-title" id="${id}">`
     + `${mark ? `<span class="tool-mark" aria-hidden="true">${mark}</span>` : ''}${esc(title)}</h3>`
@@ -733,11 +828,14 @@ function supplementaryLimitsHtml(tools, suffix = 'account', promotion = null) {
     order(a.source) - order(b.source));
   if (!ordered.length) return '';
   const id = `supplementary-${suffix}`;
+  // The offer, when it renders here, owns the section's one Usage link.
+  const offerShown = Boolean(promotion) && ordered.some((tool) => tool.source === 'claude-code');
   return `<section class="supplementary" aria-labelledby="${id}">`
     + `<div class="supplementary-heading"><h2 class="section-label" id="${id}">Other global limits</h2>`
     + `<span class="supplementary-scope">same account · before pacing and local activity</span></div>`
-    + `<div class="supplement-grid">${ordered.map((tool) => globalToolGroupHtml(tool, suffix)).join('')}`
-    + `${ordered.some((tool) => tool.source === 'claude-code') ? promotionHtml(promotion) : ''}</div>`
+    + `<div class="supplement-grid">${ordered.map((tool) =>
+      globalToolGroupHtml(tool, suffix, { usageLinkElsewhere: offerShown })).join('')}`
+    + `${offerShown ? promotionHtml(promotion) : ''}</div>`
     + `</section><p class="account-honesty">All readings in this block are account-wide. Machine-local usage begins below.</p>`;
 }
 
@@ -1050,8 +1148,9 @@ function newestRepresentative(members) {
 }
 
 // Primary windows and supplementary account facts have independent evidence
-// clocks. Select model caps per cap identity and reset credits by their own
-// capturedAt, but only inside one already-grouped account membership set.
+// clocks. Select model caps per cap identity, and reset credits and the credit
+// standing each by their own capturedAt, but only inside one already-grouped
+// account membership set.
 function supplementaryToolForMembers(members, representative) {
   const tool = { ...representative.tool };
   const newestModels = new Map();
@@ -1075,8 +1174,21 @@ function supplementaryToolForMembers(members, representative) {
       && limits.resetCredits && limits.resetCredits.available === true
       && Number.isFinite(Date.parse(limits.resetCredits.capturedAt || 0)))
     .sort((a, b) => Date.parse(b.resetCredits.capturedAt) - Date.parse(a.resetCredits.capturedAt));
-  tool.accountLimits = resetCandidates[0] || representative.tool.accountLimits
+  const chosenLimits = resetCandidates[0] || representative.tool.accountLimits
     || { scope: 'account-wide', resetCredits: { available: false, status: 'unsupported' } };
+  const creditCandidates = members.map((member) => member.tool.accountLimits)
+    .filter((limits) => limits && limits.scope === 'account-wide'
+      && limits.credits && limits.credits.status !== 'unsupported'
+      && Number.isFinite(Date.parse(limits.credits.capturedAt || '')))
+    .sort((a, b) => Date.parse(b.credits.capturedAt) - Date.parse(a.credits.capturedAt));
+  const representativeLimits = representative.tool.accountLimits;
+  // A spread, never a mutation of a member's own object.
+  tool.accountLimits = {
+    ...chosenLimits,
+    credits: creditCandidates.length ? creditCandidates[0].credits
+      : representativeLimits && representativeLimits.credits ? representativeLimits.credits
+        : { status: 'unsupported', reason: 'peer-omitted', balance: null, capturedAt: null },
+  };
   return tool;
 }
 
@@ -1514,11 +1626,6 @@ const INSIGHT_RANGE_COPY = Object.freeze({
   '7d': 'last 7 days',
   '30d': 'last 30 days',
 });
-const CREDIT_STATUS_COPY = Object.freeze({
-  unlimited: 'Unlimited',
-  available: 'Credits available',
-  none: 'No credits',
-});
 let INSIGHT_RANGE = '7d';
 let insightRequestSequence = 0;
 let insightHasRendered = false;
@@ -1589,19 +1696,12 @@ function plural(value, singular, many = `${singular}s`) {
   return value === 1 ? singular : many;
 }
 
+// The credit standing has one canonical home, the account story at the top of
+// the page; this row keeps only the plan label.
 function insightAccountHtml(account) {
   const plan = account && account.plan && account.plan.available === true
     ? boundedInsightLabel(account.plan.label, '') : '';
-  const credits = account && account.credits;
-  const creditStatus = credits && credits.available === true
-    && Object.prototype.hasOwnProperty.call(CREDIT_STATUS_COPY, credits.status)
-    ? CREDIT_STATUS_COPY[credits.status] : 'Credit status unavailable';
-  const bits = [`<strong>Account-wide</strong>`, `<span>${esc(plan || 'Plan unavailable')}</span>`, `<span>${creditStatus}</span>`];
-  if (credits && credits.available === true && typeof credits.balance === 'string') {
-    const balance = boundedInsightLabel(credits.balance, '');
-    if (balance) bits.push(`<span>Balance ${esc(balance)}</span>`);
-  }
-  return `<div class="insights-account">${bits.join('')}</div>`;
+  return `<div class="insights-account"><strong>Account-wide</strong><span>${esc(plan || 'Plan unavailable')}</span></div>`;
 }
 
 function insightMetricHtml(label, available, value, note, unavailableCopy) {

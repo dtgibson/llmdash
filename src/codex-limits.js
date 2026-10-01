@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { config } from '../config.js';
 import { toIso } from './claude-limits.js';
 import { resolveCommand } from './health.js';
+import { boundedCreditBalance, unsupportedCredits } from './account-credits.js';
 
 // Why Codex limits are (un)available, for the startup log and /api/state.
 // Reasons: 'ok' (live read worked), 'codex-cmd-failed' (the configured command
@@ -212,36 +213,41 @@ export function codexPlanLabel(nowMs = Date.now()) {
   return planType ? PLAN_LABELS[planType] : 'Plan unavailable';
 }
 
-// Account-wide facts observed on the live app-server response. Callers get a
-// fresh, bounded object so the module-level sparse-update cache cannot be
-// mutated from outside this module.
+// The provider-reported credit standing for /api/state, the sibling of
+// codexResetCredits(): a detached, time-aware snapshot of the sparse-update
+// cache. The standing comes from the retained flags (not the per-fact fresh()
+// filter) so an aged block can still say what was last observed; the whole
+// block ages on one clock, its newest contributing observation. Read-side only:
+// past the hard cap it reads as never observed without mutating the cache.
+export function codexCredits(nowMs = Date.now()) {
+  const now = Number(nowMs);
+  const at = Number.isFinite(now) ? now : Date.now();
+  const standing = observedCreditUnlimited === true ? 'unlimited'
+    : observedHasCredits === true ? 'available'
+      : observedHasCredits === false ? 'none'
+        : null;
+  // A balance without a standing flag is not shown.
+  if (standing === null) return unsupportedCredits('never-observed');
+  const capturedAtMs = Math.max(...[observedCreditUnlimitedAtMs, observedHasCreditsAtMs,
+    observedCreditBalanceAtMs].filter((t) => t !== null));
+  const ageMs = at - capturedAtMs;
+  if (ageMs >= ACCOUNT_FACT_HARD_CAP_MS) return unsupportedCredits('never-observed');
+  const balance = observedCreditBalance ?? null;
+  const capturedAt = new Date(capturedAtMs).toISOString();
+  return ageMs > ACCOUNT_FACT_TTL_MS
+    ? { status: 'stale', lastStatus: standing, balance, capturedAt }
+    : { status: standing, balance, capturedAt };
+}
+
+// Account-wide plan fact for the Codex insights payload. The credit standing
+// has one wire home, /api/state accountLimits.credits (codexCredits above).
 export function codexAccountFacts(nowMs = Date.now()) {
   const planType = fresh(observedPlanType, observedPlanAtMs, nowMs);
-  const unlimited = fresh(observedCreditUnlimited, observedCreditUnlimitedAtMs, nowMs);
-  const hasCredits = fresh(observedHasCredits, observedHasCreditsAtMs, nowMs);
-  const balance = fresh(observedCreditBalance, observedCreditBalanceAtMs, nowMs);
-  const resetCredits = codexResetCredits(nowMs);
-  const resetCreditsAvailable = resetCredits.available ? resetCredits.availableCount : undefined;
-  const status = unlimited === true
-    ? 'unlimited'
-    : hasCredits === true
-      ? 'available'
-      : hasCredits === false
-        ? 'none'
-        : null;
   return {
     scope: 'account-wide',
     plan: {
       available: planType != null,
       label: planType ? PLAN_LABELS[planType] : null,
-    },
-    credits: {
-      available: status !== null
-        || balance != null
-        || resetCreditsAvailable != null,
-      status,
-      balance: balance ?? null,
-      resetCreditsAvailable: resetCreditsAvailable ?? null,
     },
   };
 }
@@ -271,16 +277,6 @@ function observePlanType(rl) {
   return recognized ? normalized : null;
 }
 
-function boundedBalance(raw) {
-  if (typeof raw !== 'string') return undefined;
-  // Control, format/bidi, and Unicode line-separator characters have no
-  // semantic value in an opaque balance and can visually reorder neighboring
-  // account facts even after correct HTML escaping.
-  const cleaned = raw.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim();
-  if (!cleaned) return null;
-  return [...cleaned].slice(0, 64).join('');
-}
-
 function observeAccountFacts(result, rl) {
   const observedAtMs = Date.now();
   if (rl && typeof rl === 'object') {
@@ -294,7 +290,7 @@ function observeAccountFacts(result, rl) {
         observedHasCredits = credits.hasCredits;
         observedHasCreditsAtMs = observedAtMs;
       }
-      const balance = boundedBalance(credits.balance);
+      const balance = boundedCreditBalance(credits.balance);
       if (balance !== undefined) {
         observedCreditBalance = balance;
         observedCreditBalanceAtMs = observedAtMs;

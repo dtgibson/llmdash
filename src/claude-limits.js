@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { config } from '../config.js';
+import { unsupportedCredits } from './account-credits.js';
 
 export const MODEL_LIMIT_RESETLESS_TTL_MS = 7 * 24 * 60 * 60_000;
 export const MODEL_LIMIT_CLOCK_SKEW_MS = 5 * 60_000;
@@ -8,6 +9,13 @@ export const MODEL_LIMIT_CLOCK_SKEW_MS = 5 * 60_000;
 // constant, not a knob: long enough to notice a probe that keeps failing,
 // bounded so a cap the account genuinely lost stops being mentioned.
 export const MODEL_LIMIT_EXPIRED_DISCLOSURE_MS = 30 * 24 * 60 * 60_000;
+
+// Claude Code reports no usage-credit balance on any sanctioned local channel
+// (neither the statusline rate_limits block nor the /usage pane carries one),
+// so the honest standing is always this reason-coded block — never a figure
+// inferred from other evidence. A function so each state build gets a detached
+// object.
+export function claudeCredits() { return unsupportedCredits('not-reported'); }
 
 // Normalize a reset value (epoch seconds, epoch ms, or ISO string) to ISO-8601.
 export function toIso(v) {

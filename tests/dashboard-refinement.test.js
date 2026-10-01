@@ -117,6 +117,13 @@ test('named phone and desktop geometry stays within the supported viewport', () 
   assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.operational-grid \{ grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(styles, /\.health-history svg \{[^}]*width: 100%[^}]*height: auto/s);
   assert.doesNotMatch(styles, /\.health-history svg \{[^}]*min-width:/s);
+  // A 64-code-point space-free credit balance beside a stale pill wraps inside
+  // the stacked global-limit band instead of widening the page (NFR-06).
+  assert.match(styles, /\.credit-summary \{[^}]*flex-wrap: wrap[^}]*min-width: 0/s);
+  assert.match(styles, /\.credit-balance \{[^}]*min-width: 0[^}]*overflow-wrap: anywhere/s);
+  assert.match(styles, /\.credit-balance-value \{[^}]*unicode-bidi: isolate[^}]*overflow-wrap: anywhere/s);
+  assert.match(styles, /\.promotion-link:focus-visible \{[^}]*outline: 3px solid var\(--focus-ring\)/s,
+    'the section\'s one Usage link has a visible focus state');
 });
 
 test('device health is one responsive, reduced-motion-aware host-scoped band', () => {

@@ -138,6 +138,14 @@ test('empty hosts.conf ⇒ single-host: no peers polled, only the local host cac
     const remotes = combined.hosts.filter((h) => h.host !== 'local' && !h.self);
     assert.equal(remotes.length, 0, 'an empty file yields no remote hosts');
     assert.ok(combined.hosts.some((h) => h.self), 'the local host is still present');
+    // FR-16 / QA-17: the self host is buildState() taken in-process, so its tools
+    // carry exactly the credit blocks the local /api/state carries.
+    const { buildState } = await import('../src/server.js');
+    const selfTools = combined.hosts.find((h) => h.self).state.tools;
+    for (const tool of buildState().tools) {
+      assert.deepEqual(selfTools.find((t) => t.source === tool.source).accountLimits.credits,
+        tool.accountLimits.credits);
+    }
   } finally {
     config.dataDir = savedDataDir;
     config.hostsRaw = savedHostsRaw;
