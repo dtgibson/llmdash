@@ -6,6 +6,7 @@ import {
   isBoundedFileError,
   readBoundedRegularFileLines,
 } from './bounded-file.js';
+import { runToCompletion } from './cooperative.js';
 
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -283,6 +284,14 @@ function *inputLines(input) {
 // Pure JSONL reducer. Raw IDs are used only as ephemeral map keys; records expose
 // deterministic surrogate turn keys and never retain event payloads or content.
 export function scanCodexSession(input, sessionKey = 'session', options = {}) {
+  return runToCompletion(scanCodexSessionSteps(input, sessionKey, options));
+}
+
+// Generator form of the reducer (see src/cooperative.js). It suspends only
+// between lines and only when `options.pacer` reports a spent time slice; the
+// synchronous wrapper above passes no pacer and never suspends.
+function *scanCodexSessionSteps(input, sessionKey = 'session', options = {}) {
+  const pacer = options.pacer || null;
   const result = blankResult();
   const usageOnly = options.usageOnly === true;
   const sid = normalizeSessionKey(sessionKey);
@@ -357,6 +366,7 @@ export function scanCodexSession(input, sessionKey = 'session', options = {}) {
   };
 
   for (const line of inputLines(input)) {
+    if (pacer?.due()) yield;
     if (nowFn() > deadlineMs) throw scanBudgetError('scan_budget_time');
     let event;
     const oversizedPrefix = boundedFileOversizedLinePrefix(line);
@@ -635,6 +645,15 @@ function parsedRecordCount(parsed) {
 // Files are parsed in full before the lower timestamp bound is applied, so
 // turn/model/context state immediately before the range remains available.
 export function scanCodexRollouts(sinceMs, options = {}) {
+  return runToCompletion(scanCodexRolloutsSteps(sinceMs, options));
+}
+
+// Generator form for the poller's cooperative driver. `options.pacer` adds
+// suspension points between files and between lines inside a file; the scan's
+// budgets, last-good retention, and single end-of-scan cache replacement are
+// unchanged (the parse cache is still swapped in one synchronous step below).
+export function *scanCodexRolloutsSteps(sinceMs, options = {}) {
+  const pacer = options.pacer || null;
   const lowerBound = typeof sinceMs === 'number' && Number.isFinite(sinceMs) ? Math.max(0, sinceMs) : 0;
   const io = options.fs || fs;
   const limits = scanLimits(options.limits);
@@ -843,6 +862,7 @@ export function scanCodexRollouts(sinceMs, options = {}) {
     result[key].push(record);
   };
   filesLoop: for (const { filePath, stat } of scanFiles) {
+    if (pacer?.due()) yield;
     pendingScanPaths.delete(filePath);
     checkTime();
     try {
@@ -874,13 +894,14 @@ export function scanCodexRollouts(sinceMs, options = {}) {
         continue;
       }
       checkTime();
+      const value = yield* scanCodexSessionSteps(lines, path.basename(filePath), {
+        limits: { ...limits, maxResultRecords: Math.min(limits.maxResultRecords, limits.maxCacheRecords) },
+        eventBudget, usageOnly: options.usageOnly === true, nowFn, pacer,
+      });
       parsed = {
         mtimeMs: stat.mtimeMs,
         size: stat.size,
-        value: scanCodexSession(lines, path.basename(filePath), {
-          limits: { ...limits, maxResultRecords: Math.min(limits.maxResultRecords, limits.maxCacheRecords) },
-          eventBudget, usageOnly: options.usageOnly === true, nowFn,
-        }),
+        value,
       };
         storeParsed(filePath, parsed);
       }

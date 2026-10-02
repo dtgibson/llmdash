@@ -6,8 +6,9 @@ import path from 'node:path';
 import {
   addCalendarDays, buildCostAnalysis, clearCostAnalysisCache, getCostAnalysis,
   localMidnightMs, rangeDefinition, readCombinedSubscriptions,
-  refreshCostAnalysis, roundPicosToMicros,
+  refreshCostAnalysis, refreshCostAnalysisAsync, roundPicosToMicros,
 } from '../src/cost-analysis.js';
+import { clearUsageLedgerCaches } from '../src/usage-ledger.js';
 import { parseAccountConfig } from '../src/account-config.js';
 import { buildBillingOverlay } from '../src/billing-overlay.js';
 import { parseRateCard } from '../src/rate-card.js';
@@ -498,6 +499,50 @@ test('rejected exact rates retain their bounded diagnostic category', () => {
   });
   assert.ok(payload.scopes.claude.summary.observedCache.reasons.includes('rate_overlap'));
   assert.ok(!payload.scopes.claude.summary.observedCache.reasons.includes('unknown_model'));
+});
+
+test('cooperative poller refresh yields mid-scan, stays cold until it publishes, and matches the synchronous refresh', async () => {
+  // Startup no longer primes before listen: the poller's first tick runs this
+  // refresh with suspension points so requests are served during a cold scan.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-cost-coop-'));
+  const claudeRoot = path.join(root, 'claude');
+  const sessionsDir = path.join(root, 'codex', '2026', '07', '16');
+  fs.mkdirSync(path.join(claudeRoot, 'project'), { recursive: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const ts = (hoursAgo) => new Date(NOW - hoursAgo * 3_600_000).toISOString();
+  fs.writeFileSync(path.join(claudeRoot, 'project', 'a.jsonl'), [1, 2, 30, 200].map((hoursAgo, i) => JSON.stringify({
+    uuid: `claude-${i}`, timestamp: ts(hoursAgo),
+    message: { model: 'claude-test', usage: { input_tokens: 10 + i, output_tokens: 4, cache_creation_input_tokens: 0, cache_read_input_tokens: 8 } },
+  })).join('\n'));
+  fs.writeFileSync(path.join(sessionsDir, 'rollout-2026-07-16T00-00-00-a.jsonl'), [1, 2, 3].flatMap((hoursAgo, i) => [
+    { timestamp: ts(hoursAgo), type: 'event_msg', payload: { type: 'task_started', turn_id: `turn-${i}` } },
+    { timestamp: ts(hoursAgo), type: 'turn_context', payload: { turn_id: `turn-${i}`, model: 'gpt-test' } },
+    { timestamp: ts(hoursAgo), type: 'event_msg', payload: { type: 'token_count', turn_id: `turn-${i}`, info: { last_token_usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2 } } } },
+  ]).map((row) => JSON.stringify(row)).join('\n'));
+  const options = {
+    timeZone: 'UTC', subscriptions: subscriptions([sub('claude'), sub('codex')]),
+    rateCard: rateCard([claudeRate(), codexRate()]),
+    ledgerOptions: { claude: { root: claudeRoot }, codex: { sessionsDir: path.join(root, 'codex') } },
+  };
+  clearUsageLedgerCaches();
+  clearCostAnalysisCache();
+  assert.equal(refreshCostAnalysis(NOW, options), true);
+  const expected = Object.fromEntries(['7d', '30d', '90d'].map((range) => [range, getCostAnalysis(range)]));
+  assert.ok(expected['7d'].scopes.combined.usageCoverage.recognizedRecords > 0, 'fixture reaches the ledger');
+
+  clearUsageLedgerCaches();
+  clearCostAnalysisCache();
+  let settled = false;
+  const refresh = refreshCostAnalysisAsync(NOW, { ...options, pacer: { due: () => true, resume() {} } })
+    .then((ok) => { settled = true; return ok; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, 'a later macrotask ran while the cold refresh was still in flight');
+  const cold = getCostAnalysis('30d');
+  assert.equal(cold.refresh.status, 'cold');
+  assert.equal(cold.scopes.combined.summary.noCache.amountMicros, null, 'no fabricated zero before the first publish');
+  assert.equal(await refresh, true);
+  for (const range of ['7d', '30d', '90d']) assert.deepEqual(getCostAnalysis(range), expected[range]);
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('poller cache is immutable, request reads are pure, and failures retain stale evidence', () => {

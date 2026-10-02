@@ -213,3 +213,187 @@ Modified (tests)
   offer renders) and passes it down; the non-owner renders a plain-text pointer
   naming where the link is, so the page never shows two copies and never
   dead-ends.
+
+---
+
+## Deploy blocker: startup readiness
+
+### What was wrong
+
+`src/server.js` ran `refreshCodexAnalytics()` and `refreshCostAnalysis()`
+synchronously before `server.listen()`. On the current corpus (about 8.0 GB of
+`~/.codex/sessions`, 2.3 GB of `~/.claude/projects`) the cold priming kept the
+process from listening for about 95–120 seconds in production, so every deploy,
+including the previous version `8b021a3`, failed `install-macos.sh --service
+install`'s 45-second readiness gate. After the listener came up, each poller
+tick ran a 90-day ledger pass (Claude and Codex scans, bounded at 512 MiB of
+changed bytes and 10 s of wall time per source) as one synchronous block, so
+requests stalled for seconds on every tick until the ledger converged (17
+passes on this corpus).
+
+### What changed
+
+- **Listen first, then prime.** Before binding, startup now does only cheap work:
+  the DB open, the owner account-config read, health lines, and the local host
+  seed. `startPoller()` moved into the `listen` callback. The poller's first
+  tick is the prime and runs the same refreshes in the same order. The installer's
+  deadline and readiness semantics are unchanged.
+- **Cooperative scans.** The poller-owned structured-log work is unchanged except
+  that it can now yield. The scan bodies (`scanCodexSession`, `scanCodexRollouts`,
+  the Claude ledger parse/scan, `buildUsageLedger`, the cost refresh, and the
+  Codex analytics refresh) are now generator functions with suspension points
+  between files, between lines, and between range builds. A small helper
+  (`src/cooperative.js`) provides two drivers:
+  - `runToCompletion` is the existing synchronous API. It passes no pacer, so it
+    never suspends; every existing caller and test is unchanged.
+  - `runCooperatively` is used by the poller. Once a 20 ms time slice has elapsed,
+    it returns to the event loop with `setImmediate` and then resumes the scan.
+
+  Suspension never changes what is read or published. Every bound, budget, wall
+  deadline, descriptor-validated no-follow read, last-good fallback, cache
+  ceiling, and the single end-of-scan parse-cache and analytics-cache
+  replacement are unchanged. The pacer uses real time and is separate from the
+  scans' injectable `nowFn` budget clocks. `pollOnce` now awaits
+  `refreshCodexAnalyticsAsync` and `refreshCostAnalysisAsync` at the same
+  points in the tick.
+- **Cold states verified, two over-claims fixed.** `/api/codex-insights` returns
+  its existing unavailable payload (`hasData:false`, `generatedAt:null`, every
+  metric `available:false`). `/api/cost-analysis` returns its existing `cold`
+  payload (`cache_cold`, null amounts, which the client already renders as
+  "still warming"). `/api/state` Codex activity is `hasData:false,
+  generatedAt:null`. None throw or fabricate zeros. However, the client rendered
+  the never-scanned insights and activity states as completeness claims ("No
+  supported Codex activity was recorded…", "No Codex sessions have been
+  recorded…"). Both now read as loading only when `generatedAt === null`, which
+  is the local producer's never-refreshed marker. Peer-normalized activity omits
+  the field, so peer copy is unchanged. No wire shape changed.
+
+### Files
+
+- `src/cooperative.js` (new): pacer, synchronous drain, and cooperative driver.
+- `src/codex-events.js`, `src/usage-ledger.js`: generator forms with
+  synchronous wrappers. `scanCodexRolloutsSteps` and `buildUsageLedgerSteps`
+  are exported.
+- `src/codex-stats.js`, `src/cost-analysis.js`: `refreshCodexAnalyticsAsync` and
+  `refreshCostAnalysisAsync`; the synchronous exports are kept.
+- `src/poller.js`: awaits the cooperative refreshes.
+- `src/server.js`: no heavy pre-listen priming; `startPoller()` runs after listen.
+- `public/app.js`: adds warming copy for a never-scanned local Codex activity or
+  insights payload.
+- Tests: `tests/cost-analysis.test.js` covers a real-corpus fixture: the
+  refresh yields mid-scan, stays `cold` until it publishes, and deep-equals the
+  synchronous refresh. `tests/codex-insights.test.js` covers the same for
+  insights. `tests/server.test.js` asserts that no structured-log scan happens
+  before listen and that `startPoller` runs in the listen callback.
+  `tests/codex-insights-client.test.js` and `tests/hosts-client.test.js` cover
+  the warming copy.
+
+### Measurements
+
+These measurements are from a fresh process from this dev checkout on
+127.0.0.1, with a scratch data dir and `LLMDASH_CLAUDE_AUTOREFRESH=0`, on the
+current corpus. The page cache was warm from earlier runs. Production and
+`~/llmdash` were untouched.
+
+| Check | Result |
+| --- | --- |
+| Spawn to first 200 on `/api/state` | 0.31 s (default 60 s poll); 0.46–0.86 s on four later runs |
+| Installer readiness logic (the exact `wait_for_service_ready` + curl invocation, extracted, run against a fresh instance) | READY after ~1 s of the 45 s budget (0.5 s per probe) |
+| `/api/state` once a second, 200 s, startup prime + 3 ticks at 60 s | 200 polls, 0 non-200; max 394 ms, p50 3 ms, p99 338 ms; `/api/hosts` max 416 ms |
+| `/api/state` once a second, 330 s at 10 s polling through cost convergence | 329 polls, 0 non-200; max 1,058 ms (one sample), p50 6.9 ms, p99 362 ms |
+| Further 10 s-poll runs (110–150 s) | max 401, 424, 208 ms |
+| In-process event-loop gap probe (150 s run) | largest gaps ~230–250 ms: the poller's existing Claude 7-day activity read (`stats.js computeActivity`, ~235 ms per tick) and the final 90-day range build (~100–135 ms) |
+| Before (deploy report) | no listener for ~95–120 s; 6–7 s responses during the cold scan |
+
+During warm-up, `/api/codex-insights?range=30d` answered 200 in 1.6 ms with
+`hasData:false, generatedAt:null`. `/api/cost-analysis` answered 200 with
+`refresh: cold / cache_cold`, coverage `unavailable`, and null amounts. Insights
+published within the first tick, about 20 s after start. Cost published partial
+(`scan_budget_total_bytes`) on the first tick and converged by about 220 s at a
+10 s poll (only `dedupe_fallback` and `unknown_model` remained). The first Codex
+limits reading appeared 17–33 s after start. It comes after the analytics in the
+tick, as before. Until then, `/api/state` reports Codex `no-reading`.
+
+**Release check (fresh process, `--expose-gc`, cooperative drivers in poller
+order):** converged on pass 17 (the 2026-09-24 synchronous check also took 17).
+After forced GC: heap used 92.2 MiB, heap total 228.5 MiB, RSS 1,160 MiB. A
+synchronous-driver run in the same session also converged on pass 17, with
+92.1 MiB, 231.3 MiB, and 1,196 MiB, so the memory profile did not change. Cache
+occupancy at convergence was within every ceiling:
+- Claude: 1,120 files, 148,626 of 175,000 records, 74.4 MB of 100.7 MB estimated.
+- Codex usage: 1,401 files, 218,514 of 1,100,000 records.
+- Codex insights: 272 files, 86,692 of 500,000 records.
+- Ledger: 366,319 of 1,250,000 records.
+
+The 7d, 30d, and 90d reconciliation passed for the Claude, Codex, and combined
+scopes. Daily sums and the final cumulative values equal their summaries for
+observed and no-cache cost. The cache effect equals no-cache minus observed.
+Recognized minus comparable records and tokens equals the omission rows. The
+omissions match the prior release: `gpt-6` 2,631 records / 400,101,344 tokens,
+and 90-day `Other` 113 records / 11,095,912 tokens. There are 60
+fallback-identity Codex records.
+
+### Test results (after this fix)
+
+`npm test`: 912 tests, 910 pass, 2 skipped (the same machine-dependent skips),
+0 fail. After the cold-trends fix below: 915 tests, 913 pass, 2 skipped, 0 fail.
+
+### Re-verification fix: cold trends
+
+Re-verification found one more cold path. `/api/trends` built its Codex daily
+series by synchronously scanning on the request path. The old startup had
+already filled the parse cache that scan reuses, so it was cheap; with
+listen-first, the first dashboard load after a restart scanned a cold cache. On
+the Tester's probe, a cold 7d request blocked `/api/state` for 1.84 s and a cold
+30d request blocked it for 19.1 s.
+
+What changed:
+- **Codex trends read the poller's published scan.** The Codex analytics refresh
+  now keeps the last published 30-day usage set: references to records the
+  parse cache already holds, at the widest trends range. `readUsageRecords`
+  became a pure filter over that set, so trends never scan on the request path.
+- **Explicit warming state.** Each trends tool carries
+  `activityState: 'ready' | 'warming'`. Codex is `warming` with `daily: []`
+  until the first publish, and a warming answer is not cached, so the next
+  request sees the published data. The client maps the state with an own-key
+  lookup to "Reading this machine's local Codex session logs — token trends
+  appear once the first scan finishes", instead of "Not enough data yet" or
+  "limits only". While warming, it checks again after 15 s instead of waiting
+  out the 120 s cadence.
+- **Local only.** Trends is fetched only by the local page. Peers and the badge
+  read `/api/state` and `/api/hosts`, so no peer-normalizer change is needed.
+- **Claude side.** Its trends reader keeps no cache, so it has no cold exposure:
+  it reads the range's transcripts on every request at the same cost, cold or
+  warm. That cost is about 0.25 s for 7d and 0.8 s for 30d. It is unchanged
+  and is now the only scan left in the trends handler (see decisions.md).
+
+Files: `src/codex-stats.js`, `src/trends.js`, `public/app.js`,
+`tests/trends.test.js` (warming/ready/no-rescan test, plus an equivalence test
+against the former scan for 24h, 7d, and 30d), and `tests/hosts-client.test.js`
+(warming copy).
+
+Measurements below come from the Tester's `trends-probe.mjs` on a fresh
+process with a warm page cache. `/api/state` was polled every 100 ms, and a
+trends request was fired at t≈2 s and again at t≈70 s.
+
+| Request | Before: trends / `/api/state` stall | After: trends / `/api/state` stall |
+| --- | --- | --- |
+| cold 7d at t≈2 s | 1,933 ms / 1,844 ms | 263 ms / 235 ms |
+| warm 7d at t≈70 s | 336 ms / 314 ms | 241 ms / 137 ms |
+| cold 30d at t≈2 s | 19,196 ms / 19,103 ms | 825 ms / 737 ms |
+| warm 30d at t≈70 s | 929 ms / 891 ms | 789 ms / 748 ms |
+
+First 200 arrived at 0.32 s in both runs, with 0 non-200 responses. The
+largest `/api/state` response was 237 ms over the 7d run and 748 ms over the
+30d run; the 30d figure is the Claude transcript read. An earlier probe pair
+ran while an iOS Simulator boot held the machine's load average near 300. In
+that run one 6.3 s and one 0.7 s `/api/state` stall coincided with stalls in
+the probe process itself. An instrumented rerun put the server's own longest
+event-loop gap at the Claude 30d trends read (1.09 s under load) and showed no
+other server gap above 0.85 s.
+
+**Same results once converged.** On the real corpus, after the parse cache
+converged, the published-scan Codex daily series for 24h, 7d, and 30d was
+byte-identical (as JSON) to the former request-path scan at the same instant.
+That covered 2, 7, and 25 days, and 69,181,978 / 666,993,581 / 5,275,977,527
+tokens.

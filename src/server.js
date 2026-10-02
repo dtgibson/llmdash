@@ -18,14 +18,14 @@ import {
 } from './codex-limits.js';
 import { healthLines, freshnessModeLine, peerDisclosureLine, hostsConfigLine, networkScopeLine } from './health.js';
 import { computeActivity as computeClaudeActivity, projectWindow } from './stats.js';
-import { computeCodexActivity, getCodexInsights, refreshCodexAnalytics } from './codex-stats.js';
+import { computeCodexActivity, getCodexInsights } from './codex-stats.js';
 import { buildTrends } from './trends.js';
 import { startPoller, stopPoller } from './poller.js';
 import { bindPolicy, isTrustedConnection, isWildcardBind, tailnetIPv4 } from './net.js';
 import { getCombined, setHost } from './host-cache.js';
 import { parseHosts } from './hosts.js';
 import { readHostsConfig } from './host-config.js';
-import { getCostAnalysis, refreshCostAnalysis } from './cost-analysis.js';
+import { getCostAnalysis } from './cost-analysis.js';
 import { refreshAccountConfig } from './account-config.js';
 import { handleResetBillingRequest, isResetBillingRoute } from './reset-billing-api.js';
 
@@ -407,11 +407,14 @@ server.on('connection', (socket) => {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   getDb();
-  // Prime local analytics before the first state is published. Later refreshes
-  // are poller-owned; HTTP getters never touch the session tree.
-  refreshCodexAnalytics();
+  // Only the cheap owner-config read happens before the listener binds. The
+  // structured-log analytics (Codex insights/activity and cost) are primed by
+  // the poller's first tick, which starts once the listener is bound: on a
+  // multi-gigabyte corpus a cold scan takes tens of seconds, and priming here
+  // kept the service from answering its 45-second installer readiness probe.
+  // Until that tick publishes, the getters serve their honest cold states;
+  // HTTP getters never touch the session tree.
   refreshAccountConfig();
-  refreshCostAnalysis();
   // Data-source health readout: which sources are feeding the dashboard and,
   // when one isn't, why and how to fix it. Startup-only cheap fs checks —
   // never on the HTTP request path.
@@ -455,9 +458,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   };
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
-  startPoller();
   server.listen(config.port, config.host, () => {
     console.log(`llmdash running at http://${config.host}:${config.port}`);
+    // Accept first, then prime. The first tick's scans are cooperative
+    // (src/cooperative.js), so requests keep being served while they run.
+    startPoller();
     const tailnetIp = tailnetIPv4();
     // Only advertise the tailnet URL when the bind actually serves it: all
     // interfaces (0.0.0.0), or a host explicitly pinned to the tailnet IP.

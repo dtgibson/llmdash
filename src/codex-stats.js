@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { codexAccountFacts } from './codex-limits.js';
-import { normalizeCodexModelLabel, scanCodexRollouts } from './codex-events.js';
+import { normalizeCodexModelLabel, scanCodexRollouts, scanCodexRolloutsSteps } from './codex-events.js';
+import { createPacer, runCooperatively, runToCompletion } from './cooperative.js';
 
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
@@ -332,27 +333,50 @@ export function buildCodexInsights(scan, range = '7d', nowMs = Date.now()) {
   return value;
 }
 
-let cache = { activity: emptyActivity(), insights: new Map(), generatedAt: null };
+// `usage` is the normalized 30-day usage set from the last published scan (the
+// widest trends range; the records themselves are already held by the parse
+// cache, so this retains only references). null until the first publish.
+let cache = { activity: emptyActivity(), insights: new Map(), usage: null, generatedAt: null };
 
-// Poller/startup-owned refresh. Atomic replacement means a failed refresh keeps
-// the prior good view; HTTP getters below never scan the session tree.
+// Poller-owned refresh. Atomic replacement means a failed refresh keeps the
+// prior good view; HTTP getters below never scan the session tree.
 export function refreshCodexAnalytics(nowMs = Date.now(), scanFn = scanCodexRollouts) {
+  return runToCompletion(refreshCodexAnalyticsSteps(nowMs, function *syncScan(sinceMs, options) {
+    return scanFn(sinceMs, options);
+  }, null));
+}
+
+// The poller's driver: the same refresh over the same scanner, suspended at
+// bounded slices (src/cooperative.js) so a cold 30-day pass never starves the
+// HTTP listener. Until it first publishes, getters serve the cold state.
+export function refreshCodexAnalyticsAsync(nowMs = Date.now(), {
+  pacer = createPacer(),
+  scanSteps = scanCodexRolloutsSteps,
+} = {}) {
+  return runCooperatively(refreshCodexAnalyticsSteps(nowMs, scanSteps, pacer), pacer);
+}
+
+function *refreshCodexAnalyticsSteps(nowMs, scanSteps, pacer) {
   let scan;
   const sinceMs = nowMs - CODEX_INSIGHT_RANGES['30d'];
   try {
-    scan = scanFn(sinceMs, {
+    scan = yield* scanSteps(sinceMs, {
       pruneBeforeMs: sinceMs,
       // A cold corpus may span several bounded refreshes. Publish the newest
       // readable aggregate immediately and let the parse cache converge on
       // subsequent poller ticks instead of failing all-or-nothing.
       partialOnBudget: true,
+      ...(pacer ? { pacer } : {}),
     });
   }
   catch { return false; }
   const usage = Array.isArray(scan?.usage) ? scan.usage : [];
   const insights = new Map();
-  for (const range of Object.keys(CODEX_INSIGHT_RANGES)) insights.set(range, buildCodexInsights(scan, range, nowMs));
-  cache = { activity: activityFromUsage(usage, nowMs), insights, generatedAt: new Date(nowMs).toISOString() };
+  for (const range of Object.keys(CODEX_INSIGHT_RANGES)) {
+    if (pacer?.due()) yield;
+    insights.set(range, buildCodexInsights(scan, range, nowMs));
+  }
+  cache = { activity: activityFromUsage(usage, nowMs), insights, usage, generatedAt: new Date(nowMs).toISOString() };
   return true;
 }
 
@@ -365,12 +389,16 @@ export function getCodexInsights(range = '7d') {
   return { ...base, account: codexAccountFacts() };
 }
 
-// Existing trends/tests use this reader. It delegates to the same normalized,
-// deduplicated scanner so totals cannot disagree with the insight endpoint.
+// Trends reader: a pure read of the poller's last published 30-day usage set
+// (the same normalized scan the insights use), filtered to the requested
+// range. It never scans on the HTTP request path; before the first publish it
+// returns no records and codexUsageReady() is false, so the caller can report
+// a warming state instead of an absence of activity.
 export function readUsageRecords(sinceMs) {
-  const scan = scanCodexRollouts(sinceMs);
-  return (Array.isArray(scan?.usage) ? scan.usage : []).filter((r) => finiteNonnegative(r.tsMs) && r.tsMs >= sinceMs)
+  return (Array.isArray(cache.usage) ? cache.usage : []).filter((r) => finiteNonnegative(r.tsMs) && r.tsMs >= sinceMs)
     .map((r) => ({ ...r, sessionId: r.sessionKey }));
 }
 
-export function clearCodexStatsCache() { cache = { activity: emptyActivity(), insights: new Map(), generatedAt: null }; }
+export function codexUsageReady() { return Array.isArray(cache.usage); }
+
+export function clearCodexStatsCache() { cache = { activity: emptyActivity(), insights: new Map(), usage: null, generatedAt: null }; }

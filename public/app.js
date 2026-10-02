@@ -987,12 +987,19 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
     : '';
   const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}${agePill}`;
   const hasActivity = a && a.hasData !== false;
+  // A local producer that has not finished its first scan since the server
+  // started sends hasData:false with generatedAt explicitly null (peer-normalized
+  // activity omits the field, so a peer keeps the existing note). That is a
+  // warming state, not evidence that no sessions exist — say so instead.
+  const activityWarming = !!a && a.hasData === false && a.generatedAt === null;
   // Honest empty state: local session logs simply have nothing yet (both tools
   // DO record usage locally once used). Never claim the limits are live here —
   // the gauges above speak for themselves.
   const activityBlock = hasActivity
     ? (tilesHtml(a) + mixHtml(a))
-    : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
+    : activityWarming
+      ? `<div class="empty-note">Reading this machine's local ${esc(tool.label)} session logs — token stats appear once the first scan finishes.</div>`
+      : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   const summary = tool.source === 'claude-code'
     ? `${includePacing ? 'Pacing · ' : ''}activity · trends`
     : `${includePacing ? 'Pacing · ' : ''}activity · deeper insights · trends`;
@@ -1902,7 +1909,11 @@ function renderCodexInsights(data, announce = true) {
   const surface = document.getElementById('insights-surface');
   if (!surface) return;
   const account = insightAccountHtml(data && data.account);
-  if (!data || data.hasData !== true) {
+  if (data && data.hasData !== true && data.generatedAt === null) {
+    // The server's first local scan since start has not published yet (the
+    // poller primes insights after the listener binds). Not a no-activity claim.
+    surface.innerHTML = account + `<div class="insights-state">Reading local Codex session metadata…</div>`;
+  } else if (!data || data.hasData !== true) {
     const rangeCopy = INSIGHT_RANGE_COPY[INSIGHT_RANGE].replace(/^last /, 'the last ');
     surface.innerHTML = account + `<div class="insights-state">No supported Codex activity was recorded in ${rangeCopy} on this machine.</div>`;
   } else {
@@ -1992,6 +2003,8 @@ setInterval(() => fetchCodexInsights({ announce: false }), INSIGHTS_REFRESH_MS);
 // --- Trends (charts) ---
 let TREND_RANGE = '7d';
 const TREND_REFRESH_MS = 120_000;
+const TREND_WARMING_RETRY_MS = 15_000;
+let trendWarmingRetry = null;
 
 function scaleX(t, t0, t1, x0, x1) { return t1 === t0 ? (x0 + x1) / 2 : x0 + ((t - t0) / (t1 - t0)) * (x1 - x0); }
 
@@ -2063,12 +2076,27 @@ function trendToolHtml(t, range) {
     + trendContentHtml(t, range) + `</section>`;
 }
 
+// Server-supplied trend activity states (src/trends.js activityState). Own-key
+// lookup only: an absent, 'ready', or unknown state keeps the existing render.
+const TREND_ACTIVITY_COPY = Object.freeze({
+  warming: (label) => `Reading this machine's local ${esc(label)} session logs — token trends appear once the first scan finishes.`,
+});
+
+function trendActivityNote(t) {
+  const state = t && t.activityState;
+  return typeof state === 'string' && Object.prototype.hasOwnProperty.call(TREND_ACTIVITY_COPY, state)
+    ? TREND_ACTIVITY_COPY[state](t.label) : null;
+}
+
 function trendContentHtml(t, range) {
   const fh = t.limits.five_hour || [], sd = t.limits.seven_day || [], daily = t.daily || [];
   const hasLimits = fh.length >= 2 || sd.length >= 2;
   const hasActivity = daily.length >= 1;
+  const activityNote = trendActivityNote(t);
   if (!hasLimits && !hasActivity) {
-    return `<div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div>`;
+    return activityNote
+      ? `<div class="empty">${activityNote}</div>`
+      : `<div class="empty">Not enough data yet — ${esc(t.label)} trends fill in as you use it.</div>`;
   }
   const pct = (v) => Math.round(v) + '%';
   const xDomain = [Date.now() - rangeToMs(range), Date.now()];
@@ -2088,7 +2116,9 @@ function trendContentHtml(t, range) {
     cards.push(chartCard('Cache hit rate', codex ? 'local logs · cached ÷ input' : 'local logs', rate, ''));
   }
   const note = (hasLimits && !hasActivity)
-    ? `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`
+    ? (activityNote
+      ? `<div class="empty-note">${activityNote}</div>`
+      : `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`)
     : '';
   return `<div class="charts">${cards.join('')}</div>${note}`;
 }
@@ -2121,6 +2151,11 @@ async function fetchTrends() {
     // Minimal-DOM and legacy embedding fallback.
     const fallback = document.getElementById('trends');
     if (!renderedInGroups && fallback) fallback.innerHTML = (data.tools || []).map((tool) => trendToolHtml(tool, data.range)).join('');
+    // While the server's first local scan is still running, check back sooner
+    // than the regular cadence so the warming note is replaced promptly.
+    if (trendWarmingRetry === null && (Array.isArray(data.tools) ? data.tools : []).some(trendActivityNote)) {
+      trendWarmingRetry = setTimeout(() => { trendWarmingRetry = null; fetchTrends(); }, TREND_WARMING_RETRY_MS);
+    }
   } catch { /* keep the previous render */ }
 }
 

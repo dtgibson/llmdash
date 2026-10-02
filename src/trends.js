@@ -1,6 +1,6 @@
 import { getSeries } from './db.js';
 import { readUsageRecords as readClaude, aggregate as aggClaude } from './stats.js';
-import { readUsageRecords as readCodex, aggregate as aggCodex } from './codex-stats.js';
+import { readUsageRecords as readCodex, aggregate as aggCodex, codexUsageReady } from './codex-stats.js';
 
 const RANGES = { '24h': 24 * 3600_000, '7d': 7 * 86400_000, '30d': 30 * 86400_000 };
 
@@ -56,16 +56,26 @@ export function buildTrends(range = '7d', nowMs = Date.now()) {
 
   const since = nowMs - RANGES[range];
   const sinceIso = new Date(since).toISOString();
+  // Codex daily usage comes from the poller's published 30-day scan (the widest
+  // trends range), never from a request-path scan. Until the first scan after
+  // start publishes, say so with an explicit state instead of empty data that
+  // would read as "no activity". activityState is an enum: 'ready' | 'warming'.
+  const codexReady = codexUsageReady();
 
   const value = {
     range,
     tools: [
-      { source: 'claude-code', label: 'Claude Code', limits: limitSeries('claude-code', sinceIso), daily: dailySeries(readClaude(since), aggClaude) },
-      { source: 'codex', label: 'Codex', limits: limitSeries('codex', sinceIso), daily: dailySeries(readCodex(since), aggCodex, { utc: true, subset: true }) },
+      { source: 'claude-code', label: 'Claude Code', limits: limitSeries('claude-code', sinceIso), daily: dailySeries(readClaude(since), aggClaude), activityState: 'ready' },
+      {
+        source: 'codex', label: 'Codex', limits: limitSeries('codex', sinceIso),
+        daily: codexReady ? dailySeries(readCodex(since), aggCodex, { utc: true, subset: true }) : [],
+        activityState: codexReady ? 'ready' : 'warming',
+      },
     ],
     generatedAt: new Date(nowMs).toISOString(),
   };
-  cache.set(range, { at: nowMs, value });
+  // A warming answer is not cached, so the next request sees the first publish.
+  if (codexReady) cache.set(range, { at: nowMs, value });
   return value;
 }
 

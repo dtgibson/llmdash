@@ -1,4 +1,5 @@
-import { buildUsageLedger } from './usage-ledger.js';
+import { buildUsageLedgerSteps } from './usage-ledger.js';
+import { createPacer, runCooperatively, runToCompletion } from './cooperative.js';
 import { readSubscriptions } from './subscriptions.js';
 import { findRate, rateIssueReason, ratesForInput, readRateCard } from './rate-card.js';
 import { buildBillingOverlay } from './billing-overlay.js';
@@ -699,21 +700,38 @@ export function readCombinedSubscriptions({ nowMs = Date.now(), timeZone, subscr
 }
 
 export function refreshCostAnalysis(nowMs = Date.now(), options = {}) {
+  return runToCompletion(refreshCostAnalysisSteps(nowMs, options));
+}
+
+// The poller's driver: the same refresh, suspended at bounded slices so HTTP
+// requests keep being served while a cold 90-day ledger pass runs. The cache is
+// still replaced in one synchronous assignment once every range is built.
+export function refreshCostAnalysisAsync(nowMs = Date.now(), options = {}) {
+  const pacer = options.pacer || createPacer();
+  return runCooperatively(refreshCostAnalysisSteps(nowMs, { ...options, pacer }), pacer);
+}
+
+function *refreshCostAnalysisSteps(nowMs, options) {
+  const pacer = options.pacer || null;
   try {
     const timeZone = resolveAnalysisTimeZone(options.timeZone);
-    const ledger = options.ledger || buildUsageLedger(nowMs, {
+    const ledger = options.ledger || (yield* buildUsageLedgerSteps(nowMs, {
       ...options.ledgerOptions,
       sinceMs: rangeDefinition('90d', nowMs, timeZone).start,
-    });
+      pacer,
+    }));
     const subscriptions = options.subscriptions || readCombinedSubscriptions({
       nowMs, timeZone, subscriptionOptions: options.subscriptionOptions,
       accountOptions: options.accountOptions,
     });
     const rateCard = options.rateCard || readRateCard(options.rateCardOptions);
     const next = new Map();
-    for (const range of Object.keys(RANGE_DAYS)) next.set(range, deepFreeze(buildCostAnalysis({
-      nowMs, timeZone, ledger, subscriptions, rateCard, range,
-    })));
+    for (const range of Object.keys(RANGE_DAYS)) {
+      if (pacer?.due()) yield;
+      next.set(range, deepFreeze(buildCostAnalysis({
+        nowMs, timeZone, ledger, subscriptions, rateCard, range,
+      })));
+    }
     cache = next;
     return true;
   } catch {

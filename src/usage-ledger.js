@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { isBoundedFileError, readBoundedRegularFile } from './bounded-file.js';
-import { clearCodexEventCache, scanCodexRollouts } from './codex-events.js';
+import { clearCodexEventCache, scanCodexRolloutsSteps } from './codex-events.js';
+import { runToCompletion } from './cooperative.js';
 
 const MIB = 1024 * 1024;
 const LIMITS = Object.freeze({
@@ -301,7 +302,9 @@ function inspectClaudeFiles(root, sinceMs, fsImpl, nowFn) {
   return { files, discovered, denominatorKnown, reasons, entries, started };
 }
 
-function parseClaudeFile(file, stat, fsImpl, shared) {
+// Generator: suspends between lines only when `shared.pacer` reports a spent
+// time slice (src/cooperative.js). The synchronous drivers pass no pacer.
+function *parseClaudeFileSteps(file, stat, fsImpl, shared) {
   const cached = claudeFileCache.get(file);
   const replayDiagnostics = (parsed) => {
     if (parsed.denominatorKnown === false) shared.denominatorKnown = false;
@@ -331,6 +334,7 @@ function parseClaudeFile(file, stat, fsImpl, shared) {
   const unsupported = () => { denominatorKnown = false; reasons.add('record_unsupported'); };
   let cursor = 0;
   while (cursor < content.length) {
+    if (shared.pacer?.due()) yield;
     if (shared.nowFn() - shared.started > LIMITS.maxWallMs) throw budgetError('scan_budget_time');
     const newline = content.indexOf('\n', cursor);
     const end = newline < 0 ? content.length : newline;
@@ -366,11 +370,16 @@ function parseClaudeFile(file, stat, fsImpl, shared) {
   return records;
 }
 
-export function scanClaudeUsage(sinceMs, {
+export function scanClaudeUsage(sinceMs, options = {}) {
+  return runToCompletion(scanClaudeUsageSteps(sinceMs, options));
+}
+
+function *scanClaudeUsageSteps(sinceMs, {
   root = config.projectsDir,
   fsImpl = fs,
   nowFn = Date.now,
   cacheLimits = null,
+  pacer = null,
 } = {}) {
   const report = {
     complete: true, denominatorKnown: true, reasons: [], deduplicatedRecords: 0,
@@ -397,13 +406,14 @@ export function scanClaudeUsage(sinceMs, {
   const shared = {
     readBytes: 0, lines: 0, denominatorKnown: discovery.denominatorKnown,
     reasons: discovery.reasons, started: discovery.started, nowFn,
-    cacheLimits: claudeCacheLimits(cacheLimits),
+    cacheLimits: claudeCacheLimits(cacheLimits), pacer,
   };
   const records = [];
   try {
     for (const { file, stat } of discovery.files) {
       let previousFallback = null;
-      for (const record of parseClaudeFile(file, stat, fsImpl, shared)) {
+      if (pacer?.due()) yield;
+      for (const record of yield* parseClaudeFileSteps(file, stat, fsImpl, shared)) {
         if (record.tsMs < sinceMs) continue;
         const fallback = tupleKey(record);
         if (!record.stableKey && fallback === previousFallback) { report.deduplicatedRecords++; continue; }
@@ -420,6 +430,7 @@ export function scanClaudeUsage(sinceMs, {
   const seen = new Set();
   const deduped = [];
   for (const record of records) {
+    if (pacer?.due()) yield;
     if (record.stableKey && seen.has(record.stableKey)) { report.deduplicatedRecords++; continue; }
     if (record.stableKey) seen.add(record.stableKey);
     const { stableKey: _stableKey, ...publicRecord } = record;
@@ -437,11 +448,16 @@ export function scanClaudeUsage(sinceMs, {
   return { records: deduped, report };
 }
 
-export function scanCodexUsage(sinceMs, {
+export function scanCodexUsage(sinceMs, options = {}) {
+  return runToCompletion(scanCodexUsageSteps(sinceMs, options));
+}
+
+function *scanCodexUsageSteps(sinceMs, {
   sessionsDir = config.codexSessionsDir,
   fsImpl = fs,
   nowFn = Date.now,
   maxRecords = LIMITS.maxRecords,
+  pacer = null,
 } = {}) {
   const report = {
     complete: true, denominatorKnown: true, reasons: [], deduplicatedRecords: 0,
@@ -455,7 +471,8 @@ export function scanCodexUsage(sinceMs, {
   }
   try {
     const resultRecordLimit = boundedPositive(maxRecords, LIMITS.maxRecords);
-    const scan = scanCodexRollouts(sinceMs, {
+    const scan = yield* scanCodexRolloutsSteps(sinceMs, {
+      pacer,
       fs: fsImpl,
       sessionsDir,
       pruneBeforeMs: sinceMs,
@@ -516,12 +533,20 @@ export function scanCodexUsage(sinceMs, {
 }
 
 export function buildUsageLedger(nowMs = Date.now(), options = {}) {
+  return runToCompletion(buildUsageLedgerSteps(nowMs, options));
+}
+
+// Generator form for the poller's cooperative driver; `options.pacer` is
+// threaded into both source scans. Results are identical to buildUsageLedger.
+export function *buildUsageLedgerSteps(nowMs = Date.now(), options = {}) {
   const sinceMs = Number.isFinite(options.sinceMs) && options.sinceMs <= nowMs
     ? options.sinceMs : nowMs - 91 * 86_400_000;
-  const claude = scanClaudeUsage(sinceMs, options.claude);
+  const pacer = options.pacer || null;
+  const claude = yield* scanClaudeUsageSteps(sinceMs, { ...options.claude, pacer });
   const remainingRecords = LIMITS.maxRecords - claude.records.length;
+  if (pacer?.due()) yield;
   const codex = remainingRecords > 0
-    ? scanCodexUsage(sinceMs, { ...options.codex, maxRecords: remainingRecords })
+    ? yield* scanCodexUsageSteps(sinceMs, { ...options.codex, maxRecords: remainingRecords, pacer })
     : {
         records: [],
         report: {

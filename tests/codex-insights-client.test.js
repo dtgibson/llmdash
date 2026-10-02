@@ -177,6 +177,16 @@ test('no-data keeps account facts and omits empty metrics and charts', async () 
   assert.doesNotMatch(html, /insight-chart/);
 });
 
+test('a never-published (warming) cache reads as loading, never as no activity', async () => {
+  // The server answers before its first local scan publishes; the cold payload
+  // carries generatedAt: null and must not be rendered as an absence claim.
+  const payload = insightPayload('7d', { hasData: false, generatedAt: null });
+  const { els } = await makeBrowser(async () => ({ ok: true, json: async () => payload }));
+  const html = els['insights-surface'].innerHTML;
+  assert.match(html, /Reading local Codex session metadata/);
+  assert.doesNotMatch(html, /No supported Codex activity/);
+});
+
 test('tool, compaction, and timing evidence renders even when token summaries are unavailable', async () => {
   const payload = insightPayload('7d');
   payload.summary = {

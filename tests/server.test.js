@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
@@ -287,4 +288,17 @@ test('toolWrap exposes model-specific limits without affecting account windows',
     resetsAt: reset,
     capturedAt: iso(now),
   }]);
+});
+
+test('startup binds the listener before any structured-log scan; the poller primes after listen', () => {
+  // A cold multi-gigabyte corpus takes tens of seconds to scan. Priming before
+  // listen kept the service from answering its 45-second installer readiness
+  // probe, so the entry point may do only cheap work before binding; the
+  // poller (whose first tick is the prime) starts inside the listen callback.
+  const source = fs.readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  const main = source.slice(source.indexOf('if (process.argv[1]'));
+  assert.doesNotMatch(main, /refreshCodexAnalytics|refreshCostAnalysis|buildUsageLedger|scanCodexRollouts/);
+  const listenAt = main.indexOf('server.listen(');
+  const pollerAt = main.indexOf('startPoller()');
+  assert.ok(listenAt >= 0 && pollerAt > listenAt, 'startPoller runs after server.listen, in its callback');
 });

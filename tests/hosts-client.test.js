@@ -37,6 +37,7 @@ async function renderWith(combined, resetBillingView = null, {
   DateImpl = Date,
   resetBillingFetch = null,
   includeAccountContainers = true,
+  trendsPayload = null,
 } = {}) {
   const els = {
     headroom: makeEl('headroom'), tools: makeEl('tools'), hosts: makeEl('hosts'),
@@ -80,8 +81,8 @@ async function renderWith(combined, resetBillingView = null, {
       queueMicrotask(() => setTimeout(resolveDone, 0));
       return { ok: true, json: async () => combined };
     }
-    // /api/trends — return an empty shell so fetchTrends doesn't throw.
-    return { ok: true, json: async () => ({ tools: [], range: '7d' }) };
+    // /api/trends — an empty shell by default so fetchTrends doesn't throw.
+    return { ok: true, json: async () => trendsPayload || ({ tools: [], range: '7d' }) };
   };
   const intervals = [];
   const sandbox = {
@@ -1330,6 +1331,34 @@ test('Codex with no sessions on a host shows the honest not-available note (no z
   const { els } = await renderWith(combined);
   const h = els.hosts.innerHTML;
   assert.match(h, /No Codex sessions have been recorded on this machine yet/, 'honest not-available, not fabricated zeros');
+  // The local producer's never-scanned state (generatedAt: null, before the
+  // poller's first prime publishes) is warming, not an absence of sessions.
+  const warming = { ...codexNoData, activity: { hasData: false, generatedAt: null } };
+  const { els: warmEls } = await renderWith({ hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([shared(), warming]) },
+    { host: 'a', label: 'Desktop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: iso(-34_000), state: stateOf([shared()]) },
+  ], generatedAt: iso(0) });
+  assert.match(warmEls.hosts.innerHTML, /Reading this machine's local Codex session logs/);
+  assert.doesNotMatch(warmEls.hosts.innerHTML, /No Codex sessions have been recorded/);
+});
+
+test('Codex trends during server warm-up read as warming, never as no activity or limits-only', async () => {
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: iso(0), state: stateOf([claudeTool(3 * 3600_000, 3 * 86400_000)]) }], generatedAt: iso(0) };
+  const limits = { five_hour: [{ t: iso(-7200_000), remaining: 80 }, { t: iso(0), remaining: 70 }], seven_day: [] };
+  const empty = { five_hour: [], seven_day: [] };
+  for (const [codexLimits, expectedWrapper] of [[limits, 'empty-note'], [empty, 'empty']]) {
+    const trendsPayload = { range: '7d', tools: [
+      { source: 'claude-code', label: 'Claude Code', limits: empty, daily: [], activityState: 'ready' },
+      { source: 'codex', label: 'Codex', limits: codexLimits, daily: [], activityState: 'warming' },
+    ] };
+    const { els } = await renderWith(combined, null, { trendsPayload });
+    await new Promise((resolve) => setImmediate(resolve));
+    const codexHtml = els['trends-codex'].innerHTML;
+    assert.match(codexHtml, new RegExp(`class="${expectedWrapper}">Reading this machine's local Codex session logs`));
+    assert.doesNotMatch(codexHtml, /Token-based trends aren't available|Not enough data yet/);
+    // A ready tool with no data keeps the existing copy (own-key lookup: 'ready' has no entry).
+    assert.match(els['trends-claude'].innerHTML, /Not enough data yet — Claude Code trends fill in/);
+  }
 });
 
 test('the one-second limits tick preserves stable Codex insights and per-tool trend containers', async () => {

@@ -3,12 +3,12 @@ import { readClaudeLimits } from './claude-limits.js';
 import { cleanupStaleClaudeProbes, maybeRefreshClaude, stopClaudeRefresh } from './claude-refresh.js';
 import { readCodexLimits } from './codex-limits.js';
 import { computeActivity, clearStatsCache } from './stats.js';
-import { refreshCodexAnalytics } from './codex-stats.js';
+import { refreshCodexAnalyticsAsync } from './codex-stats.js';
 import { config } from '../config.js';
 import { parseHosts, remoteHosts, fetchPeerState } from './hosts.js';
 import { setHost, retainHosts, seedOrder } from './host-cache.js';
 import { readHostsConfig } from './host-config.js';
-import { refreshCostAnalysis } from './cost-analysis.js';
+import { refreshCostAnalysisAsync } from './cost-analysis.js';
 import { refreshAccountConfig } from './account-config.js';
 import { refreshDeviceHealth } from './device-health.js';
 
@@ -99,11 +99,14 @@ export async function pollPeers(remotes, nowMs = Date.now(), fetchImpl = fetchPe
 // cache), done here on the interval rather than per request.
 export async function pollOnce() {
   const nowMs = Date.now();
-  // Local structured-log work is synchronous and happens before any external
-  // async probe. One 30-day scan (normally only the active file reparses) fills
-  // existing Codex activity plus every insight range atomically.
+  // Local structured-log work happens before any external async probe. One
+  // 30-day scan (normally only the active file reparses) fills existing Codex
+  // activity plus every insight range atomically. The scan is cooperative: it
+  // returns to the event loop at bounded slices, so a cold pass (the first
+  // tick after start, which is also the startup prime) never starves the HTTP
+  // listener — readiness probes and the badge keep getting answers.
   try {
-    if (!refreshCodexAnalytics(nowMs)) console.error('codex analytics: refresh failed; keeping the last good snapshot');
+    if (!(await refreshCodexAnalyticsAsync(nowMs))) console.error('codex analytics: refresh failed; keeping the last good snapshot');
   } catch (e) { console.error('codex analytics:', e.message); }
   // Cost analysis owns one immutable 90-day ledger/cache refresh for all three
   // ranges. HTTP handlers only read this snapshot; they never traverse logs or
@@ -112,7 +115,7 @@ export async function pollOnce() {
   // consumers see one whole validated version for this tick. Invalid manual
   // edits retain the last-valid snapshot instead of becoming empty data.
   try { refreshAccountConfig(); } catch (e) { console.error('account config:', e.message); }
-  if (!refreshCostAnalysis(nowMs)) console.error('cost analysis: refresh failed; keeping the last good snapshot');
+  if (!(await refreshCostAnalysisAsync(nowMs))) console.error('cost analysis: refresh failed; keeping the last good snapshot');
   // Auto-refresh runs first so a probe capture lands in this same tick's
   // snapshot; its own gates decide whether any work happens at all.
   try { await maybeRefreshClaude(); } catch (e) { console.error('claude refresh:', e.message); }

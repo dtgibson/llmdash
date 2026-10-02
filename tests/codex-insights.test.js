@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildCodexInsights, clearCodexStatsCache, computeCodexActivity,
-  getCodexInsights, refreshCodexAnalytics,
+  getCodexInsights, refreshCodexAnalytics, refreshCodexAnalyticsAsync,
 } from '../src/codex-stats.js';
 
 const NOW = Date.UTC(2026, 6, 12, 12);
@@ -204,4 +204,27 @@ test('refresh scans once for all ranges; getters are pure cache reads and a fail
   assert.equal(calls, 1, 'cache getters never rescan');
   assert.equal(refreshCodexAnalytics(NOW + 1, () => { throw new Error('boom'); }), false);
   assert.equal(getCodexInsights('7d').summary.turns.count, 2, 'last good snapshot survives');
+});
+
+test('cooperative refresh serves the honest cold state until it publishes, then matches the synchronous refresh', async () => {
+  clearCodexStatsCache();
+  assert.equal(refreshCodexAnalytics(NOW, () => fixture()), true);
+  const expected = Object.fromEntries(['24h', '7d', '30d'].map((range) => [range, getCodexInsights(range)]));
+  const expectedActivity = computeCodexActivity();
+  clearCodexStatsCache();
+  let settled = false;
+  const refresh = refreshCodexAnalyticsAsync(NOW, {
+    pacer: { due: () => true, resume() {} },
+    scanSteps: function *slowScan() { yield; yield; return fixture(); },
+  }).then((ok) => { settled = true; return ok; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, 'a later macrotask ran while the refresh was still in flight');
+  const cold = getCodexInsights('30d');
+  assert.equal(cold.generatedAt, null);
+  assert.equal(cold.hasData, false);
+  assert.equal(cold.summary.turns.count, null, 'no fabricated zero before the first publish');
+  assert.equal(computeCodexActivity().generatedAt, null);
+  assert.equal(await refresh, true);
+  for (const range of ['24h', '7d', '30d']) assert.deepEqual(getCodexInsights(range), expected[range]);
+  assert.deepEqual(computeCodexActivity(), expectedActivity);
 });
