@@ -8,15 +8,14 @@ product. Update it freely.
 
 ## Shipped
 
-33 features shipped.
+34 features shipped.
 
-- **Last shipped:** Cost evidence completeness — verified exact-model rates and
+- **Last shipped:** Available API credits — Codex's credit standing now sits
+  beside its resets in the account story (Claude honestly says it reports none),
+  and the server answers readiness within a second regardless of log-corpus size.
+- **Previously:** Cost evidence completeness — verified exact-model rates and
   convergent scans improve local API-equivalent cost estimates while unpriced
   usage and fallback identities remain explicit.
-- **Previously:** Tailnet bind and reporting resilience — the dashboard now
-  refuses non-tailnet connections by default (`LLMDASH_ALLOW_LAN=1` opts back in),
-  and Claude model caps and Codex windows/resets say why they are missing instead
-  of vanishing.
 
 ---
 
@@ -50,10 +49,21 @@ blindly trust an old reading or invent a missing expiration.
   parity guard for any `public/app.js` helper it must copy.
 - **Durable LAN opt-out** — `LLMDASH_ALLOW_LAN` in the installer/plist template,
   so the opt-out survives a deploy (today a hand-added plist entry is wiped).
-- **Peer ingest of the new diagnostics** — pass `model-cap-expired` /
-  `window-not-reported` evidence and the `stale` reset-credit status through the
-  `src/hosts.js` normalizer with a peer-path test, so the multi-host view is as
-  honest as the local one.
+- **Peer ingest of the new diagnostics** — the `stale` reset-credit status and
+  the credit standing now cross peers; still pass the `model-cap-expired` /
+  `window-not-reported` fields (model, window, last-observed time), which the
+  `src/hosts.js` normalizer drops today, with a peer-path test.
+- **Trends off the request path** — the Claude half of `/api/trends` still reads
+  transcripts per request (≈0.25 s at 7d, 0.8 s at 30d), uncached while Codex
+  warms; move it to a bounded poller-owned cache, give a failed Codex scan its own
+  unavailable state instead of permanent warming, and make the range guard an
+  own-key lookup.
+- **Faster first Codex limits after a cold start** — the first reading follows the
+  first tick's analytics (17–33 s, badge shows `—` meanwhile); read limits first.
+  The owner-settings save's synchronous cost refresh could likewise route through
+  the poller's single-flight tick.
+- **Badge credits row** — an optional dropdown row for the credit standing, keeping
+  the badge title and `computeMultiBadge` unchanged.
 - **Index-seekable model-snapshot query** — replace the per-request `LIKE` scan
   in `getLatestModelSnapshots()` with a range predicate (or a per-tick cache).
 - **`/usage` parser reliability** — the observed dropped weekly-heading character

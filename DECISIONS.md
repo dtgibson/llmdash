@@ -1,5 +1,39 @@
 # Decisions — llmdash
 
+## Available API credits — one canonical credit home, honest Claude absence, listen-first readiness — 2026-10-01 (feature)
+
+**Decision:** Codex's provider-reported credit standing (an enum status plus an
+opaque, bounded balance with its capture age) is promoted from the lower Codex
+insights row into the leading account story as a fact distinct from reset credits
+and the Claude offer. Each tool's `accountLimits.credits` on `/api/state` is its
+single wire home, whitelisted on the peer path; the insights duplicate is removed
+and the plan label stays there. Claude shows a reason-coded "not reported" state
+instead of any figure, because no sanctioned local channel (statusline or `/usage`
+pane) carries a Claude balance. Prepaid API console balances (Anthropic Console,
+OpenAI Platform) are excluded: they need API keys and a credentialed outbound
+call. After the first deploy was rolled back on the installer's 45-second
+readiness gate, the startup fix was folded into this build: the server binds
+before any structured-log scan, the poller primes, and poller scans yield in
+bounded slices; the installer's budget is unchanged.
+**Rationale:** "Can I keep working past this window?" needs the credit answer
+next to the resets, on the phone and on peers, not three scrolls down. A fabricated
+or inferred Claude figure would break the evidence-first contract, and reading
+console balances would reverse the founding credential-free decision. The
+readiness failure predated this feature (the prior release failed the same gate on
+the ~10 GB corpus), so shipping without the fix would have redeployed a version
+known to fail.
+**Implications:** Limit alerts may reason about credit standing but must respect
+its states (`none` is an explicit zero, `stale` and `unsupported` are not) and must
+never threshold on the opaque balance. A Claude balance arrives only through a new
+sanctioned source (for example, a future `/usage` pane line, parsed with the usual
+loud `parse-failed`). The balance sanitizer strips Cc/Cf/Zl/Zp but not lone
+surrogates or combining-mark runs; widening it is an owner call. Follow-ups are on
+the roadmap: the Claude half of `/api/trends` still reads transcripts per request
+and a warming answer is uncached; a failed Codex scan reads as permanent warming;
+the trends range guard is not an own-key lookup; and the first Codex limits
+reading arrives 17–33 s after a cold start. Shipped as `0c3f29c` + `107cd20`; 915
+tests with 2 expected skips; readiness passed in about 1 s.
+
 ## Cost evidence completeness — verified rates and explicit residual gaps — 2026-09-25 (improve)
 
 **Decision:** Add provider-verified, effective-dated standard API rates for

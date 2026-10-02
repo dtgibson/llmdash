@@ -70,7 +70,23 @@ Spacing & shape:
   states; every known expiration stays visible in semantic reading order, and an
   exact duplicate instant may group only with its quantity shown. Same-account
   readings collapse once, different accounts remain separate, and an allowance
-  promoted here loses its exact lower-page duplicate.
+  promoted here loses its exact lower-page duplicate. When one group carries more
+  than one account fact (credit balance, reset credits, model caps), each sits
+  under its own `.nested-limit-title` sub-heading with a 1px `--border` hairline
+  between sub-blocks (`.credit-block-lead` closes the first fact, 12px padding;
+  `.credit-block-tail` opens a trailing one, 12px margin), so distinct facts never
+  read as one list. A standing is a status word at `.9rem` mono 650 (the
+  `.promotion-title` weight), never a second large figure beside a counted
+  allowance that would invite summing; an opaque provider figure stays inside a
+  muted sentence with only the `<bdi>` value in `--text` mono, wrap-anywhere.
+  Honest absence reuses `.unavailable-metric` + `.empty-evidence`. A section
+  offers each external link exactly once: the section decides which block owns
+  it, and a sibling that would repeat it renders a plain-text pointer naming where
+  the link is, never a second copy and never a dead end.
+- **Text link** (`.promotion-link`): inline accent text with a ≥32px target, a
+  transparent underline that takes `currentColor` on hover (140ms ease-out), and
+  the shared focus-visible treatment (`3px solid var(--focus-ring)` outline, 2px
+  offset, 6px radius).
 - **Primary metric panel** (`.panel`): account-window gauges use a deterministic
   stack of window label, headline remaining figure, usage state, status bar, and
   bounded duration-only reset line. Full provenance, exact schedules/timezones,
@@ -196,8 +212,10 @@ Spacing & shape:
   and refresh controls form the final quieter action region; action rows remain
   distinct from inert text rows.
 - **Motion:** meter/segment widths may transition for 220ms with
-  `cubic-bezier(.2,.8,.2,1)`; range state may transition for 160ms ease-out and
-  focus for 120ms. Disable effective motion under `prefers-reduced-motion`; use
+  `cubic-bezier(.2,.8,.2,1)`; range state may transition for 160ms ease-out,
+  a text link's underline for 140ms ease-out, and focus for 120ms. Live readouts
+  (ages, status words, pills) update in place with no motion. Disable effective
+  motion under `prefers-reduced-motion`; use
   no entrance, stagger, bounce, hover-scale, or continuous decoration.
 - **Responsive acceptance check:** for a limits-first surface, verify semantic
   DOM order and measured geometry at the minimum supported width: document and

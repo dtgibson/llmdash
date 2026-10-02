@@ -7,6 +7,9 @@ session-state.json
 */qa-report.md
 */security-report.md
 */deployment-record.md
+.build-start-ref
+.closeout-owed
+.gate-opened
 
 # Repository-specific per-run names
 handoff.md

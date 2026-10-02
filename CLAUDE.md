@@ -208,6 +208,10 @@
   must **copy** a presentation helper) ships a **parity guard test** (byte +
   behavioral equality) in the same commit as the copy, never a bare copy: a diff
   can't catch drift the copier never sees. See `tests/menubar-parity.test.js`.
+  Likewise, an "output unchanged" claim for a wrapped or relocated shipped block is
+  proven by a golden rendered from the **pre-change** code under a fixed clock
+  (placeholdering only locale-dependent text) and asserted afterwards, never by
+  inspection (`tests/fixtures/reset-credits-html.json`).
 - **Badge display is a pure presentation layer over `computeMultiBadge`, never a
   data-model or `/api` change.** The badge's display axes (group × hosts × layout ×
   density × tool-mark) are applied by a pure `applyDisplay(multi, display,
@@ -355,13 +359,31 @@
   guarantee: if same-user ancestor replacement is in scope, use descriptor-relative
   traversal; otherwise document the narrower boundary.
   Parse caches shared by several ranges retain the widest active horizon, and HTTP
-  handlers never trigger a scan.
+  handlers never trigger a scan (the Claude half of `/api/trends` is the one known
+  exception, tracked on the roadmap).
+- **Readiness and request latency must never depend on log-corpus size.** The
+  server binds its listener before any structured-log scan; the poller's first
+  tick does the priming. Poller-driven scans are generators that yield to the
+  event loop at bounded slices (`src/cooperative.js`: `runCooperatively` for the
+  poller, `runToCompletion` as the synchronous drain for every other caller),
+  with every bound, budget, and single atomic publish unchanged. The installer's
+  fixed 45-second readiness budget is met by the server, never widened: on a
+  ~10 GB corpus, priming before `listen` failed that gate for every version.
+  Moving priming later means auditing every request-path reader of that cache for
+  a cold window (probe each endpoint the page requests during warm-up, not only
+  the readiness endpoint) and answering it with an explicit warming state, never
+  a request-path scan or a completeness claim such as "no activity recorded".
 - **Sparse account facts carry evidence age.** Plan/credit fields observed on a
   live account response expire after a bounded TTL, and an explicit plan change or
   unknown plan clears facts that could belong to the prior account. Display-bound
   external strings must strip Unicode control/format/line-separator characters in
   addition to HTML escaping; apply the same length and control-character bounds at
-  local and peer ingest boundaries. Adjacent account facts use bidi isolation.
+  local and peer ingest boundaries, defined **once** in a shared module every
+  boundary imports (as `src/account-credits.js` holds the credit enum, balance
+  sanitizer, and unsupported factory) so the two cannot drift, with the client
+  copy kept as a second layer. An opaque provider figure with no unit (the Codex
+  credit balance) is displayed as the provider's own, never coerced, converted,
+  summed, or priced. Adjacent account facts use bidi isolation.
   Same-account supplementary evidence collapses only after the provider-specific
   account identity check: reset credits select one newest valid snapshot, each
   model cap selects its newest valid capture independently, and different accounts
@@ -501,6 +523,11 @@
   (`LLMDASH_SWIFTBAR_DIR`) rather than reading the real user's config, or the
   suite leaks into and depends on the dev's real machine (`defaults read` ignores
   `$HOME`; the install tests went red once SwiftBar was actually installed).
+- **The badge's in-place import tree is test-pinned.** The badge runs from the
+  live checkout and imports `src/hosts.js`, so any new relative import in
+  `hosts.js` (or `host-config.js` / `net.js`) must also join the `fakeCheckout()`
+  file list in `tests/menubar-install.test.js`, or the wrapper test fails with
+  `ERR_MODULE_NOT_FOUND` (and so would the real badge).
 - Claude limit data comes from either the statusline (`scripts/statusline.js`
   writing the reading file) or the auto-refresh `/usage` probe; the latter needs a
   resolvable `claude` binary (`LLMDASH_CLAUDE_CMD`, surfaced by `healthLines()`).

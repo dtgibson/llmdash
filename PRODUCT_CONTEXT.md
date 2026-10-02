@@ -11,14 +11,16 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   remaining quota and compact reset timing aligned while full reset provenance,
   including the separate age of an earlier still-valid provider reset, and
   schedules live in pacing alongside both-window predictors, provider-reported
-  model caps, and local-log activity stats, with limit snapshots logged to SQLite.
+  model caps, a credit-balance row that says plainly Claude Code reports no
+  balance, and local-log activity stats, with limit snapshots logged to SQLite.
 - **Codex usage and diagnostics** — Codex's provider-reported windows sit beside
   Claude in the leading account-limit comparison with the same aging/stale
-  freshness band, alongside its current reset-credit count and every explicit
-  expiration, with absent evidence left unavailable (a window omitted from the
-  latest response names itself as such) and its account facts, local activity,
-  reasoning, work mix, context/compaction pressure, latency, and daily patterns
-  grouped into one honest Codex story.
+  freshness band, alongside its credit standing (status plus the provider's own
+  unconverted balance, with its age) and its current reset-credit count and every
+  explicit expiration as distinct facts, with absent evidence left unavailable
+  (a window omitted from the latest response names itself as such) and its plan,
+  local activity, reasoning, work mix, context/compaction pressure, latency, and
+  daily patterns grouped into one honest Codex story.
 - **Local cost analysis** — an independent 7d / 30d / 90d view compares
   owner-confirmed subscription spend with exact-model, effective-dated
   API-equivalent values for the same retained Claude/Codex usage under observed
@@ -123,7 +125,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   historical snapshot rows never repopulate that missing current slot. Reset
   credits retain only a bounded available count, explicit expiration instants, and
   their observation time in process memory, reading as stale (never unsupported)
-  while polls fail. A
+  while polls fail. The credit standing (an enum status plus a bounded, opaque
+  provider balance) follows the same account-fact age bands, has one wire home in
+  each tool's account limits on `/api/state`, and crosses peers through the same
+  whitelist; the rollout-file fallback never supplies it. A
   bounded local scanner reduces `~/.codex/sessions` into cached aggregate activity
   and 24h/7d/30d diagnostics for `/api/codex-insights`, never returning raw session
   content or identifiers; deeper insight history is re-derived from logs and never
@@ -146,8 +151,15 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   `subscriptions.json` and the tracked rate card remain fixed read-only inputs.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
-  SVG. Static assets are served `no-store`; the CSP allows inline styles while
-  scripts stay locked to `'self'`.
+  SVG. Codex daily series are filtered from the poller's last published 30-day
+  scan (an explicit warming state until the first publish); Claude's are still
+  read from transcripts per request. Static assets are served `no-store`; the CSP
+  allows inline styles while scripts stay locked to `'self'`.
+- Startup binds the HTTP listener before any structured-log scan; the poller's
+  first tick primes the insights and cost analytics, and poller scans over local
+  logs yield to the event loop in short slices, so service readiness and request
+  latency do not grow with the log corpus. Until the first scan publishes, local
+  Codex activity and insights read as loading, never as "no activity".
 - Served on `0.0.0.0:8787` but **tailnet-only by default**: a connection is
   refused at accept unless it arrives on a loopback/Tailscale address from a
   loopback/Tailscale source (`LLMDASH_ALLOW_LAN=1` also admits LAN devices;
@@ -205,6 +217,12 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - Current reset-credit counts and expirations are explicit provider evidence,
   never inferred from usage history; authoritative zero, partial, unsupported,
   stale, and source-error states remain distinct.
+- **Credit standing** is shown only as the provider reports it: Codex's balance
+  is an opaque provider figure, never converted, summed, priced, or compared, and
+  an explicit "no credits" stays distinct from an absent reading; Claude Code
+  carries no balance, so Claude shows a reason-coded "not reported" state rather
+  than any inferred figure. Reset credits, the credit balance, and the Claude
+  offer remain three separately labeled facts.
 - **Configured subscription spend** is fixed access cost supplied by the owner;
   **API-equivalent values** are counterfactual estimates from retained local logs,
   not invoices or provider charges, and any missing source/rate coverage remains
@@ -220,5 +238,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - See `ROADMAP.md` → Up Next (limit alerts) and On the Horizon for the remaining
   planned work.
 - Kagi (Ultimate is unlimited; no meter to show).
+- Prepaid API console balances (Anthropic Console, OpenAI Platform): reading them
+  needs API keys and a credentialed call, outside the sanctioned, credential-free
+  data paths.
 - General ChatGPT chat caps (no machine-readable source).
 - Limit alerts/notifications.
