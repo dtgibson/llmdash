@@ -199,7 +199,11 @@
   (`new Date(Date.parse(v)).toISOString()`) — `Date.parse` validation alone
   doesn't guarantee a clean string. Never default a missing/unparseable
   timestamp to "now"; fall back to file mtime (a now-fallback makes malformed
-  data eternally fresh).
+  data eternally fresh). A future-instant normalizer shared across trust
+  boundaries (an expiry or reset) also rejects an implausible horizon, not only a
+  past or unparseable value, so a unit mismatch or a lenient `Date.parse` cannot
+  present an absurd date as provider evidence. `creditExpiryFromIso` and the
+  reset-credit expiration path do not bound it yet (tracked on the roadmap).
 - When refactoring a single-source view to multi-source, **diff the rendered stat
   set** so nothing silently drops. When a shared formatting helper changes, the
   diff must enumerate the helper's call sites, not just the feature's own block.
@@ -211,7 +215,9 @@
   Likewise, an "output unchanged" claim for a wrapped or relocated shipped block is
   proven by a golden rendered from the **pre-change** code under a fixed clock
   (placeholdering only locale-dependent text) and asserted afterwards, never by
-  inspection (`tests/fixtures/reset-credits-html.json`).
+  inspection (`tests/fixtures/reset-credits-html.json`). A summary promoted out of
+  a golden-pinned block reuses that block's display function, never its markup,
+  class names, or heading, so the golden's slice anchors stay scoped.
 - **Badge display is a pure presentation layer over `computeMultiBadge`, never a
   data-model or `/api` change.** The badge's display axes (group × hosts × layout ×
   density × tool-mark) are applied by a pure `applyDisplay(multi, display,
@@ -388,6 +394,19 @@
   account identity check: reset credits select one newest valid snapshot, each
   model cap selects its newest valid capture independently, and different accounts
   never merge.
+- **A fact the provider does not report is a disclosed-absence sub-fact, never an
+  omitted key.** When the UI would naturally show a fact beside a figure (a credit
+  balance's expiry), the producer emits an enum sub-object (`{status:
+  'not-reported'}`); the enum, factory, and normalizer live once in the shared
+  module both trust boundaries import; the peer whitelist degrades an absent key
+  (an older peer), an unknown status, or an invalid instant to the absence; and the
+  client omits, never relabels, a reported value that turns invalid on the render
+  tick. Do not ship a read of a provider field nobody has observed (a guessed name
+  or unit is not evidence); test the normalizer at function level instead. A seam
+  that does ship carries its own observation clock, treats an explicit `null` as a
+  clear, bounds the instant, and is named in the README disclosure. The shipped
+  Codex `credits.expiresAt` read meets none of these yet and is an open owner
+  decision (DECISIONS.md 2026-10-02).
 - Empty/error limit states cross the wire as **enum reason codes**
   (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
   the few free-form fields. The server knows the cause — the client never guesses.
@@ -511,6 +530,13 @@
   recognized minus comparable records and tokens equal exact omission rows;
   observed and no-cache daily sums and final cumulative values equal their
   summaries; signed cache effect equals no-cache less observed.
+- **Classify and prove against the base commit.** A failure in code the diff never
+  touched is reproduced at the base (a clean `git archive` copy) before it is
+  routed back; the dev checkout's hard-linked `config/api-rates.json` fails two
+  tests there because the secure reader rejects multi-link files by design, which
+  is environmental, not a regression. A "payload differs only by X" claim is proven
+  by a live base-vs-build diff of every reachable route's JSON key paths (isolated
+  data dirs), not by key-set unit tests alone.
 - **An installer/setup step must never dirty the tracked checkout.** Generate
   machine-specific artifacts (a wrapper that `exec`s an absolute node against the
   tracked plugin) *beside* the tracked source — never rewrite a tracked file in

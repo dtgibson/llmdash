@@ -17,10 +17,12 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   Claude in the leading account-limit comparison with the same aging/stale
   freshness band, alongside its credit standing (status plus the provider's own
   unconverted balance, with its age) and its current reset-credit count and every
-  explicit expiration as distinct facts, with absent evidence left unavailable
-  (a window omitted from the latest response names itself as such) and its plan,
-  local activity, reasoning, work mix, context/compaction pressure, latency, and
-  daily patterns grouped into one honest Codex story.
+  explicit expiration as distinct facts, led by the soonest reset expiry with a
+  live countdown and a note when it lapses before the current weekly reset, with
+  absent evidence left unavailable (a window omitted from the latest response
+  names itself as such) and its plan, local activity, reasoning, work mix,
+  context/compaction pressure, latency, and daily patterns grouped into one
+  honest Codex story.
 - **Local cost analysis** — an independent 7d / 30d / 90d view compares
   owner-confirmed subscription spend with exact-model, effective-dated
   API-equivalent values for the same retained Claude/Codex usage under observed
@@ -125,8 +127,9 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   historical snapshot rows never repopulate that missing current slot. Reset
   credits retain only a bounded available count, explicit expiration instants, and
   their observation time in process memory, reading as stale (never unsupported)
-  while polls fail. The credit standing (an enum status plus a bounded, opaque
-  provider balance) follows the same account-fact age bands, has one wire home in
+  while polls fail. The credit standing (an enum status, a bounded opaque provider
+  balance, and a server-stated expiry sub-fact that is "not reported" for every
+  Codex balance today) follows the same account-fact age bands, has one wire home in
   each tool's account limits on `/api/state`, and crosses peers through the same
   whitelist; the rollout-file fallback never supplies it. A
   bounded local scanner reduces `~/.codex/sessions` into cached aggregate activity
@@ -223,12 +226,12 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   carries no balance, so Claude shows a reason-coded "not reported" state rather
   than any inferred figure. Reset credits, the credit balance, and the Claude
   offer remain three separately labeled facts.
-- **Credit expiry** is provider evidence only: Codex reports per-reset
-  expirations only, so the Codex group headlines the soonest (inheriting that
-  reading's state and age); the Codex credit balance carries no expiry and its
-  `accountLimits.credits.expiry` is disclosed as `not-reported`; Claude reports
-  neither credits nor expiry. Nothing is inferred from grant times, the 30-day
-  pattern, usage, plan, or billing period.
+- **Credit expiry** is provider evidence only: Codex reports an expiration per
+  reset credit and nothing else, so the soonest one leads its group (inheriting
+  that reading's state and age) and is compared only with a current provider
+  weekly reset; the Codex balance says its expiry is not reported, and Claude
+  reports neither credits nor expiry. Nothing is inferred from grant times, the
+  30-day pattern, usage, plan, or billing period.
 - **Configured subscription spend** is fixed access cost supplied by the owner;
   **API-equivalent values** are counterfactual estimates from retained local logs,
   not invoices or provider charges, and any missing source/rate coverage remains
@@ -248,4 +251,7 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   needs API keys and a credentialed call, outside the sanctioned, credential-free
   data paths.
 - General ChatGPT chat caps (no machine-readable source).
+- Claude credit or extra-usage expiry: it exists only in Claude Code's API
+  response headers, not on a sanctioned local channel.
+- Retaining reset-credit grant times or deriving validity periods from them.
 - Limit alerts/notifications.

@@ -78,7 +78,13 @@ Spacing & shape:
   read as one list. A standing is a status word at `.9rem` mono 650 (the
   `.promotion-title` weight), never a second large figure beside a counted
   allowance that would invite summing; an opaque provider figure stays inside a
-  muted sentence with only the `<bdi>` value in `--text` mono, wrap-anywhere.
+  muted sentence with only the `<bdi>` value in `--text` mono, wrap-anywhere. A
+  dated instant (a next expiry) takes the same status-word weight as a `<time
+  datetime>`, with its countdown as a `--text` mono 620 figure inside a muted
+  sentence, never a second large numeral. A summary of the group's soonest fact
+  may lead the group as its own sub-block, inheriting that fact's state pill and
+  capture age and omitted entirely (no dash, no placeholder) when there is nothing
+  to summarize; it adds no accent.
   Honest absence reuses `.unavailable-metric` + `.empty-evidence`. A section
   offers each external link exactly once: the section decides which block owns
   it, and a sibling that would repeat it renders a plain-text pointer naming where
@@ -125,6 +131,11 @@ Spacing & shape:
   11px 14px, tabular-nums so live ages don't jitter. States the problem plainly
   and names the remedy; lead words bolded. Qualified data keeps rendering —
   flagged, never blanked.
+- **Informational note** (`.next-expiry-note`): a true statement derived from
+  fresh evidence (not a data-quality warning) is plain wrapping text, muted at
+  `.67rem` with a `--text` bold lead, and never borrows the tinted
+  `.stale-note` / `.evidence-note` callout grammar, which means "this data is
+  degraded". It states the fact and does not advise.
 - **Section label** (`.section-label`): small uppercase header above a cluster.
 - **Freshness indicator:** pulse dot + "updated Ns ago", tabular-nums.
 - **Honesty line:** when a number's source or scope differs from the headline

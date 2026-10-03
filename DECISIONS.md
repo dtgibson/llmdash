@@ -1,5 +1,39 @@
 # Decisions — llmdash
 
+## Usage credit expiry — reported instants only, stated absence, no invented dates — 2026-10-02 (feature)
+
+**Decision:** Show credit expiry only where a provider reports it. Research
+across every sanctioned channel found exactly one source: Codex's per-reset-credit
+`expiresAt`, already on the wire. The Codex credits group now leads with the
+soonest of those instants (date, countdown, the reset reading's own state and
+capture age). A note says when it lapses before the Codex weekly reset; it is
+computed only from those two provider instants, both present and current, never
+from the configured schedule. The Codex balance carries no expiry field, so the
+server states the absence as an enum sub-fact (`accountLimits.credits.expiry`,
+`not-reported` today), defined once in `src/account-credits.js`, whitelisted on
+the peer path (an older peer degrades to the absence), and mapped to copy by
+own-key lookup. Claude reports neither credits nor expiry; its block is unchanged
+and pinned.
+**Rationale:** Reset credits are use-it-or-lose-it, and "how long do I have
+them?" belongs beside the standing. A missing balance expiry should read as a
+provider fact, not an unchecked gap. Claude Code's internal extra-usage fields
+(`overageResetsAt` and relatives) come from API response headers, so reading them
+would reopen the credential path the founding decisions forbid. Every observed
+reset expires exactly 30 days after its grant, but a pattern is not evidence, and
+grant times stay unretained (2026-07-30).
+**Implications:** Limit alerts may read `resetCredits.expirations` and
+`credits.expiry` but must respect their states and never infer a date. Three
+security notes remain open owner decisions (tracked on the roadmap): a
+forward-compatible read of an unobserved `credits.expiresAt` / `expires_at` key
+with a guessed name and unit (F1, Low); once reported, that instant would linger
+on the standing's newer capture clock, and an explicit `null` would not clear it
+(F2, Low); and no far-future plausibility bound on reported instants at either
+trust boundary (F3, Informational). The reset-credit expiration path shares F3.
+On the dev checkout, `config/api-rates.json` is hard-linked, so the secure reader
+correctly fails two tests there; the clean tree and production pass. Shipped as
+`1fccae6`; 929 tests with 2 expected skips (927 pass on a clean tree, 925 on the
+dev checkout).
+
 ## Available API credits — one canonical credit home, honest Claude absence, listen-first readiness — 2026-10-01 (feature)
 
 **Decision:** Codex's provider-reported credit standing (an enum status plus an

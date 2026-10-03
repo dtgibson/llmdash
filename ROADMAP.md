@@ -8,14 +8,15 @@ product. Update it freely.
 
 ## Shipped
 
-34 features shipped.
+35 features shipped.
 
-- **Last shipped:** Available API credits — Codex's credit standing now sits
+- **Last shipped:** Usage credit expiry — the Codex credits group now opens with
+  the soonest provider-reported reset expiry (date, countdown, age, and a note
+  when it lapses before the weekly reset), and the balance states that Codex does
+  not report its expiry.
+- **Previously:** Available API credits — Codex's credit standing now sits
   beside its resets in the account story (Claude honestly says it reports none),
   and the server answers readiness within a second regardless of log-corpus size.
-- **Previously:** Cost evidence completeness — verified exact-model rates and
-  convergent scans improve local API-equivalent cost estimates while unpriced
-  usage and fallback identities remain explicit.
 
 ---
 
@@ -34,12 +35,22 @@ only the local machine; plus explicit Codex reset expirations and global model-c
 evidence with distinct partial, unsupported, stale, and source-error states.
 Alerts should still respect those evidence states and freshness bands (Codex now
 carries a band too, and a missing window or expired cap names itself) rather than
-blindly trust an old reading or invent a missing expiration.
+blindly trust an old reading or invent a missing expiration. An expiry alert can
+read the reset-credit expirations and the balance's expiry state directly: only
+per-reset instants are provider evidence, and "not reported" is a stated absence,
+never a date to infer.
 
 ---
 
 ## On the Horizon
 
+- **Credit-expiry seam decision** — the build reads a balance-expiry key
+  (`credits.expiresAt` / `expires_at`) that no Codex response has ever carried,
+  with a guessed name and unit. Either drop the read until Codex documents the
+  field, or give it its own observation clock, treat an explicit `null` as a
+  clear, and name it in the README. Separately, bound reported expiry and
+  reset-credit instants to a plausible horizon (for example now + 10 years) at
+  both trust boundaries.
 - **Cost evidence gaps** — add a rate for unsuffixed `gpt-6` only with exact
   provider evidence, resolve `Other` to exact model IDs before pricing, and
   improve cross-file identity evidence before claiming fallback records unique.
