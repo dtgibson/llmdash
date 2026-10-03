@@ -27,3 +27,29 @@ export function boundedCreditBalance(raw) {
 export function unsupportedCredits(reason) {
   return { status: 'unsupported', reason, balance: null, capturedAt: null };
 }
+
+// The credit-standing expiry sub-fact: rides on every fresh and stale credits
+// block (never on an unsupported one). Exactly two shapes cross the wire:
+// { status: 'not-reported' } and { status: 'reported', expiresAt: <ISO> }.
+// Today Codex's credit shape carries no expiry, so the producer states the
+// absence; nothing is ever inferred from grant times, usage, plan, or billing.
+export const CREDIT_EXPIRY_STATUSES = new Set(['not-reported', 'reported']);
+
+// The disclosed absence. A function (not a shared constant) so every block
+// gets a detached object, matching unsupportedCredits().
+export function creditExpiryNotReported() {
+  return { status: 'not-reported' };
+}
+
+// The one normalizer for a candidate expiry instant that is an ISO (or
+// ISO-parseable) string: canonical ISO and strictly in the future at `nowMs`,
+// else not-reported. Never defaults to now. Both trust boundaries (the local
+// Codex producer and the peer normalizer) call this; converting a provider's
+// epoch-seconds convention stays with that provider's reader.
+export function creditExpiryFromIso(value, nowMs) {
+  if (typeof value !== 'string') return creditExpiryNotReported();
+  const ms = Date.parse(value);
+  const now = Number(nowMs);
+  if (!Number.isFinite(ms) || !Number.isFinite(now) || ms <= now) return creditExpiryNotReported();
+  return { status: 'reported', expiresAt: new Date(ms).toISOString() };
+}

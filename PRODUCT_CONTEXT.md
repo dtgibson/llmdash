@@ -223,6 +223,12 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   carries no balance, so Claude shows a reason-coded "not reported" state rather
   than any inferred figure. Reset credits, the credit balance, and the Claude
   offer remain three separately labeled facts.
+- **Credit expiry** is provider evidence only: Codex reports per-reset
+  expirations only, so the Codex group headlines the soonest (inheriting that
+  reading's state and age); the Codex credit balance carries no expiry and its
+  `accountLimits.credits.expiry` is disclosed as `not-reported`; Claude reports
+  neither credits nor expiry. Nothing is inferred from grant times, the 30-day
+  pattern, usage, plan, or billing period.
 - **Configured subscription spend** is fixed access cost supplied by the owner;
   **API-equivalent values** are counterfactual estimates from retained local logs,
   not invoices or provider charges, and any missing source/rate coverage remains

@@ -4,7 +4,9 @@ import { spawn } from 'node:child_process';
 import { config } from '../config.js';
 import { toIso } from './claude-limits.js';
 import { resolveCommand } from './health.js';
-import { boundedCreditBalance, unsupportedCredits } from './account-credits.js';
+import {
+  boundedCreditBalance, creditExpiryFromIso, unsupportedCredits,
+} from './account-credits.js';
 
 // Why Codex limits are (un)available, for the startup log and /api/state.
 // Reasons: 'ok' (live read worked), 'codex-cmd-failed' (the configured command
@@ -24,6 +26,12 @@ let observedHasCredits;
 let observedHasCreditsAtMs = null;
 let observedCreditBalance;
 let observedCreditBalanceAtMs = null;
+// A provider-reported credit-balance expiry, canonical ISO; null when a present
+// value could not be read; undefined when never reported. Codex's credit shape
+// carries no such field today, so this stays undefined in production and the
+// block says `not-reported`. It ages with the standing it rides on, so it has
+// no observation clock of its own.
+let observedCreditExpiresAt;
 let observedResetCreditsSnapshot = null;
 let observedResetCreditsAtMs = null;
 // The poller owns live Codex reads. HTTP state assembly consumes this cache so
@@ -113,6 +121,7 @@ function clearObservedCredits() {
   observedHasCreditsAtMs = null;
   observedCreditBalance = undefined;
   observedCreditBalanceAtMs = null;
+  observedCreditExpiresAt = undefined;
   observedResetCreditsSnapshot = null;
   observedResetCreditsAtMs = null;
 }
@@ -234,9 +243,13 @@ export function codexCredits(nowMs = Date.now()) {
   if (ageMs >= ACCOUNT_FACT_HARD_CAP_MS) return unsupportedCredits('never-observed');
   const balance = observedCreditBalance ?? null;
   const capturedAt = new Date(capturedAtMs).toISOString();
+  // A reported instant is re-checked against this read's clock: a passed
+  // expiry is not a current one, and a missing or unreadable value is the
+  // disclosed absence, never "now".
+  const expiry = creditExpiryFromIso(observedCreditExpiresAt ?? null, at);
   return ageMs > ACCOUNT_FACT_TTL_MS
-    ? { status: 'stale', lastStatus: standing, balance, capturedAt }
-    : { status: standing, balance, capturedAt };
+    ? { status: 'stale', lastStatus: standing, balance, capturedAt, expiry }
+    : { status: standing, balance, capturedAt, expiry };
 }
 
 // Account-wide plan fact for the Codex insights payload. The credit standing
@@ -295,6 +308,16 @@ function observeAccountFacts(result, rl) {
         observedCreditBalance = balance;
         observedCreditBalanceAtMs = observedAtMs;
       }
+      // Forward path only: the live credits object has no expiry today. The
+      // key names follow the provider's own reset-credit `expiresAt` (camel or
+      // snake), and numbers are epoch seconds like every Codex instant. Absent
+      // or null is a sparse update that keeps the prior value; a present but
+      // unreadable value is recorded as unreadable, never as now.
+      const rawExpiry = credits.expiresAt ?? credits.expires_at;
+      const expiryIso = typeof rawExpiry === 'number' ? resetExpirationIso(rawExpiry)
+        : typeof rawExpiry === 'string' ? toIso(rawExpiry)
+          : undefined;
+      if (expiryIso !== undefined) observedCreditExpiresAt = expiryIso;
     }
   }
 

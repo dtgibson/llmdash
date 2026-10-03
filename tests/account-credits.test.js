@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CREDIT_BALANCE_MAX_CODE_POINTS, boundedCreditBalance, unsupportedCredits,
+  CREDIT_BALANCE_MAX_CODE_POINTS, CREDIT_EXPIRY_STATUSES, boundedCreditBalance,
+  creditExpiryFromIso, creditExpiryNotReported, unsupportedCredits,
 } from '../src/account-credits.js';
 
 // The one balance sanitizer both trust boundaries (local Codex ingest and the
@@ -22,4 +23,24 @@ test('every unsupported block has the fixed four-key shape (FR-01)', () => {
   const block = unsupportedCredits('not-reported');
   assert.deepEqual(block, { status: 'unsupported', reason: 'not-reported', balance: null, capturedAt: null });
   assert.notEqual(unsupportedCredits('not-reported'), block, 'each call is detached');
+});
+
+// The expiry vocabulary has one home both trust boundaries import (FR-11, FR-12,
+// QA-12, QA-13): canonical ISO, strictly future, otherwise the disclosed absence,
+// and never "now".
+test('a credit expiry is a canonical future instant or the disclosed absence, never now (QA-13)', () => {
+  const nowMs = Date.UTC(2026, 9, 2, 12, 0, 0);
+  assert.deepEqual([...CREDIT_EXPIRY_STATUSES].sort(), ['not-reported', 'reported']);
+  assert.deepEqual(creditExpiryNotReported(), { status: 'not-reported' });
+  assert.notEqual(creditExpiryNotReported(), creditExpiryNotReported(), 'each call is detached');
+  assert.deepEqual(creditExpiryFromIso('2026-11-01T09:00:00-07:00', nowMs),
+    { status: 'reported', expiresAt: '2026-11-01T16:00:00.000Z' }, 're-normalized to canonical ISO');
+  const nowIso = new Date(nowMs).toISOString();
+  for (const value of [nowIso, '2026-10-01T00:00:00Z', 'next tuesday', '', 1_793_000_000, null, undefined, {}]) {
+    const result = creditExpiryFromIso(value, nowMs);
+    assert.deepEqual(result, { status: 'not-reported' }, `${JSON.stringify(value)} is not a current reported expiry`);
+    assert.notEqual(result.expiresAt, nowIso);
+  }
+  assert.deepEqual(creditExpiryFromIso('2026-11-01T16:00:00Z', NaN), { status: 'not-reported' },
+    'an unusable clock never lets an instant through');
 });

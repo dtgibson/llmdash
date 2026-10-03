@@ -1,0 +1,4 @@
+{
+  "usageLinkElsewhere": "<div class=\"credit-block credit-block-tail\"><h4 class=\"nested-limit-title\">Credit balance</h4><div class=\"credit-summary\"><span class=\"unavailable-metric\">Unavailable</span></div><p class=\"empty-evidence\"><strong>Claude Code does not report a usage-credit balance.</strong> No figure is inferred from the statusline or the usage pane.</p><p class=\"credit-pointer\">Check in Claude Usage, linked under the Claude offer below.</p></div>",
+  "usageLinkHere": "<div class=\"credit-block credit-block-tail\"><h4 class=\"nested-limit-title\">Credit balance</h4><div class=\"credit-summary\"><span class=\"unavailable-metric\">Unavailable</span></div><p class=\"empty-evidence\"><strong>Claude Code does not report a usage-credit balance.</strong> No figure is inferred from the statusline or the usage pane.</p><a class=\"promotion-link\" href=\"https://claude.ai/settings/usage\" rel=\"noopener noreferrer\">Check in Claude Usage</a></div>"
+}

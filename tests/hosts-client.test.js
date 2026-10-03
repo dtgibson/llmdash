@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { MAX_REMOTE_HOSTS, parseHosts } from '../src/hosts.js';
+import { MAX_REMOTE_HOSTS, normalizeCredits, normalizePeerState, parseHosts } from '../src/hosts.js';
 
 // Verify the multi-host client actually RENDERS (not just that the page loads) —
 // the project's "renders, not just loads" convention. public/app.js is a browser
@@ -178,11 +178,21 @@ const withCredits = (tool, credits) => {
   tool.accountLimits = { ...tool.accountLimits, credits };
   return tool;
 };
-// The Codex "Credit balance" sub-block and the "Reset credits" sub-block that
-// follows it, cut from rendered supplementary HTML.
+// The Codex "Next reset expiry" headline, the "Credit balance" sub-block, and
+// the "Reset credits" sub-block that follows them, cut from rendered
+// supplementary HTML.
 const RESET_HEADING = '<h4 class="nested-limit-title">Reset credits</h4>';
+const CREDIT_LEAD = '<div class="credit-block credit-block-lead">';
 const codexGroup = (h) => h.slice(h.indexOf('<section class="global-limit-group tool-codex"'));
-const creditBlock = (h) => codexGroup(h).slice(0, codexGroup(h).indexOf(RESET_HEADING));
+const creditBlock = (h) => {
+  const group = codexGroup(h);
+  return group.slice(group.indexOf(CREDIT_LEAD), group.indexOf(RESET_HEADING));
+};
+const headlineBlock = (h) => {
+  const head = codexGroup(h).slice(0, codexGroup(h).indexOf(CREDIT_LEAD));
+  const start = head.indexOf('<div class="next-expiry-block">');
+  return start === -1 ? '' : head.slice(start);
+};
 const resetBlock = (h) => {
   const group = codexGroup(h);
   return group.slice(group.indexOf(RESET_HEADING) + RESET_HEADING.length, group.indexOf('</section>'));
@@ -743,13 +753,19 @@ test('identical reset expirations group only with their exact quantity', async (
   }], generatedAt: iso(0) };
 
   const { els } = await renderWith(combined);
-  const h = els['supplementary-limits'].innerHTML;
+  // The list is the Reset credits sub-block; the headline above it is a
+  // separate fact that promotes the soonest group (asserted further below).
+  const h = resetBlock(els['supplementary-limits'].innerHTML);
   assert.equal((h.match(/class="expiry-item"/g) || []).length, 2);
   assert.match(h, /2 resets expire in/);
   assert.ok(h.indexOf(`datetime="${first}"`) < h.indexOf(`datetime="${second}"`),
     'expiration groups stay soonest-first');
   assert.equal((h.match(new RegExp(`datetime="${first}"`, 'g')) || []).length, 1,
     'the exact duplicate instant is represented by one quantity-labeled row');
+  // QA-03: the headline uses the same grouping rule for the shared soonest instant.
+  const headline = headlineBlock(els['supplementary-limits'].innerHTML);
+  assert.match(headline, new RegExp(`<time class="next-expiry-date" datetime="${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">`));
+  assert.match(headline, /<span class="next-expiry-relative">2 resets expire in <span class="next-expiry-dur">/);
 });
 
 for (const fixture of [
@@ -845,6 +861,312 @@ test('reset-credit HTML for every state is unchanged by the credit sub-block (QA
       .replace(/(<time class="expiry-date" datetime="[^"]+">)[^<]*(<\/time>)/g, '$1@DATE@$2');
     assert.equal(reset, golden[name], `reset-credit HTML changed for the ${name} state`);
   }
+});
+
+// QA-16 (FR-15): the Claude credit sub-block renders byte-for-byte what it
+// rendered before usage-credit-expiry. The fixture was captured from the
+// pre-change app.js under this same fixed clock (schema Migration Plan step 0)
+// and is never regenerated from post-change code.
+test('the Claude credit block is pinned to its pre-change rendering and gains no expiry (QA-16)', async () => {
+  const golden = JSON.parse(fs.readFileSync(path.join(here, 'fixtures', 'claude-credit-html.json'), 'utf8'));
+  const NOW = Date.UTC(2026, 9, 1, 12, 0, 0);
+  const at = (ms) => new Date(NOW + ms).toISOString();
+  const claude = {
+    ...claudeTool(0, 0), activity: { hasData: false },
+    limits: {
+      five_hour: { usedPct: 62, remainingPct: 38, resetsAt: at(3 * 3600_000), capturedAt: at(-30_000) },
+      seven_day: { usedPct: 36, remainingPct: 64, resetsAt: at(3 * 86400_000), capturedAt: at(-30_000) },
+    },
+    accountLimits: { scope: 'account-wide', resetCredits: {
+      available: false, status: 'unsupported', availableCount: null,
+      expirations: [], missingExpirationCount: 0, capturedAt: null,
+    }, credits: { status: 'unsupported', reason: 'not-reported', balance: null, capturedAt: null } },
+    freshness: { capturedAt: at(-30_000), freshForMs: 300_000, staleAfterMs: 600_000 },
+    dataAt: at(-30_000),
+  };
+  const combined = { hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true, reachable: true,
+    hostDiagnostic: null, fetchedAt: at(0), state: { tools: [claude], headroom: null, generatedAt: at(0) } }], generatedAt: at(0) };
+  const TAIL = '<div class="credit-block credit-block-tail">';
+  const tail = (h) => { const g = claudeGroup(h); return g.slice(g.indexOf(TAIL)); };
+  const offer = { id: 'opus-5-5-reset-oct-22', state: 'observed', observedAt: at(-60_000) };
+  const withOffer = (await renderWith(combined, { resetSchedule: null,
+    resetSelection: { source: 'unavailable', nextResetAt: null }, claudePromotion: offer },
+  { DateImpl: controlledClock(NOW).DateImpl })).els['supplementary-limits'].innerHTML;
+  const withoutOffer = (await renderWith(combined, null, { DateImpl: controlledClock(NOW).DateImpl }))
+    .els['supplementary-limits'].innerHTML;
+  assert.equal(tail(withOffer), golden.usageLinkElsewhere);
+  assert.equal(tail(withoutOffer), golden.usageLinkHere);
+  for (const h of [withOffer, withoutOffer]) {
+    assert.doesNotMatch(claudeGroup(h), /Expiry|expir|next-expiry|credit-expiry/i,
+      'Claude reports no credits and no expiry, so its group carries no expiry claim');
+  }
+});
+
+// ── usage-credit-expiry: the Next reset expiry headline and the balance Expiry
+// line, rendered under the reset golden's fixed clock. ──────────────────────
+const EXPIRY_NOW = Date.UTC(2026, 9, 1, 12, 0, 0);
+const atNow = (ms) => new Date(EXPIRY_NOW + ms).toISOString();
+const freshBand = () => ({ capturedAt: atNow(-20_000), freshForMs: 300_000, staleAfterMs: 600_000 });
+const textOf = (h) => h.replace(/<[^>]+>/g, '');
+const resetAt = ({ availableCount, expirations = [], status, capturedAt = atNow(-3 * 60_000) }) => ({
+  available: true,
+  status: status || (availableCount === 0 ? 'zero' : expirations.length < availableCount ? 'partial' : 'available'),
+  availableCount,
+  expirations,
+  missingExpirationCount: Math.max(0, availableCount - expirations.length),
+  capturedAt,
+});
+function expiryCodex({ resetCredits, credits, diagnostic = null, weekly, freshness = freshBand() } = {}) {
+  const seven = weekly === null ? null
+    : { usedPct: 41, remainingPct: 59, capturedAt: atNow(-20_000), resetsAt: atNow(5 * 86400_000), ...(weekly || {}) };
+  return {
+    ...codexTool(0), limitsDiagnostic: diagnostic, freshness, dataAt: atNow(-20_000),
+    limits: { five_hour: null, seven_day: seven },
+    accountLimits: { scope: 'account-wide', resetCredits, ...(credits === undefined ? {} : { credits }) },
+  };
+}
+const expiryHosts = (tools) => ({ hosts: [{ host: 'local', label: 'This machine', port: 8787, self: true,
+  reachable: true, hostDiagnostic: null, fetchedAt: atNow(0),
+  state: { tools, headroom: null, generatedAt: atNow(0) } }], generatedAt: atNow(0) });
+async function renderExpiry(tool, clock = controlledClock(EXPIRY_NOW)) {
+  return renderWith(expiryHosts([tool]), null, { DateImpl: clock.DateImpl });
+}
+
+test('the headline shows the soonest reset date, its countdown, and the capture age (QA-02, QA-04 fresh, QA-25)', async () => {
+  const soonest = atNow(3600_000);
+  const { els } = await renderExpiry(expiryCodex({
+    resetCredits: resetAt({ availableCount: 2, expirations: [soonest, atNow(26 * 3600_000)] }),
+  }));
+  const h = els['supplementary-limits'].innerHTML;
+  const headline = headlineBlock(h);
+  const listDate = resetBlock(h).match(new RegExp(`<time class="expiry-date" datetime="${soonest}">([^<]+)</time>`));
+  assert.ok(listDate, 'the list renders the same instant');
+  assert.match(headline, new RegExp(`<time class="next-expiry-date" datetime="${soonest}">${listDate[1]}</time>`),
+    'the headline date is the list\'s formatted label for the same instant');
+  assert.match(textOf(headline), /expires in 1h 0m/);
+  assert.match(headline, /<p class="next-expiry-age">updated 3m ago<\/p>/);
+  assert.doesNotMatch(headline, /state-pill/, 'a fresh reading carries no pill');
+  assert.equal((headline.match(/<h4 class="nested-limit-title">/g) || []).length, 1);
+  assert.doesNotMatch(headline, /expiry-item|expiry-list|class="expiry-date"/, 'the headline never reuses list markup');
+});
+
+test('the headline inherits stale and source-error state without repeating their notes (QA-04)', async () => {
+  const stale = (await renderExpiry(expiryCodex({ resetCredits: resetAt({
+    availableCount: 1, expirations: [atNow(3600_000)], status: 'stale',
+    capturedAt: atNow(-(6 * 3600_000 + 41 * 60_000)),
+  }) }))).els['supplementary-limits'].innerHTML;
+  assert.match(headlineBlock(stale), /<span class="state-pill pill-warn">stale · 6h 41m ago<\/span><\/div><p class="next-expiry-age">updated 6h 41m ago<\/p>/);
+  assert.equal((codexGroup(stale).match(/The last good reset reading is old/g) || []).length, 1);
+  assert.match(resetBlock(stale), /The last good reset reading is old/);
+
+  const failed = (await renderExpiry(expiryCodex({
+    resetCredits: resetAt({ availableCount: 1, expirations: [atNow(3600_000)], capturedAt: atNow(-9 * 60_000) }),
+    diagnostic: { reason: 'codex-cmd-failed', cmd: 'codex', detail: 'not found' },
+  }))).els['supplementary-limits'].innerHTML;
+  assert.match(headlineBlock(failed), /<span class="state-pill pill-crit">source error<\/span>/);
+  assert.match(headlineBlock(failed), /updated 9m ago/);
+  assert.equal((codexGroup(failed).match(/The latest Codex account read failed/g) || []).length, 1);
+  assert.match(resetBlock(failed), /The latest Codex account read failed/);
+  for (const h of [stale, failed]) assert.doesNotMatch(headlineBlock(h), /next-expiry-note|weekly reset/);
+});
+
+test('the headline is omitted for zero, unsupported, and malformed evidence (QA-05, FR-04)', async () => {
+  for (const [name, resetCredits, diagnostic] of [
+    ['zero', resetAt({ availableCount: 0 })],
+    ['stale zero', resetAt({ availableCount: 0, status: 'stale', capturedAt: atNow(-7 * 3600_000) })],
+    ['source-error zero', resetAt({ availableCount: 0 }), { reason: 'codex-cmd-failed', cmd: 'codex', detail: 'not found' }],
+    ['unsupported', { available: false, status: 'unsupported', availableCount: null, expirations: [], missingExpirationCount: 0, capturedAt: null }],
+    ['malformed', { available: false, status: 'malformed', availableCount: 'three', expirations: ['not-a-date'], missingExpirationCount: 0, capturedAt: null }],
+  ]) {
+    const h = (await renderExpiry(expiryCodex({ resetCredits, diagnostic }))).els['supplementary-limits'].innerHTML;
+    const group = codexGroup(h).slice(0, codexGroup(h).indexOf('</section>'));
+    assert.doesNotMatch(group, /Next reset expiry|next-expiry/, `${name}: no headline heading or block`);
+    assert.doesNotMatch(group.slice(0, group.indexOf(CREDIT_LEAD)), /—|<time/, `${name}: no placeholder dressed as a date`);
+    assert.match(group, /provider-reported<\/span><\/div><div class="credit-block credit-block-lead">/,
+      `${name}: the group opens with Credit balance`);
+  }
+});
+
+test('a count without dates reads "not reported" with the partial pill, no date or countdown (QA-06, FR-05)', async () => {
+  const h = (await renderExpiry(expiryCodex({ resetCredits: resetAt({ availableCount: 2, expirations: [] }) })))
+    .els['supplementary-limits'].innerHTML;
+  const headline = headlineBlock(h);
+  assert.match(headline, /<h4 class="nested-limit-title">Next reset expiry<\/h4><div class="next-expiry-summary"><span class="unavailable-metric">not reported<\/span><span class="state-pill pill-warn">partial<\/span><\/div><p class="next-expiry-age">updated 3m ago<\/p><\/div>/);
+  assert.doesNotMatch(headline, /<time|expires in|next-expiry-note/);
+  assert.match(resetBlock(h), /2 expiration dates are unavailable/, 'the list keeps the authoritative count disclosure');
+});
+
+test('the one-second tick drops a passed instant from the headline, then the whole block (QA-07, FR-06)', async () => {
+  const first = atNow(3600_000);
+  const second = atNow(26 * 3600_000);
+  const clock = controlledClock(EXPIRY_NOW);
+  const { els, intervals } = await renderExpiry(expiryCodex({
+    resetCredits: resetAt({ availableCount: 2, expirations: [first, second] }),
+  }), clock);
+  assert.match(headlineBlock(els['supplementary-limits'].innerHTML), new RegExp(`datetime="${first}"`));
+  const tick = intervals.find(({ fn, ms }) => ms === 1000 && String(fn).includes('render()'));
+  clock.set(EXPIRY_NOW + 2 * 3600_000);
+  tick.fn();
+  const after = headlineBlock(els['supplementary-limits'].innerHTML);
+  assert.match(after, new RegExp(`<time class="next-expiry-date" datetime="${second}">`));
+  assert.match(textOf(after), /expires in 1d 0h/);
+  assert.doesNotMatch(els['supplementary-limits'].innerHTML, new RegExp(`datetime="${first}"`),
+    'a passed instant is never shown as the next expiry');
+  clock.set(EXPIRY_NOW + 27 * 3600_000);
+  tick.fn();
+  assert.doesNotMatch(els['supplementary-limits'].innerHTML, /next-expiry|Next reset expiry/,
+    'with no reset left the headline is omitted, not dashed');
+});
+
+test('the note appears when the soonest reset expires before a current Codex weekly reset (QA-09, QA-11)', async () => {
+  const single = (await renderExpiry(expiryCodex({
+    resetCredits: resetAt({ availableCount: 1, expirations: [atNow(86400_000)] }),
+  }))).els['supplementary-limits'].innerHTML;
+  assert.match(headlineBlock(single),
+    /<p class="next-expiry-note"><strong>Expires before your Codex weekly reset\.<\/strong> The weekly window resets in 5d 0h\.<\/p><\/div>$/);
+
+  const grouped = (await renderExpiry(expiryCodex({
+    resetCredits: resetAt({ availableCount: 3, expirations: [atNow(86400_000), atNow(86400_000), atNow(8 * 86400_000)] }),
+  }))).els['supplementary-limits'].innerHTML;
+  assert.match(headlineBlock(grouped), /<strong>2 resets expire before your Codex weekly reset\.<\/strong>/);
+  assert.doesNotMatch(resetBlock(grouped), /weekly reset|next-expiry-note/, 'no list item is annotated');
+});
+
+test('the note is absent whenever any guard fails (QA-10, FR-09)', async () => {
+  const oneDay = { availableCount: 1, expirations: [atNow(86400_000)] };
+  const cases = [
+    ['weekly window omitted', { weekly: null }],
+    ['resetsAt missing', { weekly: { resetsAt: undefined } }],
+    ['resetsAt unparseable', { weekly: { resetsAt: 'next week' } }],
+    ['resetsAt in the past', { weekly: { resetsAt: atNow(-60_000) } }],
+    ['expiry after the weekly reset', { reset: { availableCount: 1, expirations: [atNow(6 * 86400_000)] } }],
+    ['expiry equal to the weekly reset', { reset: { availableCount: 1, expirations: [atNow(5 * 86400_000)] } }],
+    ['freshness band stale', { freshness: { capturedAt: atNow(-11 * 60_000), freshForMs: 300_000, staleAfterMs: 600_000 } }],
+    ['no freshness thresholds', { freshness: null }],
+    ['stale-reading diagnostic', { diagnostic: { reason: 'stale-reading', capturedAt: atNow(-20 * 60_000) } }],
+    ['reset state stale', { reset: { ...oneDay, status: 'stale' } }],
+    ['reset state source-error', { diagnostic: { reason: 'codex-cmd-failed', cmd: 'codex', detail: 'not found' } }],
+  ];
+  for (const [name, o] of cases) {
+    const tool = expiryCodex({ resetCredits: resetAt(o.reset || oneDay), diagnostic: o.diagnostic || null,
+      weekly: o.weekly, ...(Object.hasOwn(o, 'freshness') ? { freshness: o.freshness } : {}) });
+    if (o.weekly && Object.hasOwn(o.weekly, 'resetsAt') && o.weekly.resetsAt === undefined) delete tool.limits.seven_day.resetsAt;
+    const headline = headlineBlock((await renderExpiry(tool)).els['supplementary-limits'].innerHTML);
+    assert.match(headline, /Next reset expiry/, `${name}: the headline itself still renders`);
+    assert.doesNotMatch(headline, /next-expiry-note|weekly reset|weekly window/, `${name}: no note`);
+  }
+});
+
+// The pin test for the disclosure (FR-14, QA-15): every Codex host today
+// carries `expiry: { status: 'not-reported' }`, and the line reads exactly this.
+test('the Codex balance states "Expiry · not reported by Codex" between the balance and its age (QA-15 pin)', async () => {
+  const notReported = { status: 'not-reported' };
+  for (const credits of [
+    { status: 'available', balance: '62500', capturedAt: atNow(-3 * 60_000), expiry: notReported },
+    { status: 'unlimited', balance: null, capturedAt: atNow(-60_000), expiry: notReported },
+    { status: 'stale', lastStatus: 'available', balance: '62500', capturedAt: atNow(-(6 * 3600_000 + 41 * 60_000)), expiry: notReported },
+  ]) {
+    const block = creditBlock((await renderExpiry(expiryCodex({ resetCredits: resetAt({ availableCount: 0 }), credits })))
+      .els['supplementary-limits'].innerHTML);
+    assert.match(block, /<\/p><p class="credit-expiry">Expiry · not reported by Codex<\/p><p class="credit-age">/);
+    assert.equal((block.match(/class="credit-expiry"/g) || []).length, 1);
+  }
+});
+
+test('a reported balance expiry shows its date and countdown; unknown, passed, or hostile values show no line (QA-15, QA-22)', async () => {
+  const reportedAt = atNow(30 * 86400_000);
+  const withExpiry = async (expiry) => creditBlock((await renderExpiry(expiryCodex({
+    resetCredits: resetAt({ availableCount: 0 }),
+    credits: { status: 'available', balance: '62500', capturedAt: atNow(-3 * 60_000), ...(expiry === undefined ? {} : { expiry }) },
+  }))).els['supplementary-limits'].innerHTML);
+
+  const reported = await withExpiry({ status: 'reported', expiresAt: reportedAt });
+  assert.match(reported, new RegExp(`<p class="credit-expiry">Expiry <time class="credit-expiry-date" datetime="${reportedAt}">[^<]+</time> · expires in 30d 0h</p>`));
+  for (const [name, expiry] of [
+    ['absent', undefined], ['null', null], ['array', []],
+    ['constructor', { status: 'constructor' }], ['__proto__', JSON.parse('{"status":"__proto__"}')],
+    ['toString', { status: 'toString' }], ['unknown', { status: 'expired' }],
+    ['passed', { status: 'reported', expiresAt: atNow(-60_000) }],
+    ['unparseable', { status: 'reported', expiresAt: 'soon' }],
+    ['hostile', { status: 'reported', expiresAt: '2026-11-01T00:00:00Z"><img src=x onerror=alert(1)>' }],
+  ]) {
+    const block = await withExpiry(expiry);
+    assert.doesNotMatch(block, /credit-expiry|Expiry|constructor|__proto__|toString|\[object|function|<img|onerror/,
+      `${name}: no expiry line and no raw code`);
+    assert.match(block, /credit-age">updated 3m ago</, `${name}: the rest of the block still renders`);
+  }
+});
+
+test('invalid reset instants are dropped before the headline renders (QA-22)', async () => {
+  const valid = atNow(2 * 3600_000);
+  const h = (await renderExpiry(expiryCodex({ resetCredits: resetAt({
+    availableCount: 2, expirations: ['2026-10-01T13:00:00Z"><img src=x onerror=alert(1)>', valid],
+  }) }))).els['supplementary-limits'].innerHTML;
+  const headline = headlineBlock(h);
+  assert.match(headline, new RegExp(`<time class="next-expiry-date" datetime="${valid}">`));
+  assert.equal((headline.match(/datetime=/g) || []).length, 1);
+  assert.doesNotMatch(headline, /<img|onerror|&lt;img/);
+});
+
+test('peer credit expiry survives or degrades through normalizePeerState and renders like a local block (QA-17, QA-18)', async () => {
+  const T = Date.now();
+  const future = new Date(T + 30 * 86400_000).toISOString();
+  const peerExpiry = (expiry) => normalizePeerState({ tools: [{
+    source: 'codex', limits: {}, accountLimits: { scope: 'account-wide', credits: {
+      status: 'available', balance: '5', capturedAt: new Date(T - 60_000).toISOString(),
+      ...(expiry === undefined ? {} : { expiry }),
+    } },
+  }] }).tools[0].accountLimits.credits.expiry;
+  const notReported = { status: 'not-reported' };
+  assert.deepEqual(peerExpiry({ status: 'not-reported', expiresAt: future, extra: 1 }), notReported);
+  assert.deepEqual(peerExpiry({ status: 'reported', expiresAt: future.replace('Z', '+00:00'), extra: '<img>' }),
+    { status: 'reported', expiresAt: future }, 'a valid future instant survives as canonical ISO, extra keys dropped');
+  for (const expiry of [
+    { status: 'reported', expiresAt: new Date(T - 60_000).toISOString() },
+    { status: 'reported', expiresAt: 'soon' },
+    { status: 'reported', expiresAt: T + 86400_000 },
+    { status: 'reported' },
+    { status: 'expired', expiresAt: future },
+    { status: 'constructor' },
+    JSON.parse('{"status":"__proto__"}'),
+    undefined, null, [], 'not-reported',
+  ]) assert.deepEqual(peerExpiry(expiry), notReported, `${JSON.stringify(expiry)} degrades to not-reported`);
+  // Unsupported blocks keep their fixed four-key shape: no expiry key (FR-13).
+  for (const reason of ['not-reported', 'never-observed', 'peer-omitted', 'bogus']) {
+    const block = normalizeCredits({ status: 'unsupported', reason, expiry: { status: 'reported', expiresAt: future } }, T);
+    assert.deepEqual(Object.keys(block).sort(), ['balance', 'capturedAt', 'reason', 'status']);
+  }
+  assert.equal(Object.hasOwn(normalizeCredits(undefined, T), 'expiry'), false);
+  assert.deepEqual(normalizeCredits({ status: 'stale', lastStatus: 'none', capturedAt: new Date(T).toISOString(),
+    expiry: { status: 'reported', expiresAt: future } }, T).expiry, { status: 'reported', expiresAt: future });
+
+  // Rendered: the normalized peer block drives the same headline and the same
+  // disclosure line as a local block with the same evidence.
+  const at = (ms) => new Date(T + ms).toISOString();
+  const local = {
+    ...codexTool(0), freshness: { capturedAt: at(-20_000), freshForMs: 300_000, staleAfterMs: 600_000 },
+    limits: { five_hour: null, seven_day: { usedPct: 41, remainingPct: 59, resetsAt: at(5 * 86400_000), capturedAt: at(-20_000) } },
+    accountLimits: { scope: 'account-wide',
+      resetCredits: { available: true, status: 'available', availableCount: 2,
+        expirations: [at(8 * 86400_000), at(9 * 86400_000)], missingExpirationCount: 0, capturedAt: at(-3 * 60_000) },
+      credits: { status: 'available', balance: '62500', capturedAt: at(-3 * 60_000), expiry: { status: 'not-reported' } } },
+    dataAt: at(-20_000),
+  };
+  const remote = JSON.parse(JSON.stringify(local));
+  remote.limits.seven_day.resetsAt = at(6 * 86400_000); // a different account: its own block
+  delete remote.accountLimits.credits.expiry; // an older llmdash peer omits the key
+  const peerState = normalizePeerState({ tools: [remote], headroom: null, generatedAt: at(0) });
+  const combined = { hosts: [
+    { host: 'local', label: 'This machine', port: 8787, self: true, reachable: true, hostDiagnostic: null, fetchedAt: at(0), state: stateOf([local]) },
+    { host: 'peer', label: 'Desktop', port: 8787, self: false, reachable: true, hostDiagnostic: null, fetchedAt: at(-1000), state: peerState },
+  ], generatedAt: at(0) };
+  const { els } = await renderWith(combined, null, { DateImpl: controlledClock(T).DateImpl });
+  const blocks = els.hosts.innerHTML.split('<article class="account-block"').slice(1);
+  assert.equal(blocks.length, 2, 'two accounts, two blocks');
+  assert.match(blocks[1], /from Desktop/);
+  assert.match(headlineBlock(blocks[1]), /Next reset expiry/);
+  assert.equal(headlineBlock(blocks[1]), headlineBlock(blocks[0]), 'the peer headline matches the local one');
+  for (const block of blocks) assert.match(creditBlock(block), /<p class="credit-expiry">Expiry · not reported by Codex<\/p>/);
 });
 
 const localWith = (tools) => ({ hosts: [{
@@ -960,7 +1282,7 @@ for (const fixture of [
   });
 }
 
-test('the Codex group reads credit balance, then reset credits, then model caps, as distinct facts (QA-20, QA-25, QA-34)', async () => {
+test('the Codex group reads next reset expiry, credit balance, reset credits, then model caps, as distinct facts (QA-20, QA-25, QA-34; usage-credit-expiry QA-01, QA-25)', async () => {
   const claude = claudeTool(3 * 3600_000, 3 * 86400_000);
   const codex = withCredits(withResetCredits(codexTool(5 * 86400_000), resetSnapshot({
     availableCount: 2, expirations: [iso(60 * 60_000), iso(2 * 60 * 60_000)],
@@ -973,9 +1295,14 @@ test('the Codex group reads credit balance, then reset credits, then model caps,
   const h = els['supplementary-limits'].innerHTML;
   const group = codexGroup(h).slice(0, codexGroup(h).indexOf('</section>'));
   assert.match(group, /aria-labelledby="(global-limit-[^"]+)"[\s\S]*<h3 class="global-limit-title" id="\1">[\s\S]*Codex credits &amp; resets<\/h3>/);
-  const order = ['Credit balance', 'Reset credits', 'Model caps'].map((title) =>
+  const order = ['Next reset expiry', 'Credit balance', 'Reset credits', 'Model caps'].map((title) =>
     group.indexOf(`<h4 class="nested-limit-title">${title}</h4>`));
-  assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], `sub-block order ${order}`);
+  assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2] && order[2] < order[3],
+    `sub-block order ${order}`);
+  // The headline is the group's first sub-block, at the same heading level as
+  // the other facts, with a machine-readable instant (QA-01, QA-25).
+  assert.match(group, /provider-reported<\/span><\/div><div class="next-expiry-block"><h4 class="nested-limit-title">Next reset expiry<\/h4>/);
+  assert.match(headlineBlock(h), /<time class="next-expiry-date" datetime="\d{4}-\d\d-\d\dT[\d:.]+Z">/);
   // The credit standing carries no reset count, no offer copy, and no total.
   const credit = creditBlock(h);
   assert.doesNotMatch(credit, /reset-count|Reset for free|expiry|total/i);
@@ -1088,6 +1415,11 @@ test('same-account hosts select newest supplementary evidence on its own clocks'
   assert.doesNotMatch(overview, /Fable[\s\S]*12<span class="unit">% left/);
   assert.match(overview, /reset-count"><strong>2<\/strong><span>available<\/span>/);
   assert.doesNotMatch(overview, /reset-count"><strong>1<\/strong><span>available<\/span>/);
+  // QA-08: one headline, derived from the newest reset capture of the account.
+  assert.equal((overview.match(/Next reset expiry/g) || []).length, 1);
+  assert.match(headlineBlock(overview),
+    new RegExp(`<time class="next-expiry-date" datetime="${peerCodex.accountLimits.resetCredits.expirations[0]}">`));
+  assert.doesNotMatch(headlineBlock(overview), new RegExp(localCodex.accountLimits.resetCredits.expirations[0]));
   assert.match(creditBlock(overview), /Credits available[\s\S]*LOCAL-NEWER/);
   assert.doesNotMatch(overview, /PEER-OLDER|No credits/);
   assert.equal(localCodex.accountLimits.credits.balance, 'LOCAL-NEWER', 'member objects are never mutated');
@@ -1132,6 +1464,11 @@ test('different accounts keep model caps and reset evidence in separate account 
   assert.match(blocks[1], /Sonnet 4\.5/);
   assert.doesNotMatch(blocks[1], /Fable/);
   assert.match(blocks[1], /reset-count"><strong>3<\/strong><span>available<\/span>/);
+  // Each account keeps its own headline from its own reset evidence (QA-08).
+  assert.match(headlineBlock(blocks[0]),
+    new RegExp(`datetime="${localCodex.accountLimits.resetCredits.expirations[0]}"`));
+  assert.match(headlineBlock(blocks[1]),
+    new RegExp(`datetime="${remoteCodex.accountLimits.resetCredits.expirations[0]}"`));
   // Credit blocks are never merged, compared, or borrowed across accounts (QA-19).
   assert.match(blocks[0], /ACCOUNT-ONE/);
   assert.doesNotMatch(blocks[0], /ACCOUNT-TWO/);

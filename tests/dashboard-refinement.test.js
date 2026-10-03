@@ -124,6 +124,30 @@ test('named phone and desktop geometry stays within the supported viewport', () 
   assert.match(styles, /\.credit-balance-value \{[^}]*unicode-bidi: isolate[^}]*overflow-wrap: anywhere/s);
   assert.match(styles, /\.promotion-link:focus-visible \{[^}]*outline: 3px solid var\(--focus-ring\)/s,
     'the section\'s one Usage link has a visible focus state');
+  // usage-credit-expiry (QA-11, QA-24, NFR-04): the headline, its note, and the
+  // balance Expiry line wrap inside the stacked band at 320px and 390px; no
+  // new rule truncates, clamps, or forces a single line.
+  const rule = (selector) => {
+    const m = styles.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`));
+    assert.ok(m, `${selector} has a rule`);
+    return m[1];
+  };
+  for (const selector of ['.next-expiry-block', '.next-expiry-summary', '.next-expiry-when', '.next-expiry-date',
+    '.next-expiry-relative', '.next-expiry-note', '.credit-expiry']) {
+    assert.match(rule(selector), /min-width: 0/, `${selector} can shrink`);
+  }
+  for (const selector of ['.next-expiry-date', '.next-expiry-relative', '.next-expiry-note', '.credit-expiry',
+    '.credit-expiry-date']) {
+    assert.match(rule(selector), /overflow-wrap: anywhere/, `${selector} wraps long text`);
+  }
+  for (const selector of ['.next-expiry-block', '.next-expiry-summary', '.next-expiry-when', '.next-expiry-date',
+    '.next-expiry-relative', '.next-expiry-dur', '.next-expiry-age', '.next-expiry-note', '.credit-expiry',
+    '.credit-expiry-date']) {
+    assert.doesNotMatch(rule(selector), /nowrap|text-overflow|line-clamp|overflow: hidden/, `${selector} never truncates`);
+  }
+  assert.match(rule('.next-expiry-summary'), /flex-wrap: wrap/);
+  assert.doesNotMatch(rule('.next-expiry-note'), /background|border-left/,
+    'the note is plain text, not a warn/crit evidence callout');
 });
 
 test('device health is one responsive, reduced-motion-aware host-scoped band', () => {

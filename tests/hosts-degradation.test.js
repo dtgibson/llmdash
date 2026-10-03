@@ -305,14 +305,17 @@ test('peer credit standings are whitelisted, canonical, re-sanitized, and honest
   }] }).tools[0].accountLimits.credits;
 
   // A valid fresh block passes through with canonical ISO and no extra keys.
+  // These blocks carry no expiry key (an older llmdash), which degrades to
+  // the disclosed not-reported absence (usage-credit-expiry FR-16).
+  const notReported = { status: 'not-reported' };
   assert.deepEqual(credits({
     status: 'available', balance: '62500', capturedAt: '2026-10-01T05:00:00-07:00', extra: '<img>',
-  }), { status: 'available', balance: '62500', capturedAt: '2026-10-01T12:00:00.000Z' });
+  }), { status: 'available', balance: '62500', capturedAt: '2026-10-01T12:00:00.000Z', expiry: notReported });
   assert.deepEqual(credits({ status: 'none', balance: null, capturedAt: '2026-10-01T12:00:00Z' }),
-    { status: 'none', balance: null, capturedAt: '2026-10-01T12:00:00.000Z' });
+    { status: 'none', balance: null, capturedAt: '2026-10-01T12:00:00.000Z', expiry: notReported });
   assert.deepEqual(credits({
     status: 'stale', lastStatus: 'unlimited', balance: '0', capturedAt: '2026-10-01T12:00:00Z',
-  }), { status: 'stale', lastStatus: 'unlimited', balance: '0', capturedAt: '2026-10-01T12:00:00.000Z' });
+  }), { status: 'stale', lastStatus: 'unlimited', balance: '0', capturedAt: '2026-10-01T12:00:00.000Z', expiry: notReported });
 
   // The peer balance is re-stripped and re-bounded here, never trusted (NFR-03).
   const hostile = credits({

@@ -40,6 +40,13 @@ with the provider's own balance as an opaque, unconverted figure and its capture
 age; past the account-fact TTL it reads as stale with that age, and it is never
 shown as zero unless Codex literally reports `0`. Claude Code does not report a
 usage-credit balance, so the Claude group says so instead of showing a figure.
+Credit expiry is shown only where a provider reports it: Codex reports an
+expiration per reset credit only, so the group opens with the soonest one (date,
+countdown, capture age, and a note when it lapses before the current Codex weekly
+reset); the Codex credit balance carries no expiry, so it reads
+"Expiry · not reported by Codex"; and Claude Code reports neither credits nor an
+expiry on any sanctioned local channel. No expiry is inferred from grant times,
+the observed 30-day pattern, usage, plan, or billing period.
 The credit standing travels in `/api/state`, so any machine allowed to reach this
 llmdash (tailnet-only by default) can read it, and a multi-host monitor re-serves
 a peer's standing in its own `/api/hosts`.

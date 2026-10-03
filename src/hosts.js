@@ -15,8 +15,8 @@ import http from 'node:http';
 import { config } from '../config.js';
 import { tailnetIPv4 } from './net.js';
 import {
-  CREDIT_FRESH_STATUSES, CREDIT_REASONS, CREDIT_STATUSES,
-  boundedCreditBalance, unsupportedCredits,
+  CREDIT_EXPIRY_STATUSES, CREDIT_FRESH_STATUSES, CREDIT_REASONS, CREDIT_STATUSES,
+  boundedCreditBalance, creditExpiryFromIso, creditExpiryNotReported, unsupportedCredits,
 } from './account-credits.js';
 
 // ── Host/port sanitizer ──────────────────────────────────────────────────────
@@ -275,8 +275,9 @@ export function normalizeResetCredits(value, nowMs = Date.now()) {
 // shape. The peer balance is re-stripped and re-bounded here (the remote
 // sanitizer is not trusted across the wire). A fresh or stale block without a
 // valid capture clock cannot age honestly, so it degrades to peer-omitted, as
-// does a block from an older llmdash that never sent one.
-export function normalizeCredits(value) {
+// does a block from an older llmdash that never sent one. The expiry sub-fact
+// rides only on fresh and stale blocks and is re-validated on this host's clock.
+export function normalizeCredits(value, nowMs = Date.now()) {
   if (!isPlainObject(value) || !CREDIT_STATUSES.has(value.status)) {
     return unsupportedCredits('peer-omitted');
   }
@@ -286,11 +287,24 @@ export function normalizeCredits(value) {
   const capturedAt = typeof value.capturedAt === 'string' ? normalizeIso(value.capturedAt) : null;
   if (!capturedAt) return unsupportedCredits('peer-omitted');
   const balance = boundedCreditBalance(value.balance) ?? null;
+  const expiry = normalizeCreditExpiry(value.expiry, nowMs);
   if (value.status === 'stale') {
     if (!CREDIT_FRESH_STATUSES.has(value.lastStatus)) return unsupportedCredits('peer-omitted');
-    return { status: 'stale', lastStatus: value.lastStatus, balance, capturedAt };
+    return { status: 'stale', lastStatus: value.lastStatus, balance, capturedAt, expiry };
   }
-  return { status: value.status, balance, capturedAt };
+  return { status: value.status, balance, capturedAt, expiry };
+}
+
+// Whitelist a peer's credit expiry into one of its two exact shapes. The status
+// is a Set membership check (never a bracket lookup, so an inherited name such
+// as `constructor` is unknown); a reported instant is re-parsed to canonical
+// ISO and must be strictly in the future here. Anything else, including an
+// absent key from an older llmdash, is the disclosed not-reported absence.
+function normalizeCreditExpiry(value, nowMs) {
+  if (!isPlainObject(value) || !CREDIT_EXPIRY_STATUSES.has(value.status)) return creditExpiryNotReported();
+  if (value.status === 'not-reported') return creditExpiryNotReported();
+  const now = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  return creditExpiryFromIso(value.expiresAt, now);
 }
 
 export function normalizeAccountLimits(value, nowMs = Date.now()) {
@@ -300,7 +314,7 @@ export function normalizeAccountLimits(value, nowMs = Date.now()) {
   return {
     scope: 'account-wide',
     resetCredits: normalizeResetCredits(value.resetCredits, nowMs),
-    credits: normalizeCredits(value.credits),
+    credits: normalizeCredits(value.credits, nowMs),
   };
 }
 

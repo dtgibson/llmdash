@@ -94,8 +94,10 @@ test('live account facts are bounded, sparse-update safe, and use explicit statu
     plan: { available: true, label: 'ChatGPT Pro' },
   });
   const available = codexCredits();
-  assert.deepEqual(Object.keys(available).sort(), ['balance', 'capturedAt', 'status']);
+  assert.deepEqual(Object.keys(available).sort(), ['balance', 'capturedAt', 'expiry', 'status']);
   assert.equal(available.status, 'available');
+  assert.deepEqual(available.expiry, { status: 'not-reported' },
+    'the live credits shape carries no expiry, so the block states the absence (QA-12)');
   assert.equal(available.balance, '12.5', 'control, bidi, and separator characters are stripped at ingest');
   assert.equal(available.capturedAt, new Date(Date.parse(available.capturedAt)).toISOString());
   assert.ok(Date.parse(available.capturedAt) >= beforeObservation && Date.parse(available.capturedAt) <= Date.now());
@@ -118,6 +120,7 @@ test('live account facts are bounded, sparse-update safe, and use explicit statu
   let credits = codexCredits();
   assert.equal(credits.status, 'unlimited');
   assert.equal(credits.balance, 'x'.repeat(64));
+  assert.deepEqual(credits.expiry, { status: 'not-reported' });
   assert.equal(codexResetCredits().availableCount, 1_000_000);
 
   // Turning unlimited off exposes the next supported status in precedence;
@@ -132,6 +135,7 @@ test('live account facts are bounded, sparse-update safe, and use explicit statu
   credits = codexCredits();
   assert.equal(credits.status, 'none', 'hasCredits: false is an explicit none, not an absence');
   assert.equal(credits.balance, null, 'an explicit account/plan change clears prior-account facts');
+  assert.deepEqual(credits.expiry, { status: 'not-reported' });
 
   // Wrongly typed fields are ignored (a numeric balance is never coerced), and
   // each call returns a detached object.
@@ -319,6 +323,7 @@ test('the credit standing ages as one block, survives the rollout fallback uncha
   assert.deepEqual(codexCredits(observedMs + ttlMs - 1000), fresh);
   assert.deepEqual(codexCredits(observedMs + ttlMs + 1000), {
     status: 'stale', lastStatus: 'available', balance: '0', capturedAt: fresh.capturedAt,
+    expiry: { status: 'not-reported' },
   });
   assert.equal(codexCredits(observedMs + 24 * 60 * 60_000 - 1).status, 'stale');
   assert.deepEqual(codexCredits(observedMs + 24 * 60 * 60_000), neverObserved);
@@ -350,6 +355,54 @@ test('the credit standing ages as one block, survives the rollout fallback uncha
   // A recognized plan change clears the standing immediately (FR-08, QA-09).
   await poll({ planType: 'plus' });
   assert.deepEqual(codexCredits(), neverObserved);
+});
+
+// FR-12 / QA-13: the forward path the day Codex reports a credit-balance expiry.
+// No live response carries one today; the key names mirror the provider's own
+// reset-credit `expiresAt` and are driven here through the fake app-server.
+test('a reported credit expiry is canonical, future-only, sparse-retained, and cleared with the standing (QA-12, QA-13)', async () => {
+  const second = (msFromNow) => Math.ceil((Date.now() + msFromNow) / 1000);
+  await poll({ planType: 'plus', credits: { hasCredits: true, unlimited: false, balance: '7' } });
+  assert.deepEqual(codexCredits().expiry, { status: 'not-reported' });
+
+  const soon = second(2 * 60_000);
+  await poll({ credits: { hasCredits: true, expiresAt: soon } });
+  const reported = codexCredits();
+  assert.deepEqual(reported.expiry, { status: 'reported', expiresAt: new Date(soon * 1000).toISOString() });
+  assert.deepEqual(Object.keys(reported.expiry).sort(), ['expiresAt', 'status']);
+  const observedMs = Date.parse(reported.capturedAt);
+
+  // An omitted field is a sparse update: the reported instant is retained.
+  await poll({ credits: { hasCredits: true } });
+  assert.deepEqual(codexCredits().expiry, reported.expiry);
+  // Future-only at read time: once the instant passes it is not a current
+  // expiry, and it is never relabelled or replaced by now.
+  const afterExpiry = codexCredits(soon * 1000 + 1000);
+  assert.equal(afterExpiry.status, 'available', 'the standing is still within its TTL');
+  assert.deepEqual(afterExpiry.expiry, { status: 'not-reported' });
+
+  // A stale block carries the sub-fact too, on the standing's clock.
+  const later = second(3 * 3600_000);
+  await poll({ credits: { hasCredits: true, expires_at: new Date(later * 1000).toISOString().replace('Z', '+00:00') } });
+  const staleAt = Date.parse(codexCredits().capturedAt) + 5 * 60_000 + 1000;
+  assert.deepEqual(codexCredits(staleAt).expiry,
+    { status: 'reported', expiresAt: new Date(later * 1000).toISOString() }, 'snake_case ISO is re-normalized');
+  assert.equal(codexCredits(staleAt).status, 'stale');
+
+  // A past instant and an unreadable value both read as not reported.
+  await poll({ credits: { hasCredits: true, expiresAt: second(-60_000) } });
+  assert.deepEqual(codexCredits().expiry, { status: 'not-reported' });
+  await poll({ credits: { hasCredits: true, expiresAt: 'soon' } });
+  const unreadable = codexCredits();
+  assert.deepEqual(unreadable.expiry, { status: 'not-reported' });
+  assert.ok(Date.parse(unreadable.capturedAt) >= observedMs);
+
+  // Past the hard cap the block is unsupported and carries no expiry key (QA-14).
+  await poll({ credits: { hasCredits: true, expiresAt: later } });
+  assert.deepEqual(codexCredits(Date.now() + 24 * 60 * 60_000), neverObserved);
+  // A recognized plan change clears the reported instant with the standing.
+  await poll({ planType: 'pro', credits: { hasCredits: true } });
+  assert.deepEqual(codexCredits().expiry, { status: 'not-reported' });
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

@@ -680,6 +680,73 @@ function resetCreditsHtml(tool) {
   return html;
 }
 
+// The "Next reset expiry" headline: the soonest provider-reported reset
+// expiration, promoted above the Codex credit balance. A pure regroup over the
+// same display state the Reset credits list uses, so it inherits that block's
+// state, capture age, and pill verbatim and adds no freshness logic of its own.
+// `resetCreditsForDisplay` already keeps only future instants, sorted soonest
+// first, so `expirations[0]` can never be a passed instant (FR-06). Returns
+// null when the block is omitted: no resets, unsupported, or malformed (FR-04).
+function nextExpiryForDisplay(tool, nowMs = Date.now()) {
+  const reset = resetCreditsForDisplay(tool, nowMs);
+  if (reset.state === 'unsupported' || reset.state === 'malformed') return null;
+  if (!(reset.availableCount > 0)) return null;
+  const soonest = reset.expirations[0] || null;
+  let quantity = 0;
+  while (soonest && quantity < reset.expirations.length && reset.expirations[quantity] === soonest) quantity += 1;
+  const soonestMs = soonest ? Date.parse(soonest) : null;
+  const pill = reset.state === 'stale' || reset.state === 'source-error'
+    ? resetStatePill(reset.state, reset.capturedAt)
+    : !soonest && reset.state === 'partial' ? resetStatePill('partial') : '';
+  return {
+    state: reset.state,
+    soonest,
+    soonestMs,
+    quantity,
+    pill,
+    age: fmtAge(reset.capturedAt),
+    weeklyNote: weeklyResetNoteFor(tool, reset.state, soonestMs, nowMs),
+  };
+}
+
+// FR-08 / FR-09: compare two provider instants, never infer one. Every guard
+// must hold, in order; the first failure means no note. Reads the raw Codex
+// weekly `resetsAt`, never the dashboard's selected reset or any configured
+// schedule (configuration is never eligible for Codex).
+function weeklyResetNoteFor(tool, stateName, soonestMs, nowMs) {
+  if (!Number.isFinite(soonestMs)) return null;
+  if (stateName !== 'available' && stateName !== 'partial') return null;
+  const win = tool && tool.limits && tool.limits.seven_day;
+  if (!win || typeof win !== 'object' || typeof win.resetsAt !== 'string') return null;
+  const weeklyMs = Date.parse(win.resetsAt);
+  if (!Number.isFinite(weeklyMs) || weeklyMs <= nowMs) return null;
+  if (!providerResetIsCurrent(tool, weeklyMs)) return null;
+  return soonestMs < weeklyMs ? { weeklyMs } : null;
+}
+
+function nextExpiryHtml(tool, nowMs = Date.now()) {
+  const view = nextExpiryForDisplay(tool, nowMs);
+  if (!view) return '';
+  // No raw instant ever stands in for a label the formatter could not produce.
+  const label = view.soonest ? resetExpirationLabel(view.soonest) : null;
+  const subject = view.quantity > 1 ? `${view.quantity} resets expire` : 'expires';
+  let html = '<div class="next-expiry-block"><h4 class="nested-limit-title">Next reset expiry</h4>'
+    + '<div class="next-expiry-summary">';
+  html += label
+    ? `<div class="next-expiry-when"><time class="next-expiry-date" datetime="${esc(view.soonest)}">${esc(label)}</time>`
+      + `<span class="next-expiry-relative">${esc(subject)} in <span class="next-expiry-dur">`
+      + `${esc(fmtDur(view.soonestMs - nowMs))}</span></span></div>`
+    : '<span class="unavailable-metric">not reported</span>';
+  html += `${view.pill}</div>`;
+  if (view.age) html += `<p class="next-expiry-age">${esc(view.age)}</p>`;
+  if (label && view.weeklyNote) {
+    html += `<p class="next-expiry-note"><strong>${esc(view.quantity > 1 ? `${view.quantity} resets expire` : 'Expires')}`
+      + ' before your Codex weekly reset.</strong> The weekly window resets in '
+      + `${esc(fmtDur(view.weeklyNote.weeklyMs - nowMs))}.</p>`;
+  }
+  return `${html}</div>`;
+}
+
 // Provider-reported credit standing: an account fact separate from reset
 // credits and the Claude offer. Codes map to copy through own-key lookups only;
 // a code outside a table renders "Unavailable" and never reaches the DOM raw.
@@ -697,6 +764,9 @@ const CREDITS_REASON_COPY = Object.freeze({
     'No figure is inferred from the statusline or the usage pane.'],
 });
 const ownKey = (table, code) => Object.prototype.hasOwnProperty.call(table, code);
+// The credit-balance expiry: a server-stated absence maps to fixed copy through
+// this own-key table; a `reported` instant is re-validated on the render tick.
+const CREDIT_EXPIRY_COPY = Object.freeze({ 'not-reported': 'Expiry · not reported by Codex' });
 
 // Defense in depth over the ingest sanitizers: the same strip and bound, and an
 // empty balance stays absent (never a placeholder word).
@@ -706,7 +776,19 @@ function boundedCreditBalanceLabel(value) {
   return clean ? [...clean].slice(0, 64).join('') : null;
 }
 
-function creditsForDisplay(tool) {
+// The expiry line's view: the disclosed absence, a reported instant that is
+// still in the future at `nowMs`, or null (no line). A passed instant is
+// omitted, never relabelled "not reported": Codex did report it.
+function creditExpiryForDisplay(expiry, nowMs) {
+  if (!expiry || typeof expiry !== 'object' || Array.isArray(expiry)) return null;
+  if (ownKey(CREDIT_EXPIRY_COPY, expiry.status)) return { status: 'not-reported' };
+  if (expiry.status !== 'reported' || typeof expiry.expiresAt !== 'string') return null;
+  const ms = Date.parse(expiry.expiresAt);
+  return Number.isFinite(ms) && ms > nowMs
+    ? { status: 'reported', expiresAt: new Date(ms).toISOString(), ms } : null;
+}
+
+function creditsForDisplay(tool, nowMs = Date.now()) {
   const raw = tool && tool.accountLimits && tool.accountLimits.scope === 'account-wide'
     ? tool.accountLimits.credits : null;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { state: 'unsupported', reason: null };
@@ -727,14 +809,15 @@ function creditsForDisplay(tool) {
     capturedAt: new Date(capturedMs).toISOString(),
     // A failed account read is a note only: the standing keeps its own status.
     sourceError: !!(d && (d.reason === 'codex-cmd-failed' || d.reason === 'no-reading')),
+    expiry: tool.source === 'codex' ? creditExpiryForDisplay(raw.expiry, nowMs) : null,
   };
 }
 
 // The "Credit balance" sub-block. `usageLinkElsewhere` is true when the Claude
 // offer (which owns the section's one claude.ai Usage link) renders in the same
 // section; otherwise the not-reported pointer is that one link.
-function creditsHtml(tool, { usageLinkElsewhere = false } = {}) {
-  const credit = creditsForDisplay(tool);
+function creditsHtml(tool, { usageLinkElsewhere = false, nowMs = Date.now() } = {}) {
+  const credit = creditsForDisplay(tool, nowMs);
   let html = '<h4 class="nested-limit-title">Credit balance</h4>';
   if (credit.state === 'unsupported') {
     html += '<div class="credit-summary"><span class="unavailable-metric">Unavailable</span></div>';
@@ -757,6 +840,15 @@ function creditsHtml(tool, { usageLinkElsewhere = false } = {}) {
     ? '<p class="credit-balance">Provider balance · not reported</p>'
     : `<p class="credit-balance">Provider balance <bdi class="credit-balance-value">${esc(credit.balance)}</bdi>`
       + ` · provider's own figure; not converted</p>`;
+  if (credit.expiry && credit.expiry.status === 'reported') {
+    const date = resetExpirationLabel(credit.expiry.expiresAt);
+    if (date) {
+      html += `<p class="credit-expiry">Expiry <time class="credit-expiry-date" datetime="${esc(credit.expiry.expiresAt)}">`
+        + `${esc(date)}</time> · expires in ${esc(fmtDur(credit.expiry.ms - nowMs))}</p>`;
+    }
+  } else if (credit.expiry) {
+    html += `<p class="credit-expiry">${esc(CREDIT_EXPIRY_COPY[credit.expiry.status])}</p>`;
+  }
   const age = fmtAge(credit.capturedAt);
   if (age) html += `<p class="credit-age">${esc(age)}</p>`;
   if (credit.sourceError) {
@@ -776,10 +868,14 @@ function globalToolGroupHtml(tool, suffix, { usageLinkElsewhere = false } = {}) 
     : claude ? 'Claude model caps' : `${tool && tool.label ? tool.label : 'Provider'} model caps`;
   const id = `global-limit-${suffix}-${String(tool && tool.source || 'provider').replace(/[^a-z0-9]+/gi, '-')}`;
   const rows = modelLimitRowsHtml(tool);
-  // Credit balance and reset credits are two facts under two headings; the
-  // reset-credit block itself is rendered exactly as before.
+  // The soonest reset expiry, the credit balance, and the reset credits are
+  // three facts under three headings; the reset-credit block itself is
+  // rendered exactly as before. One clock reading per render drives the
+  // headline and the balance's expiry line.
+  const nowMs = Date.now();
   let body = codex
-    ? `<div class="credit-block credit-block-lead">${creditsHtml(tool, { usageLinkElsewhere })}</div>`
+    ? nextExpiryHtml(tool, nowMs)
+      + `<div class="credit-block credit-block-lead">${creditsHtml(tool, { usageLinkElsewhere, nowMs })}</div>`
       + `<h4 class="nested-limit-title">Reset credits</h4>${resetCreditsHtml(tool)}`
     : '';
   if (rows) {

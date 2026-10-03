@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light dark" />
+<title>llmdash credit expiry design</title>
+<meta name="description" content="Design mockup for the usage-credit-expiry feature: the Next reset expiry headline at the top of the Codex credits group, the expires-before-weekly-reset note, the Expiry line on the Codex credit balance, every state, and a 320px phone frame." />
+<style>
+/* ------------------------------------------------------------------------
+   Tokens: copied verbatim from public/styles.css so this mockup renders in
+   the shipped system. Dark values are duplicated once for the review-only
+   theme toggle; the product itself follows prefers-color-scheme only.
+   ------------------------------------------------------------------------ */
+:root {
+  color-scheme: light dark;
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --border: #dfe5ec;
+  --border-strong: #cfd7e2;
+  --text: #151a21;
+  --muted: #667181;
+  --faint: #8994a3;
+  --good: #168a45;
+  --warn: #b96807;
+  --crit: #cc3434;
+  --accent: #2563eb;
+  --accent-bg: #eaf0ff;
+  --warn-bg: #fff2df;
+  --grid: #e9edf2;
+  --track: #e8edf3;
+  --good-bg: #e8f6ed;
+  --crit-bg: #fdebec;
+  --claude: #b85d43;
+  --codex: #2563eb;
+  --accent-glow: rgba(37, 99, 235, 0.09);
+  --good-glow: rgba(22, 138, 69, 0.05);
+  --panel-glass: rgba(255, 255, 255, 0.88);
+  --gauge-shadow: 0 16px 48px rgba(37, 58, 86, 0.09), 0 2px 10px rgba(37, 58, 86, 0.05);
+  --focus-ring: rgba(37, 99, 235, 0.32);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1015; --panel: #151b22; --panel-soft: #11171e; --border: #27303b; --border-strong: #34404e;
+    --text: #edf1f5; --muted: #a0aab6; --faint: #75808d; --accent: #7ea4ff; --accent-bg: #18243e;
+    --warn-bg: #2b2114; --grid: #232b34; --track: #252e39; --good: #55cb7b; --warn: #e8a54e; --crit: #ff7777;
+    --good-bg: #14291d; --crit-bg: #32191c; --claude: #e18468; --codex: #7ea4ff;
+    --accent-glow: rgba(126, 164, 255, 0.11); --good-glow: rgba(85, 203, 123, 0.05);
+    --panel-glass: rgba(21, 27, 34, 0.9);
+    --gauge-shadow: 0 20px 60px rgba(0, 0, 0, 0.26), 0 2px 10px rgba(0, 0, 0, 0.18);
+    --focus-ring: rgba(126, 164, 255, 0.38);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1015; --panel: #151b22; --panel-soft: #11171e; --border: #27303b; --border-strong: #34404e;
+  --text: #edf1f5; --muted: #a0aab6; --faint: #75808d; --accent: #7ea4ff; --accent-bg: #18243e;
+  --warn-bg: #2b2114; --grid: #232b34; --track: #252e39; --good: #55cb7b; --warn: #e8a54e; --crit: #ff7777;
+  --good-bg: #14291d; --crit-bg: #32191c; --claude: #e18468; --codex: #7ea4ff;
+  --accent-glow: rgba(126, 164, 255, 0.11); --good-glow: rgba(85, 203, 123, 0.05);
+  --panel-glass: rgba(21, 27, 34, 0.9);
+  --gauge-shadow: 0 20px 60px rgba(0, 0, 0, 0.26), 0 2px 10px rgba(0, 0, 0, 0.18);
+  --focus-ring: rgba(126, 164, 255, 0.38);
+}
+
+/* ---- Shipped base (subset of public/styles.css, unchanged) -------------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { min-width: 280px; background: var(--bg); }
+body {
+  min-height: 100vh;
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(900px 460px at 12% -10%, var(--accent-glow), transparent 68%),
+    radial-gradient(720px 380px at 92% 4%, var(--good-glow), transparent 72%),
+    var(--bg);
+}
+button { font: inherit; }
+a { color: var(--accent); }
+.page-shell { width: min(860px, calc(100% - 32px)); margin: 0 auto; padding: 30px 0 48px; }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 2px 2px 24px; border-bottom: 1px solid var(--border); margin-bottom: 26px; }
+.wordmark { font-family: var(--mono); font-size: 1.18rem; font-weight: 680; line-height: 1; letter-spacing: -0.03em; }
+.wordmark-sub { display: block; margin-top: 8px; color: var(--muted); font-family: var(--sans); font-size: 0.72rem; font-weight: 500; letter-spacing: 0; line-height: 1.4; }
+.freshness { display: flex; align-items: center; gap: 7px; color: var(--muted); font-family: var(--mono); font-size: 0.76rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pulse { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px var(--good-glow); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.section-kicker { margin-bottom: 6px; color: var(--accent); font-family: var(--mono); font-size: 0.67rem; font-weight: 650; line-height: 1; letter-spacing: 0.09em; text-transform: uppercase; }
+.section-label { color: var(--faint); font-family: var(--mono); font-size: 0.68rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
+.limits-overview { min-width: 0; margin-bottom: 0; padding: 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel-glass); }
+.limits-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 17px; }
+.limits-heading h1 { margin: 0; font-family: var(--mono); font-size: 1.22rem; font-weight: 650; line-height: 1.2; letter-spacing: -0.02em; }
+.scope-copy { max-width: 360px; margin: 0; color: var(--muted); font-size: 0.74rem; text-align: right; }
+.scope-copy strong { color: var(--text); font-weight: 620; }
+.account-identity { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 0 2px 12px; }
+.account-number { margin: 0; color: var(--text); font-family: var(--mono); font-size: 0.66rem; font-weight: 650; line-height: 1.2; letter-spacing: 0.085em; text-transform: uppercase; }
+.account-members { min-width: 0; color: var(--faint); font-size: 0.68rem; text-align: right; overflow-wrap: anywhere; }
+.account-members strong { color: var(--muted); font-weight: 620; }
+
+/* Gauge lanes (context only; unchanged by this feature) */
+.limit-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; min-width: 0; }
+.limit-tool { --tool-color: var(--faint); position: relative; min-width: 0; padding: 0 0 0 13px; }
+.limit-tool::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 3px; border-radius: 3px; background: var(--tool-color); }
+.tool-claude { --tool-color: var(--claude); }
+.tool-codex { --tool-color: var(--codex); }
+.limit-tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 10px; }
+.tool-name { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 0.88rem; font-weight: 650; }
+.tool-mark { color: var(--tool-color); font-size: 0.92rem; }
+.limit-tool .plan { min-width: 0; color: var(--faint); font-size: 0.66rem; text-align: right; overflow-wrap: anywhere; }
+.window-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; }
+.panel { border: 1px solid var(--border); border-radius: 13px; background: var(--panel); box-shadow: var(--gauge-shadow); }
+.limit-card { display: grid; grid-template-rows: 0.75rem 3.1rem 2.1rem 7px 1rem; row-gap: 8px; align-content: start; min-width: 0; padding: 14px 14px 15px; }
+.panel-head { color: var(--faint); font-family: var(--mono); font-size: 0.6rem; font-weight: 680; letter-spacing: 0.075em; text-transform: uppercase; line-height: 1; }
+.remaining { align-self: end; margin: 0; font-family: var(--mono); font-size: clamp(2.35rem, 5vw, 3.15rem); font-weight: 600; line-height: 1; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.remaining .unit { margin-left: 2px; color: var(--muted); font-size: 0.42em; letter-spacing: 0; }
+.is-good { color: var(--good); } .is-warn { color: var(--warn); } .is-crit { color: var(--crit); }
+.limit-card .sub { height: 100%; margin: 0; color: var(--muted); font-size: 0.66rem; line-height: 1.3; overflow-wrap: anywhere; }
+.bar { height: 7px; overflow: hidden; border-radius: 999px; background: var(--track); }
+.bar-fill { height: 100%; border-radius: inherit; transition: width 220ms cubic-bezier(.2, .8, .2, 1); }
+.fill-good { background: var(--good); } .fill-warn { background: var(--warn); } .fill-crit { background: var(--crit); }
+.limit-reset-compact { display: flex; align-items: baseline; gap: 4px; min-width: 0; color: var(--faint); font-family: var(--mono); font-size: 0.61rem; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; }
+.limit-reset-label { font-size: 0.56rem; font-weight: 680; letter-spacing: 0.075em; text-transform: uppercase; }
+.limit-reset-value { color: var(--muted); font-weight: 620; }
+
+/* Supplementary band: shipped rules, unchanged */
+.supplementary { min-width: 0; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.supplementary-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 0 2px 10px; }
+.supplementary-heading .section-label { margin: 0; color: var(--text); font-size: 0.68rem; }
+.supplementary-scope { min-width: 0; color: var(--faint); font-size: 0.67rem; text-align: right; overflow-wrap: anywhere; }
+.supplement-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--panel-soft); }
+.global-limit-group { --tool-color: var(--faint); min-width: 0; padding: 15px 16px 16px; }
+.global-limit-group + .global-limit-group { border-left: 1px solid var(--border); }
+.promotion-group { grid-column: 1 / -1; border-top: 1px solid var(--border); }
+.global-limit-group + .promotion-group { border-left: 0; }
+.promotion-title { margin: 0 0 5px; color: var(--text); font-family: var(--mono); font-size: .9rem; font-weight: 650; }
+.promotion-detail { margin: 5px 0; color: var(--muted); font-size: .7rem; line-height: 1.5; overflow-wrap: anywhere; }
+.promotion-detail strong { color: var(--text); }
+.promotion-link { display: inline-block; min-height: 32px; margin-top: 6px; padding: 6px 0; color: var(--accent); font-size: .72rem; font-weight: 650; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 140ms ease-out, text-decoration-color 140ms ease-out; }
+.promotion-link:hover { text-decoration-color: currentColor; }
+.promotion-link:focus-visible { outline: none; border-radius: 6px; box-shadow: 0 0 0 3px var(--focus-ring); transition: box-shadow 120ms ease-out; }
+.global-limit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.global-limit-title { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; margin: 0; color: var(--text); font-family: var(--mono); font-size: 0.78rem; font-weight: 680; line-height: 1.3; }
+.global-limit-meta { min-width: 0; color: var(--faint); font-size: 0.64rem; text-align: right; overflow-wrap: anywhere; }
+.nested-limit-title { margin: 14px 0 8px; color: var(--muted); font-family: var(--mono); font-size: 0.62rem; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; }
+.reset-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px 10px; min-width: 0; margin: -2px 0 10px; }
+.reset-count { display: flex; align-items: baseline; gap: 5px; color: var(--accent); font-family: var(--mono); white-space: nowrap; }
+.reset-count strong { font-size: 1.42rem; font-weight: 680; line-height: 1; letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
+.reset-count span { color: var(--muted); font-size: 0.65rem; font-weight: 600; }
+.state-pill { display: inline-flex; align-items: center; min-height: 21px; padding: 2px 8px; border-radius: 999px; font-family: var(--mono); font-size: 0.57rem; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.pill-good { color: var(--good); background: var(--good-bg); }
+.pill-warn { color: var(--warn); background: var(--warn-bg); }
+.pill-crit { color: var(--crit); background: var(--crit-bg); }
+.reset-copy, .zero-copy { margin: -2px 0 10px; color: var(--muted); font-size: 0.67rem; }
+.zero-copy { margin-top: 8px; }
+.expiry-list, .model-limit-list { margin: 0; padding: 0; list-style: none; }
+.expiry-item { display: grid; grid-template-columns: 23px minmax(0, 1fr); align-items: start; gap: 9px; min-width: 0; padding: 8px 0; border-top: 1px solid var(--border); }
+.expiry-index { display: grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; color: var(--accent); background: var(--accent-bg); font-family: var(--mono); font-size: 0.61rem; font-weight: 680; }
+.expiry-date { display: block; min-width: 0; color: var(--text); font-family: var(--mono); font-size: 0.73rem; font-weight: 620; line-height: 1.35; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.expiry-relative { display: block; margin-top: 2px; color: var(--faint); font-size: 0.62rem; overflow-wrap: anywhere; }
+.evidence-note, .empty-evidence { margin: 8px 0 0; padding: 9px 11px; border-left: 3px solid var(--note-color, var(--warn)); border-radius: 8px; color: var(--text); background: var(--note-bg, var(--warn-bg)); font-size: 0.68rem; line-height: 1.45; overflow-wrap: anywhere; }
+.evidence-note strong, .empty-evidence strong { font-weight: 680; }
+.evidence-note.critical { --note-color: var(--crit); --note-bg: var(--crit-bg); }
+.empty-evidence { --note-color: var(--faint); --note-bg: var(--panel); margin-top: 0; }
+.unavailable-metric { color: var(--muted); font-family: var(--mono); font-size: 0.74rem; font-weight: 650; }
+.account-honesty { display: flex; align-items: flex-start; gap: 8px; margin: 11px 2px 0; color: var(--faint); font-size: 0.65rem; }
+.account-honesty::before { color: var(--good); content: "●"; font-size: 0.5rem; line-height: 2.1; }
+.model-limit { padding: 10px 0 11px; border-top: 1px solid var(--border); }
+.model-limit:first-child { padding-top: 0; border-top: 0; }
+.model-limit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.model-limit-namewrap { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.model-name { overflow-wrap: anywhere; color: var(--text); font-family: var(--mono); font-size: 0.86rem; font-weight: 600; }
+.model-window { color: var(--muted); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.07em; }
+.model-limit-metric { display: flex; flex-direction: column; align-items: flex-end; min-width: 72px; font-variant-numeric: tabular-nums; }
+.model-remaining { font-family: var(--mono); font-size: 1.25rem; font-weight: 600; line-height: 1; }
+.model-remaining .unit { margin-left: 1px; color: var(--muted); font-size: 0.76rem; }
+.model-reset { color: var(--faint); font-size: 0.68rem; overflow-wrap: anywhere; }
+.model-limit-sub { margin: 7px 0; color: var(--muted); font-size: 0.7rem; }
+.model-bar { height: 5px; }
+
+/* Credit balance sub-block: shipped by available-api-credits, unchanged */
+.credit-block { min-width: 0; }
+.credit-block-lead { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.credit-block-lead > .nested-limit-title { margin-top: 0; }
+.credit-block-tail { margin-top: 12px; border-top: 1px solid var(--border); }
+.credit-block-tail > .nested-limit-title { margin-top: 12px; }
+.credit-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; min-width: 0; margin: -2px 0 8px; }
+.credit-status { color: var(--text); font-family: var(--mono); font-size: .9rem; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
+.credit-status.is-none { color: var(--muted); }
+.credit-last { color: var(--muted); font-size: .67rem; overflow-wrap: anywhere; }
+.credit-balance { margin: 4px 0 8px; color: var(--muted); font-size: .67rem; line-height: 1.5; overflow-wrap: anywhere; min-width: 0; }
+.credit-balance-value { color: var(--text); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; unicode-bidi: isolate; overflow-wrap: anywhere; word-break: break-word; }
+.credit-age { margin: 0 0 6px; color: var(--faint); font-size: .62rem; font-variant-numeric: tabular-nums; }
+.credit-pointer { margin: 8px 0 0; color: var(--muted); font-size: .68rem; line-height: 1.45; }
+.credit-block .promotion-link { margin-top: 4px; }
+.credit-block .evidence-note + .evidence-note { margin-top: 6px; }
+
+/* ------------------------------------------------------------------------
+   NEW in this feature. Class names match schema.md section 6 so the
+   Engineer's CSS lands as-is. Every container is min-width:0 and wraps
+   anywhere; nothing is nowrap, clamped, truncated, or hover-only.
+   ------------------------------------------------------------------------ */
+
+/* 1. The Next reset expiry headline: the first sub-block of the Codex group.
+   Same hairline grammar as the credit blocks (one fact, one heading, one rule).
+   The absolute date is the group's focal line at the status-word weight
+   (.9rem mono 650); the countdown is a muted sentence with only the duration
+   in --text mono, mirroring how the balance sentence treats its figure. */
+.next-expiry-block { min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.next-expiry-block > .nested-limit-title { margin-top: 0; }
+.next-expiry-summary { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 7px 10px; min-width: 0; margin: -2px 0 6px; }
+.next-expiry-when { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.next-expiry-date { display: block; min-width: 0; color: var(--text); font-family: var(--mono); font-size: .9rem; font-weight: 650; line-height: 1.25; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.next-expiry-relative { display: block; min-width: 0; color: var(--muted); font-size: .67rem; line-height: 1.45; overflow-wrap: anywhere; }
+.next-expiry-dur { color: var(--text); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; }
+.next-expiry-summary .state-pill { margin-top: 1px; }
+.next-expiry-age { margin: 0; color: var(--faint); font-size: .62rem; font-variant-numeric: tabular-nums; }
+/* The before-weekly-reset note: ordinary readable text, not a tinted callout.
+   It is a fact about two provider instants, not a data-quality warning, so it
+   must not borrow the warn/crit evidence-note grammar. Bold lead, muted tail. */
+.next-expiry-note { min-width: 0; margin: 8px 0 0; color: var(--muted); font-size: .67rem; line-height: 1.5; overflow-wrap: anywhere; }
+.next-expiry-note strong { color: var(--text); font-weight: 650; }
+
+/* 2. The Expiry line on the Codex Credit balance block: sits between the
+   balance sentence and the age, in the balance sentence's register, so the
+   two provider facts about the balance read as a pair. */
+.credit-expiry { min-width: 0; margin: -3px 0 6px; color: var(--muted); font-size: .67rem; line-height: 1.5; overflow-wrap: anywhere; }
+.credit-expiry-date { color: var(--text); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* ---- Review-only mockup chrome (not product DOM) ----------------------- */
+.mock-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin: 0 0 22px; padding: 10px 14px; border: 1px dashed var(--border-strong); border-radius: 12px; color: var(--muted); font-size: .72rem; }
+.mock-bar strong { color: var(--text); font-family: var(--mono); font-weight: 650; }
+.mock-nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { min-height: 30px; padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--panel); font-family: var(--mono); font-size: .68rem; font-weight: 620; line-height: 1; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; transition: color 160ms ease-out, border-color 160ms ease-out, background 160ms ease-out, box-shadow 120ms ease-out; }
+.pill:hover { color: var(--text); border-color: var(--border-strong); }
+.pill:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
+.pill.active, .pill[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
+.mock-view { margin-top: 34px; }
+.mock-view-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 0 2px 12px; }
+.mock-view-head h2 { margin: 0; font-family: var(--mono); font-size: 1rem; font-weight: 650; letter-spacing: -0.015em; }
+.mock-view-head p { margin: 0; max-width: 440px; color: var(--muted); font-size: .72rem; text-align: right; }
+.mock-annot { margin: 0 0 8px; color: var(--faint); font-family: var(--mono); font-size: .6rem; letter-spacing: .04em; overflow-wrap: anywhere; }
+.mock-annot code { color: var(--muted); }
+.mock-clock { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 14px 2px 0; color: var(--muted); font-size: .7rem; }
+.mock-clock strong { color: var(--text); font-family: var(--mono); font-weight: 650; font-variant-numeric: tabular-nums; }
+.mock-clock-nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--panel-soft); }
+.gallery-cell { min-width: 0; padding: 15px 16px 16px; border-top: 1px solid var(--border); }
+.gallery-cell:nth-child(-n+2) { border-top: 0; }
+.gallery-cell:nth-child(even) { border-left: 1px solid var(--border); }
+.gallery-cell .nested-limit-title:first-of-type { margin-top: 0; }
+.gallery-cell .next-expiry-block, .gallery-cell .credit-block-lead { padding-bottom: 10px; }
+.gallery-cell .after { margin: 10px 0 0; color: var(--faint); font-family: var(--mono); font-size: .6rem; letter-spacing: .04em; }
+.omitted { margin: 0 0 12px; padding: 12px 14px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--faint); font-family: var(--mono); font-size: .62rem; letter-spacing: .03em; }
+
+/* Phone frame: a real 320px inline-size container. Container queries replay
+   the shipped max-width:620px rules for this band so the geometry is honest. */
+.phone-wrap { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.phone { container-type: inline-size; width: 320px; max-width: 100%; flex: 0 0 auto; padding: 14px 11px; border: 1px solid var(--border); border-radius: 22px; background: var(--panel-glass); box-shadow: var(--gauge-shadow); }
+.phone-note { flex: 1 1 240px; min-width: 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
+.phone-note strong { color: var(--text); font-weight: 620; }
+.phone .limits-overview { padding: 14px 11px; border-radius: 14px; }
+@container (max-width: 620px) {
+  .supplementary-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .supplementary-scope { text-align: left; }
+  .supplement-grid { grid-template-columns: minmax(0, 1fr); }
+  .global-limit-group + .global-limit-group { border-top: 1px solid var(--border); border-left: 0; }
+  .global-limit-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .global-limit-meta { text-align: left; }
+  .account-identity { align-items: flex-start; flex-direction: column; gap: 3px; margin-bottom: 11px; }
+  .account-members { text-align: left; }
+}
+
+@media (max-width: 620px) {
+  .page-shell { width: min(100% - 22px, 860px); padding-top: 22px; }
+  .wordmark-sub { display: none; }
+  .limits-overview { padding: 14px 11px; border-radius: 14px; }
+  .limits-heading { align-items: flex-start; flex-direction: column; gap: 6px; margin-bottom: 13px; }
+  .limits-heading h1 { font-size: 1rem; }
+  .scope-copy { max-width: none; font-size: 0.66rem; text-align: left; }
+  .account-identity { align-items: flex-start; flex-direction: column; gap: 3px; margin-bottom: 11px; }
+  .account-members { text-align: left; }
+  .limit-tools { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .limit-tool { padding-left: 9px; }
+  .limit-card { grid-template-rows: 0.7rem 2.35rem 1.9rem 6px 0.9rem; row-gap: 6px; padding: 10px 9px 11px; border-radius: 11px; }
+  .remaining { font-size: clamp(1.75rem, 12vw, 2.08rem); }
+  .limit-card .sub { font-size: 0.58rem; }
+  .supplementary-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .supplementary-scope { text-align: left; }
+  .supplement-grid, .gallery { grid-template-columns: minmax(0, 1fr); }
+  .global-limit-group + .global-limit-group { border-top: 1px solid var(--border); border-left: 0; }
+  .global-limit-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .global-limit-meta { text-align: left; }
+  .gallery-cell:nth-child(even) { border-left: 0; }
+  .gallery-cell:nth-child(2) { border-top: 1px solid var(--border); }
+  .mock-view-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .mock-view-head p { text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+</style>
+</head>
+<body>
+<div class="page-shell">
+  <header>
+    <div class="wordmark">llmdash<span class="wordmark-sub">AI coding headroom, at a glance.</span></div>
+    <div class="freshness"><span class="pulse" aria-hidden="true"></span><span>updated 4s ago</span></div>
+  </header>
+
+  <div class="mock-bar" role="region" aria-label="Mockup controls">
+    <div><strong>design.html</strong> · usage-credit-expiry · the Next reset expiry headline, its weekly-reset note, and the Expiry line on the Codex credit balance</div>
+    <nav class="mock-nav" aria-label="Views">
+      <a class="pill" href="#composed">Composed</a>
+      <a class="pill" href="#gallery">Headline states</a>
+      <a class="pill" href="#balance">Balance expiry</a>
+      <a class="pill" href="#phone">320px phone</a>
+      <button class="pill" type="button" id="theme" aria-pressed="false">Dark preview</button>
+    </nav>
+  </div>
+
+  <!-- ==================================================================
+       VIEW 1: the primary composed view (desktop), local host, fixed mock
+       clock Oct 2, 2026, 12:00 PM PDT. Codex holds two reset credits; the
+       soonest (Oct 5) lapses before the weekly window resets (Oct 6), so
+       the note is present. Everything above the supplementary band and the
+       whole Claude side are unchanged context.
+       ================================================================== -->
+  <section class="limits-overview mock-view" id="composed" aria-labelledby="limits-title" style="margin-top:0">
+    <div class="limits-heading">
+      <div>
+        <div class="section-kicker">Capacity now</div>
+        <h1 id="limits-title">Headroom, allowances, and machines</h1>
+      </div>
+      <p class="scope-copy"><strong>Account-wide</strong> · the same limit windows on every machine signed in to each account.</p>
+    </div>
+    <article class="account-block" aria-labelledby="single-account-title">
+      <div class="account-identity">
+        <h2 class="account-number" id="single-account-title">Account</h2>
+        <span class="account-members"><strong>Shown once</strong> · from this machine</span>
+      </div>
+
+      <div class="limit-tools">
+        <section class="limit-tool tool-claude" aria-label="Claude Code account windows">
+          <div class="limit-tool-head"><span class="tool-name"><span class="tool-mark" aria-hidden="true">◆</span>Claude Code</span><span class="plan">Max 20x · updated 41s ago</span></div>
+          <div class="window-grid">
+            <div class="panel limit-card"><div class="panel-head">5-hour window</div><p class="remaining is-good">64<span class="unit">% left</span></p><p class="sub">36% used</p><div class="bar" aria-hidden="true"><div class="bar-fill fill-good" style="width:64%"></div></div><div class="limit-reset-compact"><span class="limit-reset-label">Reset</span><span class="limit-reset-value">2h 14m</span></div></div>
+            <div class="panel limit-card"><div class="panel-head">Weekly window</div><p class="remaining is-warn">38<span class="unit">% left</span></p><p class="sub">62% used</p><div class="bar" aria-hidden="true"><div class="bar-fill fill-warn" style="width:38%"></div></div><div class="limit-reset-compact"><span class="limit-reset-label">Reset</span><span class="limit-reset-value">3d 7h</span></div></div>
+          </div>
+        </section>
+        <section class="limit-tool tool-codex" aria-label="Codex account windows">
+          <div class="limit-tool-head"><span class="tool-name"><span class="tool-mark" aria-hidden="true">▲</span>Codex</span><span class="plan">ChatGPT Pro · updated 3m ago</span></div>
+          <div class="window-grid">
+            <div class="panel limit-card"><div class="panel-head">5-hour window</div><p class="remaining is-crit">12<span class="unit">% left</span></p><p class="sub">88% used</p><div class="bar" aria-hidden="true"><div class="bar-fill fill-crit" style="width:12%"></div></div><div class="limit-reset-compact"><span class="limit-reset-label">Reset</span><span class="limit-reset-value">1h 02m</span></div></div>
+            <div class="panel limit-card"><div class="panel-head">Weekly window</div><p class="remaining is-good">61<span class="unit">% left</span></p><p class="sub">39% used</p><div class="bar" aria-hidden="true"><div class="bar-fill fill-good" style="width:61%"></div></div><div class="limit-reset-compact"><span class="limit-reset-label">Reset</span><span class="limit-reset-value" id="composed-weekly-reset">4d 2h</span></div></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="supplementary" aria-labelledby="supplementary-single-account">
+        <div class="supplementary-heading"><h2 class="section-label" id="supplementary-single-account">Other global limits</h2>
+          <span class="supplementary-scope">same account · before pacing and local activity</span></div>
+        <div class="supplement-grid">
+
+          <!-- Claude group: unchanged. No expiry line, no expiry key (FR-15). -->
+          <section class="global-limit-group tool-claude" aria-labelledby="global-limit-single-account-claude-code">
+            <div class="global-limit-head"><h3 class="global-limit-title" id="global-limit-single-account-claude-code"><span class="tool-mark" aria-hidden="true">◆</span>Claude model caps</h3><span class="global-limit-meta">provider-reported</span></div>
+            <ul class="model-limit-list">
+              <li class="model-limit"><div class="model-limit-head"><div class="model-limit-namewrap"><span class="model-name">Opus 5.5</span><span class="model-window">Weekly cap</span></div>
+                <div class="model-limit-metric"><span class="model-remaining is-good">71<span class="unit">% left</span></span><span class="model-reset">resets in 3d 7h · updated 41s ago</span></div></div>
+                <div class="model-limit-sub">29% used</div><div class="bar model-bar" aria-hidden="true"><div class="bar-fill fill-good" style="width:71%"></div></div></li>
+            </ul>
+            <div class="credit-block credit-block-tail">
+              <h4 class="nested-limit-title">Credit balance</h4>
+              <div class="credit-summary"><span class="unavailable-metric">Unavailable</span></div>
+              <p class="empty-evidence"><strong>Claude Code does not report a usage-credit balance.</strong> No figure is inferred from the statusline or the usage pane.</p>
+              <p class="credit-pointer">Check in Claude Usage, linked under the Claude offer below.</p>
+            </div>
+          </section>
+
+          <!-- Codex group: NEW Next reset expiry first, then Credit balance (with its
+               new Expiry line), then the Reset credits block exactly as shipped.
+               The body is re-rendered by the review-only mock clock below. -->
+          <section class="global-limit-group tool-codex" aria-labelledby="global-limit-single-account-codex">
+            <div class="global-limit-head"><h3 class="global-limit-title" id="global-limit-single-account-codex"><span class="tool-mark" aria-hidden="true">▲</span>Codex credits &amp; resets</h3><span class="global-limit-meta">provider-reported</span></div>
+            <div id="composed-codex-body">
+              <div class="next-expiry-block">
+                <h4 class="nested-limit-title">Next reset expiry</h4>
+                <div class="next-expiry-summary">
+                  <div class="next-expiry-when">
+                    <time class="next-expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time>
+                    <span class="next-expiry-relative">expires in <span class="next-expiry-dur">2d 21h</span></span>
+                  </div>
+                </div>
+                <p class="next-expiry-age">updated 3m ago</p>
+                <p class="next-expiry-note"><strong>Expires before your Codex weekly reset.</strong> The weekly window resets in 4d 2h.</p>
+              </div>
+              <div class="credit-block credit-block-lead">
+                <h4 class="nested-limit-title">Credit balance</h4>
+                <div class="credit-summary"><span class="credit-status">Credits available</span></div>
+                <p class="credit-balance">Provider balance <bdi class="credit-balance-value">62500</bdi> · provider's own figure; not converted</p>
+                <p class="credit-expiry">Expiry · not reported by Codex</p>
+                <p class="credit-age">updated 3m ago</p>
+              </div>
+              <h4 class="nested-limit-title">Reset credits</h4>
+              <div class="reset-summary"><div class="reset-count"><strong>2</strong><span>available</span></div></div>
+              <p class="reset-copy">Each reset is listed soonest-first · updated 3m ago. Dates use this browser's timezone.</p>
+              <ol class="expiry-list" aria-label="Reset expiration dates">
+                <li class="expiry-item"><span class="expiry-index" aria-hidden="true">1</span><span><time class="expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time><span class="expiry-relative">expires in 2d 21h</span></span></li>
+                <li class="expiry-item"><span class="expiry-index" aria-hidden="true">2</span><span><time class="expiry-date" datetime="2026-10-25T16:00:00.000Z">Oct 25, 2026, 9:00 AM PDT</time><span class="expiry-relative">expires in 22d 21h</span></span></li>
+              </ol>
+            </div>
+          </section>
+
+          <!-- Claude offer: unchanged; the section's one Usage link -->
+          <section class="global-limit-group promotion-group" aria-label="Claude promotional offer">
+            <div class="global-limit-head"><h3 class="global-limit-title">◆ Claude offer</h3><span class="global-limit-meta">owner observed</span></div>
+            <p class="promotion-title">Reset for free · Opus 5.5</p>
+            <p class="promotion-detail">Get extra wiggle room to explore Opus 5.5. Expires Oct 22 (year and exact time not shown).</p>
+            <p class="promotion-detail"><strong>Seen in Claude Usage</strong> · updated 2h 10m ago. Check Claude before claiming; availability may have changed.</p>
+            <a class="promotion-link" href="https://claude.ai/settings/usage" rel="noopener noreferrer">Check in Claude Usage</a>
+          </section>
+        </div>
+      </section>
+      <p class="account-honesty">All readings in this block are account-wide. Machine-local usage begins below.</p>
+
+      <!-- Review-only: a mock clock that re-renders the Codex group body through
+           the schema's view model, so the live drop-off (FR-06), the note guards
+           (FR-08/09), and the no-headline case (FR-04) can be seen, not imagined.
+           The reading is re-polled at each step (capture age stays 3m). -->
+      <div class="mock-clock" role="region" aria-label="Mock clock for the Codex group">
+        <span>Mock clock · <strong id="mock-clock-label">Oct 2, 2026, 12:00 PM PDT</strong> · the dashboard re-renders every second; step it forward to watch the headline follow the evidence</span>
+        <div class="mock-clock-nav" role="group" aria-label="Advance the mock clock">
+          <button class="pill active" type="button" data-step="0" aria-pressed="true">Oct 2 · now</button>
+          <button class="pill" type="button" data-step="259200000" aria-pressed="false">+3d · soonest has passed</button>
+          <button class="pill" type="button" data-step="1987200000" aria-pressed="false">+23d · none left</button>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ==================================================================
+       VIEW 2: headline state gallery. One cell per display state of the
+       Next reset expiry sub-block, in the same divided band the product
+       uses. The mono caption above each cell names the wire state for the
+       Engineer; it is a mockup annotation, never product DOM.
+       ================================================================== -->
+  <section class="mock-view" id="gallery" aria-labelledby="gallery-title">
+    <div class="mock-view-head"><h2 id="gallery-title">Next reset expiry: every state</h2>
+      <p>The headline inherits the reset reading's state and age, never its own. A passed instant drops off; no dates means "not reported"; zero resets means no block at all. The weekly note appears only when both instants are present, current, and in order.</p></div>
+    <div class="gallery">
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>available</code> · soonest Oct 5 · weekly reset Oct 6 (in 4d 2h) · note present</p>
+        <div class="next-expiry-block">
+          <h4 class="nested-limit-title">Next reset expiry</h4>
+          <div class="next-expiry-summary">
+            <div class="next-expiry-when">
+              <time class="next-expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time>
+              <span class="next-expiry-relative">expires in <span class="next-expiry-dur">2d 21h</span></span>
+            </div>
+          </div>
+          <p class="next-expiry-age">updated 3m ago</p>
+          <p class="next-expiry-note"><strong>Expires before your Codex weekly reset.</strong> The weekly window resets in 4d 2h.</p>
+        </div>
+        <p class="after">Credit balance and Reset credits follow, unchanged</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>available</code> · two resets share the soonest instant · grouped (FR-02, FR-10)</p>
+        <div class="next-expiry-block">
+          <h4 class="nested-limit-title">Next reset expiry</h4>
+          <div class="next-expiry-summary">
+            <div class="next-expiry-when">
+              <time class="next-expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time>
+              <span class="next-expiry-relative">2 resets expire in <span class="next-expiry-dur">2d 21h</span></span>
+            </div>
+          </div>
+          <p class="next-expiry-age">updated 3m ago</p>
+          <p class="next-expiry-note"><strong>2 resets expire before your Codex weekly reset.</strong> The weekly window resets in 4d 2h.</p>
+        </div>
+        <p class="after">the list below shows one row reading "2 resets expire in 2d 21h"</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>available</code> · soonest Oct 8 (in 5d 21h) · weekly reset Oct 6 (in 4d 2h) · expiry is after the reset, so no note (FR-09)</p>
+        <div class="next-expiry-block">
+          <h4 class="nested-limit-title">Next reset expiry</h4>
+          <div class="next-expiry-summary">
+            <div class="next-expiry-when">
+              <time class="next-expiry-date" datetime="2026-10-08T16:00:00.000Z">Oct 8, 2026, 9:00 AM PDT</time>
+              <span class="next-expiry-relative">expires in <span class="next-expiry-dur">5d 21h</span></span>
+            </div>
+          </div>
+          <p class="next-expiry-age">updated 3m ago</p>
+        </div>
+        <p class="after">the second reset (Oct 25) stays in the list only</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>stale</code> · capture 6h 41m old · age inherited visibly · no note (FR-03, FR-09)</p>
+        <div class="next-expiry-block">
+          <h4 class="nested-limit-title">Next reset expiry</h4>
+          <div class="next-expiry-summary">
+            <div class="next-expiry-when">
+              <time class="next-expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time>
+              <span class="next-expiry-relative">expires in <span class="next-expiry-dur">2d 21h</span></span>
+            </div>
+            <span class="state-pill pill-warn">stale · 6h 41m ago</span>
+          </div>
+          <p class="next-expiry-age">updated 6h 41m ago</p>
+        </div>
+        <p class="after">the "last good reset reading is old" sentence appears once, in Reset credits</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>source-error</code> via <code>limitsDiagnostic.reason: codex-cmd-failed</code> · no note</p>
+        <div class="next-expiry-block">
+          <h4 class="nested-limit-title">Next reset expiry</h4>
+          <div class="next-expiry-summary">
+            <div class="next-expiry-when">
+              <time class="next-expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time>
+              <span class="next-expiry-relative">expires in <span class="next-expiry-dur">2d 21h</span></span>
+            </div>
+            <span class="state-pill pill-crit">source error</span>
+          </div>
+          <p class="next-expiry-age">updated 9m ago</p>
+        </div>
+        <p class="after">the "latest Codex account read failed" sentence appears once, in Reset credits</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>partial</code> · <code>availableCount: 2</code> · <code>expirations: []</code> · no date, no countdown, no note (FR-05)</p>
+        <div class="next-expiry-block">
+          <h4 class="nested-limit-title">Next reset expiry</h4>
+          <div class="next-expiry-summary">
+            <span class="unavailable-metric">not reported</span>
+            <span class="state-pill pill-warn">partial</span>
+          </div>
+          <p class="next-expiry-age">updated 3m ago</p>
+        </div>
+        <p class="after">"2 expiration dates are unavailable" stays the authoritative count, in Reset credits</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>zero</code> · <code>availableCount: 0</code> · the headline block is absent, not a dash dressed as a date (FR-04)</p>
+        <div class="credit-block credit-block-lead">
+          <h4 class="nested-limit-title">Credit balance</h4>
+          <div class="credit-summary"><span class="credit-status is-none">No credits</span></div>
+          <p class="credit-balance">Provider balance · not reported</p>
+          <p class="credit-expiry">Expiry · not reported by Codex</p>
+          <p class="credit-age">updated 2m ago</p>
+        </div>
+        <h4 class="nested-limit-title">Reset credits</h4>
+        <div class="reset-summary"><div class="reset-count"><strong>0</strong><span>available</span></div></div>
+        <p class="zero-copy">No expiration dates because no resets are currently available.</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">state <code>unsupported</code> (also <code>malformed</code>) · the headline block is absent (FR-04)</p>
+        <div class="credit-block credit-block-lead">
+          <h4 class="nested-limit-title">Credit balance</h4>
+          <div class="credit-summary"><span class="unavailable-metric">Unavailable</span></div>
+          <p class="empty-evidence"><strong>No credit standing has been observed from Codex yet.</strong> The standard Codex windows above are unaffected.</p>
+        </div>
+        <h4 class="nested-limit-title">Reset credits</h4>
+        <div class="reset-summary"><span class="unavailable-metric">Unavailable</span><span class="state-pill pill-warn">unsupported</span></div>
+        <p class="empty-evidence"><strong>Reset-credit details are not supported by this reading.</strong> The standard Codex windows above are unaffected.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================================================================
+       VIEW 3: the Expiry line on the Credit balance block. Codex gains one
+       line; Claude gains nothing. The credit block keeps its own age clock,
+       separate from the reset reading the headline inherits.
+       ================================================================== -->
+  <section class="mock-view" id="balance" aria-labelledby="balance-title">
+    <div class="mock-view-head"><h2 id="balance-title">Credit balance: the Expiry line</h2>
+      <p>One line between the balance sentence and the age. Today it is always the disclosed absence; the reported shape is designed so the day Codex reports an instant nothing else moves. An absent key or unknown status renders no line and no raw code.</p></div>
+    <div class="gallery">
+
+      <div class="gallery-cell">
+        <p class="mock-annot">wire <code>credits.expiry: { status: not-reported }</code> · today, every Codex host</p>
+        <h4 class="nested-limit-title">Credit balance</h4>
+        <div class="credit-summary"><span class="credit-status">Credits available</span></div>
+        <p class="credit-balance">Provider balance <bdi class="credit-balance-value">62500</bdi> · provider's own figure; not converted</p>
+        <p class="credit-expiry">Expiry · not reported by Codex</p>
+        <p class="credit-age">updated 3m ago</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">wire <code>credits.expiry: { status: reported, expiresAt: 2026-11-01T16:00:00.000Z }</code> · the forward-compatible shape (FR-12, FR-14)</p>
+        <h4 class="nested-limit-title">Credit balance</h4>
+        <div class="credit-summary"><span class="credit-status">Credits available</span></div>
+        <p class="credit-balance">Provider balance <bdi class="credit-balance-value">62500</bdi> · provider's own figure; not converted</p>
+        <p class="credit-expiry">Expiry <time class="credit-expiry-date" datetime="2026-11-01T16:00:00.000Z">Nov 1, 2026, 9:00 AM PDT</time> · expires in 29d 21h</p>
+        <p class="credit-age">updated 3m ago</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">wire <code>status: stale</code> · <code>expiry: not-reported</code> · the balance ages on its own clock; the headline above it may be fresh</p>
+        <h4 class="nested-limit-title">Credit balance</h4>
+        <div class="credit-summary"><span class="state-pill pill-warn">stale · 6h 41m ago</span><span class="credit-last">last reading: Credits available</span></div>
+        <p class="credit-balance">Provider balance <bdi class="credit-balance-value">62500</bdi> · provider's own figure; not converted</p>
+        <p class="credit-expiry">Expiry · not reported by Codex</p>
+        <p class="credit-age">updated 6h 41m ago</p>
+        <p class="evidence-note"><strong>The last good credit reading is old;</strong> the balance may have changed.</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">wire <code>status: unlimited</code> · <code>balance: null</code> · <code>expiry: not-reported</code></p>
+        <h4 class="nested-limit-title">Credit balance</h4>
+        <div class="credit-summary"><span class="credit-status">Unlimited</span></div>
+        <p class="credit-balance">Provider balance · not reported</p>
+        <p class="credit-expiry">Expiry · not reported by Codex</p>
+        <p class="credit-age">updated 1m ago</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">wire <code>expiry</code> absent, or <code>status</code> outside the own-key table (<code>constructor</code>, <code>__proto__</code>), or a <code>reported</code> instant that has passed · no line, no raw code (FR-14)</p>
+        <h4 class="nested-limit-title">Credit balance</h4>
+        <div class="credit-summary"><span class="credit-status">Credits available</span></div>
+        <p class="credit-balance">Provider balance <bdi class="credit-balance-value">62500</bdi> · provider's own figure; not converted</p>
+        <p class="credit-age">updated 3m ago</p>
+      </div>
+
+      <div class="gallery-cell">
+        <p class="mock-annot">Claude · <code>unsupported / not-reported</code> · pinned exactly as shipped: no expiry line, no expiry key (FR-15)</p>
+        <h4 class="nested-limit-title">Credit balance</h4>
+        <div class="credit-summary"><span class="unavailable-metric">Unavailable</span></div>
+        <p class="empty-evidence"><strong>Claude Code does not report a usage-credit balance.</strong> No figure is inferred from the statusline or the usage pane.</p>
+        <p class="credit-pointer">Check in Claude Usage, linked under the Claude offer below.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================================================================
+       VIEW 4: 320px phone frame. Worst case per QA-24: the grouped
+       "2 resets" headline, the note, and the balance Expiry line all
+       populated, with the Claude group stacked above. The frame is a real
+       inline-size container so the stacked single-column rules apply.
+       ================================================================== -->
+  <section class="mock-view" id="phone" aria-labelledby="phone-title">
+    <div class="mock-view-head"><h2 id="phone-title">320px phone frame</h2>
+      <p>Stacked single column. The headline is the first thing in the Codex group, so the soonest expiry is read before scrolling into the list. Everything wraps; nothing clips, truncates, or scrolls sideways.</p></div>
+    <div class="phone-wrap">
+      <div class="phone" aria-label="320 pixel wide phone frame">
+        <section class="limits-overview" aria-labelledby="phone-account">
+          <article class="account-block">
+            <div class="account-identity"><h2 class="account-number" id="phone-account">Account</h2>
+              <span class="account-members"><strong>Shown once</strong> · from this machine</span></div>
+            <section class="supplementary" style="margin-top:0; padding-top:0; border-top:0" aria-labelledby="supplementary-phone">
+              <div class="supplementary-heading"><h2 class="section-label" id="supplementary-phone">Other global limits</h2>
+                <span class="supplementary-scope">same account · before pacing and local activity</span></div>
+              <div class="supplement-grid">
+                <section class="global-limit-group tool-claude" aria-labelledby="global-limit-phone-claude-code">
+                  <div class="global-limit-head"><h3 class="global-limit-title" id="global-limit-phone-claude-code"><span class="tool-mark" aria-hidden="true">◆</span>Claude model caps</h3><span class="global-limit-meta">provider-reported</span></div>
+                  <ul class="model-limit-list">
+                    <li class="model-limit"><div class="model-limit-head"><div class="model-limit-namewrap"><span class="model-name">Opus 5.5</span><span class="model-window">Weekly cap</span></div>
+                      <div class="model-limit-metric"><span class="model-remaining is-good">71<span class="unit">% left</span></span><span class="model-reset">resets in 3d 7h</span></div></div>
+                      <div class="model-limit-sub">29% used</div><div class="bar model-bar" aria-hidden="true"><div class="bar-fill fill-good" style="width:71%"></div></div></li>
+                  </ul>
+                  <div class="credit-block credit-block-tail">
+                    <h4 class="nested-limit-title">Credit balance</h4>
+                    <div class="credit-summary"><span class="unavailable-metric">Unavailable</span></div>
+                    <p class="empty-evidence"><strong>Claude Code does not report a usage-credit balance.</strong> No figure is inferred from the statusline or the usage pane.</p>
+                    <p class="credit-pointer">Check in Claude Usage, linked under the Claude offer below.</p>
+                  </div>
+                </section>
+                <section class="global-limit-group tool-codex" aria-labelledby="global-limit-phone-codex">
+                  <div class="global-limit-head"><h3 class="global-limit-title" id="global-limit-phone-codex"><span class="tool-mark" aria-hidden="true">▲</span>Codex credits &amp; resets</h3><span class="global-limit-meta">provider-reported</span></div>
+                  <div class="next-expiry-block">
+                    <h4 class="nested-limit-title">Next reset expiry</h4>
+                    <div class="next-expiry-summary">
+                      <div class="next-expiry-when">
+                        <time class="next-expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time>
+                        <span class="next-expiry-relative">2 resets expire in <span class="next-expiry-dur">2d 21h</span></span>
+                      </div>
+                    </div>
+                    <p class="next-expiry-age">updated 3m ago</p>
+                    <p class="next-expiry-note"><strong>2 resets expire before your Codex weekly reset.</strong> The weekly window resets in 4d 2h.</p>
+                  </div>
+                  <div class="credit-block credit-block-lead">
+                    <h4 class="nested-limit-title">Credit balance</h4>
+                    <div class="credit-summary"><span class="credit-status">Credits available</span></div>
+                    <p class="credit-balance">Provider balance <bdi class="credit-balance-value">62500</bdi> · provider's own figure; not converted</p>
+                    <p class="credit-expiry">Expiry · not reported by Codex</p>
+                    <p class="credit-age">updated 3m ago</p>
+                  </div>
+                  <h4 class="nested-limit-title">Reset credits</h4>
+                  <div class="reset-summary"><div class="reset-count"><strong>3</strong><span>available</span></div></div>
+                  <p class="reset-copy">Each reset is listed soonest-first · updated 3m ago. Dates use this browser's timezone.</p>
+                  <ol class="expiry-list" aria-label="Reset expiration dates">
+                    <li class="expiry-item"><span class="expiry-index" aria-hidden="true">1</span><span><time class="expiry-date" datetime="2026-10-05T16:00:00.000Z">Oct 5, 2026, 9:00 AM PDT</time><span class="expiry-relative">2 resets expire in 2d 21h</span></span></li>
+                    <li class="expiry-item"><span class="expiry-index" aria-hidden="true">2</span><span><time class="expiry-date" datetime="2026-10-25T16:00:00.000Z">Oct 25, 2026, 9:00 AM PDT</time><span class="expiry-relative">expires in 22d 21h</span></span></li>
+                  </ol>
+                </section>
+                <section class="global-limit-group promotion-group" aria-label="Claude promotional offer">
+                  <div class="global-limit-head"><h3 class="global-limit-title">◆ Claude offer</h3><span class="global-limit-meta">owner observed</span></div>
+                  <p class="promotion-title">Reset for free · Opus 5.5</p>
+                  <p class="promotion-detail"><strong>Seen in Claude Usage</strong> · updated 2h 10m ago. Check Claude before claiming; availability may have changed.</p>
+                  <a class="promotion-link" href="https://claude.ai/settings/usage" rel="noopener noreferrer">Check in Claude Usage</a>
+                </section>
+              </div>
+            </section>
+            <p class="account-honesty">All readings in this block are account-wide. Machine-local usage begins below.</p>
+          </article>
+        </section>
+      </div>
+      <div class="phone-note">
+        <p><strong>What this frame proves.</strong> The date sits on one line at 320px (the longest formatted label the list already renders), the grouped countdown and the two-sentence note wrap as ordinary text, and the Expiry line sits between the balance sentence and the age without widening the column. The Reset credits block below is pixel-identical to today's.</p>
+        <p><strong>Reading order on a phone.</strong> Headline first, so a reset lapsing before the weekly window is learned before the per-reset list; the list stays as the complete, numbered evidence.</p>
+        <p id="phone-measure" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+// Review aids only. The product has no theme toggle; it follows prefers-color-scheme.
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('theme');
+  btn.addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark';
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+    btn.setAttribute('aria-pressed', String(!dark));
+    btn.textContent = dark ? 'Dark preview' : 'Light preview';
+  });
+  // Honesty check for the 320px frame: the frame's content must not overflow its box.
+  var phone = document.querySelector('.phone');
+  var out = document.getElementById('phone-measure');
+  function measure() {
+    if (!phone || !out) return;
+    var over = phone.scrollWidth - phone.clientWidth;
+    out.textContent = over > 0
+      ? 'Frame overflow: ' + over + 'px wider than its 320px box. Fix before handing off.'
+      : 'Frame content fits: scroll width equals the 320px box, no horizontal overflow.';
+  }
+  measure();
+  window.addEventListener('resize', measure);
+})();
+
+// ---------------------------------------------------------------------------
+// Mock clock for the composed Codex group. This is a faithful, review-only
+// copy of the schema.md view model (5a-5d) over the shipped formatters, so
+// the Engineer can diff behaviour against it. Dates are pinned to en-US /
+// America/Los_Angeles so the mockup reads the same in every reviewer's
+// browser; the product uses the browser's own locale and timezone.
+// ---------------------------------------------------------------------------
+(function () {
+  var NOW0 = Date.parse('2026-10-02T19:00:00Z'); // Oct 2, 2026, 12:00 PM PDT
+  var WEEKLY_RESET = '2026-10-06T21:00:00.000Z';   // Codex seven_day.resetsAt (Oct 6, 2:00 PM PDT)
+  var EXPIRATIONS = ['2026-10-05T16:00:00.000Z', '2026-10-25T16:00:00.000Z'];
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function fmtDur(ms) {
+    if (ms == null) return '—';
+    if (ms <= 0) return 'now';
+    var mins = Math.floor(ms / 60000), d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+  function fmtAge(iso, nowMs) {
+    var ms = nowMs - Date.parse(iso);
+    if (!isFinite(ms)) return null;
+    if (ms < 0) return 'just now';
+    var s = Math.floor(ms / 1000);
+    if (s < 60) return 'updated ' + s + 's ago';
+    return 'updated ' + fmtDur(ms) + ' ago';
+  }
+  var dateFmt = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/Los_Angeles' });
+  function dateLabel(iso) { try { return dateFmt.format(new Date(iso)); } catch (e) { return null; } }
+
+  // Re-polled at every step: the same account facts, captured 3 minutes before "now".
+  function toolAt(nowMs) {
+    var captured = new Date(nowMs - 3 * 60000).toISOString();
+    return {
+      limits: { seven_day: { resetsAt: WEEKLY_RESET } },
+      freshness: 'fresh', limitsDiagnostic: null,
+      accountLimits: { scope: 'account-wide',
+        resetCredits: { status: 'available', available: true, availableCount: 2, expirations: EXPIRATIONS, capturedAt: captured },
+        credits: { status: 'available', balance: '62500', capturedAt: captured, expiry: { status: 'not-reported' } } }
+    };
+  }
+
+  // resetCreditsForDisplay, reduced to the available/zero/partial path this mock exercises.
+  function resetForDisplay(tool, nowMs) {
+    var raw = tool.accountLimits.resetCredits;
+    var bounded = raw.expirations.slice().sort(function (a, b) { return Date.parse(a) - Date.parse(b); }).slice(0, raw.availableCount);
+    var expired = bounded.filter(function (iso) { return Date.parse(iso) <= nowMs; }).length;
+    var availableCount = Math.max(0, raw.availableCount - expired);
+    var expirations = bounded.filter(function (iso) { return Date.parse(iso) > nowMs; }).slice(0, availableCount);
+    var missing = Math.max(0, availableCount - expirations.length);
+    return { state: availableCount === 0 ? 'zero' : missing > 0 ? 'partial' : 'available', availableCount: availableCount, expirations: expirations, missingExpirationCount: missing, capturedAt: raw.capturedAt };
+  }
+  function resetStatePill(state, capturedAt, nowMs) {
+    if (state === 'partial') return '<span class="state-pill pill-warn">partial</span>';
+    if (state === 'stale') { var age = fmtAge(capturedAt, nowMs); return '<span class="state-pill pill-warn">stale' + (age ? ' · ' + esc(age.replace(/^updated /, '')) : '') + '</span>'; }
+    if (state === 'source-error') return '<span class="state-pill pill-crit">source error</span>';
+    return '';
+  }
+  function providerResetIsCurrent(tool, weeklyMs) {
+    return tool.freshness !== 'stale' && !(tool.limitsDiagnostic && tool.limitsDiagnostic.reason === 'stale-reading') && weeklyMs > 0;
+  }
+
+  // 5a + 5b: the headline view model. null => the block is omitted (FR-04).
+  function nextExpiryForDisplay(tool, nowMs) {
+    var reset = resetForDisplay(tool, nowMs);
+    if (reset.state === 'unsupported' || reset.state === 'malformed') return null;
+    if (reset.availableCount === 0) return null;
+    var soonest = reset.expirations[0] || null;
+    var quantity = 0;
+    for (var i = 0; soonest && i < reset.expirations.length && reset.expirations[i] === soonest; i++) quantity++;
+    var pill = (reset.state === 'stale' || reset.state === 'source-error') ? resetStatePill(reset.state, reset.capturedAt, nowMs)
+      : (!soonest && reset.state === 'partial') ? resetStatePill('partial') : '';
+    var weeklyNote = null;
+    if (soonest && (reset.state === 'available' || reset.state === 'partial')) {
+      var win = tool.limits && tool.limits.seven_day;
+      if (win && typeof win.resetsAt === 'string') {
+        var weeklyMs = Date.parse(win.resetsAt);
+        if (isFinite(weeklyMs) && weeklyMs > nowMs && providerResetIsCurrent(tool, weeklyMs) && Date.parse(soonest) < weeklyMs) weeklyNote = { weeklyMs: weeklyMs };
+      }
+    }
+    return { reset: reset, soonest: soonest, soonestMs: soonest ? Date.parse(soonest) : null, quantity: quantity, pill: pill, age: fmtAge(reset.capturedAt, nowMs), weeklyNote: weeklyNote };
+  }
+
+  // 5c: headline markup.
+  function nextExpiryHtml(tool, nowMs) {
+    var v = nextExpiryForDisplay(tool, nowMs);
+    if (!v) return '';
+    var label = v.soonest ? dateLabel(v.soonest) : null;
+    var html = '<div class="next-expiry-block"><h4 class="nested-limit-title">Next reset expiry</h4><div class="next-expiry-summary">';
+    if (label) {
+      html += '<div class="next-expiry-when"><time class="next-expiry-date" datetime="' + esc(v.soonest) + '">' + esc(label) + '</time>'
+        + '<span class="next-expiry-relative">' + esc(v.quantity > 1 ? v.quantity + ' resets expire' : 'expires') + ' in <span class="next-expiry-dur">' + esc(fmtDur(v.soonestMs - nowMs)) + '</span></span></div>';
+    } else {
+      html += '<span class="unavailable-metric">not reported</span>';
+    }
+    html += v.pill + '</div>';
+    if (v.age) html += '<p class="next-expiry-age">' + esc(v.age) + '</p>';
+    if (v.weeklyNote) {
+      html += '<p class="next-expiry-note"><strong>' + esc(v.quantity > 1 ? v.quantity + ' resets expire' : 'Expires') + ' before your Codex weekly reset.</strong> The weekly window resets in ' + esc(fmtDur(v.weeklyNote.weeklyMs - nowMs)) + '.</p>';
+    }
+    return html + '</div>';
+  }
+
+  // 5d: the credit block with its Expiry line (fresh/available path only in this mock).
+  function creditsHtml(tool, nowMs) {
+    var c = tool.accountLimits.credits;
+    var html = '<div class="credit-block credit-block-lead"><h4 class="nested-limit-title">Credit balance</h4>'
+      + '<div class="credit-summary"><span class="credit-status">Credits available</span></div>'
+      + '<p class="credit-balance">Provider balance <bdi class="credit-balance-value">' + esc(c.balance) + '</bdi> · provider\'s own figure; not converted</p>';
+    var e = c.expiry;
+    if (e && e.status === 'not-reported') html += '<p class="credit-expiry">Expiry · not reported by Codex</p>';
+    else if (e && e.status === 'reported' && isFinite(Date.parse(e.expiresAt)) && Date.parse(e.expiresAt) > nowMs) {
+      var iso = new Date(Date.parse(e.expiresAt)).toISOString();
+      html += '<p class="credit-expiry">Expiry <time class="credit-expiry-date" datetime="' + esc(iso) + '">' + esc(dateLabel(iso)) + '</time> · expires in ' + esc(fmtDur(Date.parse(iso) - nowMs)) + '</p>';
+    }
+    var age = fmtAge(c.capturedAt, nowMs);
+    if (age) html += '<p class="credit-age">' + esc(age) + '</p>';
+    return html + '</div>';
+  }
+
+  // The shipped Reset credits block, unchanged (golden-pinned in the product).
+  function resetCreditsHtml(tool, nowMs) {
+    var reset = resetForDisplay(tool, nowMs);
+    var pill = resetStatePill(reset.state, reset.capturedAt, nowMs);
+    var observed = fmtAge(reset.capturedAt, nowMs);
+    var html = '<h4 class="nested-limit-title">Reset credits</h4><div class="reset-summary"><div class="reset-count"><strong>' + reset.availableCount.toLocaleString() + '</strong><span>available</span></div>' + pill + '</div>';
+    if (reset.availableCount === 0) {
+      html += '<p class="zero-copy">No expiration dates because no resets are currently available.</p>';
+    } else {
+      html += '<p class="reset-copy">Each reset is listed soonest-first' + (observed ? ' · ' + esc(observed) : '') + '. Dates use this browser\'s timezone.</p>';
+      var grouped = [];
+      reset.expirations.forEach(function (iso) { var p = grouped[grouped.length - 1]; if (p && p.iso === iso) p.quantity++; else grouped.push({ iso: iso, quantity: 1 }); });
+      html += '<ol class="expiry-list" aria-label="Reset expiration dates">' + grouped.map(function (item, i) {
+        var date = dateLabel(item.iso); if (!date) return '';
+        var rel = (item.quantity > 1 ? item.quantity + ' resets expire' : 'expires') + ' in ' + fmtDur(Date.parse(item.iso) - nowMs);
+        return '<li class="expiry-item"><span class="expiry-index" aria-hidden="true">' + (i + 1) + '</span><span><time class="expiry-date" datetime="' + esc(item.iso) + '">' + esc(date) + '</time><span class="expiry-relative">' + esc(rel) + '</span></span></li>';
+      }).join('') + '</ol>';
+    }
+    if (reset.missingExpirationCount > 0) {
+      var n = reset.missingExpirationCount;
+      html += '<p class="evidence-note"><strong>' + n + ' expiration ' + (n === 1 ? 'date is' : 'dates are') + ' unavailable.</strong> The provider count remains authoritative.</p>';
+    }
+    return html;
+  }
+
+  var body = document.getElementById('composed-codex-body');
+  var label = document.getElementById('mock-clock-label');
+  var weeklyCard = document.getElementById('composed-weekly-reset');
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('.mock-clock-nav .pill'));
+  function render(stepMs) {
+    var nowMs = NOW0 + stepMs;
+    var tool = toolAt(nowMs);
+    body.innerHTML = nextExpiryHtml(tool, nowMs) + creditsHtml(tool, nowMs) + resetCreditsHtml(tool, nowMs);
+    label.textContent = dateLabel(new Date(nowMs).toISOString());
+    var weeklyLeft = Date.parse(WEEKLY_RESET) - nowMs;
+    weeklyCard.textContent = weeklyLeft > 0 ? fmtDur(weeklyLeft) : 'turned over';
+    buttons.forEach(function (b) { var on = Number(b.getAttribute('data-step')) === stepMs; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+  }
+  buttons.forEach(function (b) { b.addEventListener('click', function () { render(Number(b.getAttribute('data-step'))); }); });
+  render(0);
+})();
+</script>
+</body>
+</html>

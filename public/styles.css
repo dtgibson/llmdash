@@ -685,6 +685,30 @@ header {
 .credit-pointer { margin: 8px 0 0; color: var(--muted); font-size: 0.68rem; line-height: 1.45; }
 .credit-block .promotion-link { margin-top: 4px; }
 .credit-block .evidence-note + .evidence-note { margin-top: 6px; }
+/* Credit expiry on the Codex balance: sits between the balance sentence and
+   the age, in the balance sentence's register, so the two provider facts about
+   the balance read as a pair. */
+.credit-expiry { min-width: 0; margin: -3px 0 6px; color: var(--muted); font-size: 0.67rem; line-height: 1.5; overflow-wrap: anywhere; }
+.credit-expiry-date { color: var(--text); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Next reset expiry: the first sub-block of the Codex group, closed by the
+   same hairline as the credit blocks (one fact, one heading, one rule). The
+   absolute date is the focal line at the status-word weight; the countdown is
+   a muted sentence with only the duration in --text mono. Live readout: it
+   updates in place with tabular numerals and no motion. */
+.next-expiry-block { min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.next-expiry-block > .nested-limit-title { margin-top: 0; }
+.next-expiry-block + .credit-block-lead > .nested-limit-title { margin-top: 12px; }
+.next-expiry-summary { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 7px 10px; min-width: 0; margin: -2px 0 6px; }
+.next-expiry-when { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.next-expiry-date { display: block; min-width: 0; color: var(--text); font-family: var(--mono); font-size: 0.9rem; font-weight: 650; line-height: 1.25; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.next-expiry-relative { display: block; min-width: 0; color: var(--muted); font-size: 0.67rem; line-height: 1.45; overflow-wrap: anywhere; }
+.next-expiry-dur { color: var(--text); font-family: var(--mono); font-weight: 620; font-variant-numeric: tabular-nums; }
+.next-expiry-summary .state-pill { margin-top: 1px; }
+.next-expiry-age { margin: 0; color: var(--faint); font-size: 0.62rem; font-variant-numeric: tabular-nums; }
+/* The before-weekly-reset note is ordinary readable text, not a tinted
+   callout: a fact about two provider instants, not a data-quality warning. */
+.next-expiry-note { min-width: 0; margin: 8px 0 0; color: var(--muted); font-size: 0.67rem; line-height: 1.5; overflow-wrap: anywhere; }
+.next-expiry-note strong { color: var(--text); font-weight: 650; }
 .account-honesty { display: flex; align-items: flex-start; gap: 8px; margin: 11px 2px 0; color: var(--faint); font-size: 0.65rem; }
 .account-honesty::before { color: var(--good); content: "●"; font-size: 0.5rem; line-height: 2.1; }
 
