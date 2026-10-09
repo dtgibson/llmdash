@@ -2,8 +2,22 @@
 
 **Result:** Verified live on this development Mac, with the configured remote peer blocked by persistent runtime containment. No physical device or live peer was accessed.
 
-Production: https://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/
+Production HTTPS: https://hephaestus-developer.giraffe-chuckwalla.ts.net:8983/
+Existing production HTTP: http://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/
 Verified: `2026-10-09T04:46:51.893524+00:00`. Tailnet-only Tailscale Serve HTTPS; no public Funnel. Requests were pinned to this Mac's own Tailscale address `100.70.220.2`, with certificate verification enabled. Existing preview HTTPS8982 was preserved.
+
+## HTTP bookmark compatibility correction
+
+The initial deployment put Tailscale Serve HTTPS on the existing HTTP port8787,
+causing HTTP bookmarks to return400. The HTTPS proxy now uses separate port8983;
+the8787Serve entry was removed so the application's original HTTP listener is
+reachable again. Hostname and own-Mac Tailscale-IP HTTP roots return200, the new
+HTTPS root returns200, and constructor-range API checks return200/canonical7d
+over both protocols. Every other Serve route, including preview8982, is unchanged.
+There was no application or service restart; peer containment remains active.
+Correction evidence is in ignored `data/weft-http-compat-latest.json` and its
+referenced directory. The original deployment evidence below records the earlier
+HTTPS verification; the URLs above describe the current routing.
 
 ## Release and authorization
 

@@ -444,6 +444,10 @@
   never on the request path.
 
 ## Serving & UI
+- **Preserve the production HTTP bookmarks on port 8787.** Tailscale Serve HTTPS
+  uses separate port 8983, forwarding to loopback 8787. Never take over an
+  existing HTTP port with an HTTPS listener; verify both the original HTTP URL
+  and the separate HTTPS URL after any routing change.
 - Responses carry baseline security headers. The CSP allows `style-src
   'unsafe-inline'` (the UI sets dynamic widths/colors via inline styles) while
   `script-src` stays `'self'`. Keep style values to literals or coerced numbers —

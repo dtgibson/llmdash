@@ -189,13 +189,14 @@
     "release_sha": "5433f976ca126e1a767f2279e11b6c8f78c5332c",
     "previous_good_sha": "1fccae6da77404be1c4af8ab6699c3f54bb20c44",
     "verified_at": "2026-10-09T04:46:51.893524+00:00",
-    "url": "https://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/",
+    "url": "https://hephaestus-developer.giraffe-chuckwalla.ts.net:8983/",
     "record": "/Users/developer/devwork/llmdash/data/weft-spool-deploy-20261009-044224/record.json",
     "contained": true,
     "peer_polling_blocked": true,
     "provider_https_allowed": true,
     "local_checks": 11,
-    "https_checks": 3
+    "https_checks": 3,
+    "http_url": "http://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/"
   },
   "runs_closed": true,
   "ideas_built": true,
@@ -215,5 +216,14 @@
     "release_record": "pipeline/spool-release.md",
     "deployment_record": "pipeline/spool-deployment.md",
     "production_restart_required": false
+  },
+  "http_compatibility": {
+    "verified_at": "2026-10-09T05:06:47.436721+00:00",
+    "http_port": 8787,
+    "https_port": 8983,
+    "http_status": 200,
+    "https_status": 200,
+    "other_routes_unchanged": true,
+    "evidence": "/Users/developer/devwork/llmdash/data/weft-http-compat-latest.json"
   }
 }

@@ -2,7 +2,8 @@
 
 Status: all five builds shipped, all five runs closed, and consolidated documentation complete. The user explicitly approved Ship (`1`); deployment was verified at `5433f976ca126e1a767f2279e11b6c8f78c5332c`.
 Build branch: `weft-spool/20261009-022224`, landed on main. Application bundle checkpoint: `6ff6db8`.
-Production: https://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/
+Production HTTPS: https://hephaestus-developer.giraffe-chuckwalla.ts.net:8983/
+Existing production HTTP bookmarks: http://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/
 Durable records: [deployment and rollback](spool-deployment.md), [release manifest](spool-release-manifest.json).
 
 | Build | Lane | Idea | Checkpoint |
