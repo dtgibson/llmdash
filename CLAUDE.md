@@ -202,8 +202,11 @@
   data eternally fresh). A future-instant normalizer shared across trust
   boundaries (an expiry or reset) also rejects an implausible horizon, not only a
   past or unparseable value, so a unit mismatch or a lenient `Date.parse` cannot
-  present an absurd date as provider evidence. `creditExpiryFromIso` and the
-  reset-credit expiration path do not bound it yet (tracked on the roadmap).
+  present an absurd date as provider evidence. Credit-standing and reset-credit
+  expirations share an inclusive ten-year ceiling (`10 * 365.25` days) relative to
+  the supplied clock at both local and peer ingestion. Rejected dates are missing
+  evidence, never a reason to lower the authoritative reset-credit count; valid
+  past reset dates still participate in expired-credit accounting.
 - When refactoring a single-source view to multi-source, **diff the rendered stat
   set** so nothing silently drops. When a shared formatting helper changes, the
   diff must enumerate the helper's call sites, not just the feature's own block.
@@ -360,14 +363,19 @@
   the actual I/O boundary: open the final file descriptor with no-follow semantics,
   validate regular-file identity and size from the descriptor, cap bytes before
   allocation, revalidate before publication, and enforce directory/record/time
-  ceilings before cache insertion. A pathname `lstat` followed by a separate
-  pathname `open` skips static symlinks but is **not** a race-free no-follow
+  ceilings before cache insertion. Use a nonblocking open when a discovered regular
+  file could be replaced by a FIFO before descriptor validation. A pathname `lstat`
+  followed by a separate pathname `open` skips static symlinks but is **not** a race-free no-follow
   guarantee: if same-user ancestor replacement is in scope, use descriptor-relative
   traversal; otherwise document the narrower boundary.
   Parse caches shared by several ranges retain the widest active horizon, and HTTP
   trend handlers never trigger a scan: both tools' daily series read poller-owned
   caches; Claude publishes all three ranges together after a complete bounded
   refresh and retains the last good publication on failures.
+  Keep scan outcome separate from retained data's publication time: a failed Codex
+  refresh exposes only a safe enum, preserves prior aggregates/time, and remains
+  failed through retry until success. Publication, outcome changes, and resets
+  invalidate response caches immediately; accelerated retries apply only to warming.
 - **Readiness and request latency must never depend on log-corpus size.** The
   server binds its listener before any structured-log scan; the poller's first
   tick does the priming. Poller-driven scans are generators that yield to the
@@ -406,8 +414,9 @@
   or unit is not evidence); test the normalizer at function level instead. A seam
   that does ship carries its own observation clock, treats an explicit `null` as a
   clear, bounds the instant, and is named in the README disclosure. The shipped
-  Codex `credits.expiresAt` read meets none of these yet and is an open owner
-  decision (DECISIONS.md 2026-10-02).
+  Codex `credits.expiresAt` read now bounds the instant but still lacks its own
+  observation clock, explicit-null clearing, and README disclosure; the unobserved
+  field remains an open owner decision (DECISIONS.md 2026-10-02 and 2026-10-08).
 - Empty/error limit states cross the wire as **enum reason codes**
   (`limitsDiagnostic` in `/api/state`); the client maps codes to copy and escapes
   the few free-form fields. The server knows the cause — the client never guesses.
@@ -522,6 +531,11 @@
 ## Running & Testing
 - `npm start` (or the `llmdash.service` systemd user service). Tests: `npm test`
   (node:test).
+- **Preserve production's peer containment during any agent deployment or reload.**
+  The ordinary installer overwrites its contained LaunchAgent command; use the
+  containment-preserving procedure and rollback record in `pipeline/spool-deployment.md`.
+  Verification stays on this development Mac with synthetic peers; never access
+  physical devices or live peers. Review links must be verified tailnet-only HTTPS.
 - **Usage-ingestion changes require a fresh-process current-corpus release check:**
   run the bounded cold scan through convergence, then measure forced-GC cache and
   heap occupancy against the explicit ceilings. Fixtures alone do not prove that
@@ -533,9 +547,10 @@
   summaries; signed cache effect equals no-cache less observed.
 - **Classify and prove against the base commit.** A failure in code the diff never
   touched is reproduced at the base (a clean `git archive` copy) before it is
-  routed back; the dev checkout's hard-linked `config/api-rates.json` fails two
-  tests there because the secure reader rejects multi-link files by design, which
-  is environmental, not a regression. A "payload differs only by X" claim is proven
+  routed back. Inspect filesystem metadata when a secure-file reader rejects a
+  tracked input: repair a hard link by byte-identical independent replacement,
+  preserving mode/ownership, rather than writing through its inode or relaxing
+  reader protections. A "payload differs only by X" claim is proven
   by a live base-vs-build diff of every reachable route's JSON key paths (isolated
   data dirs), not by key-set unit tests alone.
 - **An installer/setup step must never dirty the tracked checkout.** Generate

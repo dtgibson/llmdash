@@ -1,0 +1,219 @@
+{
+  "branch": "weft-spool/20261009-022224",
+  "project_id": "840b6bed-e512-4561-bb4a-6966f37ca61c",
+  "builds": [
+    {
+      "feature": "bound-expiry-horizon",
+      "lane": "maintain",
+      "idea_id": "e177e2c3-8b72-4972-985c-1a1896d3669f",
+      "deploy_stage": 5,
+      "chronicle_stage": 6,
+      "design_pass": false,
+      "checkpoint": "60bcd4b",
+      "summary": "Shared ten-year expiry ceiling; count-preserving rejection of implausible dates."
+    },
+    {
+      "feature": "dev-rate-card-hardlink",
+      "lane": "fix",
+      "idea_id": "04cdfb34-d7bc-4316-aaa4-9746f06e94e0",
+      "deploy_stage": 5,
+      "chronicle_stage": 6,
+      "design_pass": false,
+      "checkpoint": "6d4d37b",
+      "summary": "Byte-identical atomic dev rate-card replacement restores cost tests while retaining file protections."
+    },
+    {
+      "feature": "claude-trends-background-cache",
+      "lane": "maintain",
+      "idea_id": "f3bb102c-f385-411c-9573-0ca6d62523da",
+      "deploy_stage": 5,
+      "chronicle_stage": 6,
+      "design_pass": false,
+      "checkpoint": "2d40b25",
+      "summary": "Bounded cooperative Claude trend refresh; cached-only requests, atomic all-range publication and last-good retention."
+    },
+    {
+      "feature": "trends-range-guard",
+      "lane": "fix",
+      "idea_id": "2ddf2d5b-b0f6-4bda-a538-1351b86ef144",
+      "deploy_stage": 5,
+      "chronicle_stage": 6,
+      "design_pass": false,
+      "checkpoint": "7ff4088",
+      "summary": "Own-key trend range guard prevents prototype names from returning HTTP500; preserves canonical7d fallback."
+    },
+    {
+      "feature": "trends-warming-scan-state",
+      "lane": "maintain",
+      "idea_id": "cbc966f5-ad6a-461d-9659-2304f294f2af",
+      "deploy_stage": 5,
+      "chronicle_stage": 6,
+      "design_pass": false,
+      "checkpoint": "6ff6db8",
+      "summary": "Two-second warming cache, immediate state/publication invalidation, and honest Codex failure with retained data/time and recovery."
+    }
+  ],
+  "deployed": true,
+  "preview": {
+    "data_dir": "/var/folders/qn/fzq2ymy1219bnchgrdvmcrdc0000gp/T/llmdash-spool-preview-t2t08pwr",
+    "port": 8982,
+    "url": "https://hephaestus-developer.giraffe-chuckwalla.ts.net:8982/",
+    "pid": 91538,
+    "verified_at": "2026-10-09T04:11:11.887418+00:00",
+    "verification": {
+      "https": true,
+      "tailnet_only": true,
+      "public_funnel": false,
+      "http_checks": 11,
+      "max_trend_ms": 47.09,
+      "claude_state": "ready",
+      "codex_state": "ready",
+      "browser_visual_verification": false,
+      "peer_polling": false,
+      "provider_probes": false
+    },
+    "final_verified_at": "2026-10-09T04:21:15.216124+00:00",
+    "final_checks": [
+      {
+        "endpoint": "/",
+        "status": 200
+      },
+      {
+        "endpoint": "/api/trends?range=constructor",
+        "status": 200
+      },
+      {
+        "endpoint": "/api/hosts",
+        "status": 200
+      }
+    ]
+  },
+  "bundle_verification": {
+    "command": "npm test",
+    "runs": 2,
+    "exit_code": 0,
+    "elapsed_seconds": 37.28,
+    "summary": {
+      "tests": "940",
+      "suites": "0",
+      "pass": "938",
+      "fail": "0",
+      "cancelled": "0",
+      "skipped": "2",
+      "todo": "0",
+      "duration_ms": "37124.535583"
+    },
+    "log": "/Users/developer/devwork/llmdash/data/weft-spool-bundle-test.log",
+    "checkpoint": "6ff6db8",
+    "verified_at": "2026-10-09T04:19:56.523702+00:00",
+    "rate_card_unchanged": true,
+    "rate_card": {
+      "sha256": "04717bf2e8974693977b01c55e58c77098ad07edb7e25dd5c5d096521e24ebea",
+      "links": 1,
+      "mode": 420,
+      "uid": 502
+    },
+    "isolated": true,
+    "harness_correction": "Removed forcedport0; inheritedLLMDASHvariables still cleared,default8787 allowed. No source changes between runs.",
+    "baseline": "new=0 known=0 resolved=0; 2026-09-23T05:48:35Z"
+  },
+  "bundle_verification_attempts": [
+    {
+      "command": "npm test",
+      "runs": 1,
+      "exit_code": 1,
+      "elapsed_seconds": 38.32,
+      "summary": {
+        "tests": "940",
+        "suites": "0",
+        "pass": "936",
+        "fail": "2",
+        "cancelled": "0",
+        "skipped": "2",
+        "todo": "0",
+        "duration_ms": "38111.651708"
+      },
+      "log": "/Users/developer/devwork/llmdash/data/weft-spool-bundle-test-harness-attempt1.log",
+      "checkpoint": "6ff6db8",
+      "verified_at": "2026-10-09T04:17:36.100078+00:00",
+      "rate_card_unchanged": true,
+      "rate_card": {
+        "sha256": "04717bf2e8974693977b01c55e58c77098ad07edb7e25dd5c5d096521e24ebea",
+        "links": 1,
+        "mode": 420,
+        "uid": 502
+      },
+      "isolated": true,
+      "reason": "Harness port0 conflicted with two menu-bar assertions of default8787; no source changes."
+    },
+    {
+      "command": "npm test",
+      "runs": 2,
+      "exit_code": 0,
+      "elapsed_seconds": 37.28,
+      "summary": {
+        "tests": "940",
+        "suites": "0",
+        "pass": "938",
+        "fail": "0",
+        "cancelled": "0",
+        "skipped": "2",
+        "todo": "0",
+        "duration_ms": "37124.535583"
+      },
+      "log": "/Users/developer/devwork/llmdash/data/weft-spool-bundle-test.log",
+      "checkpoint": "6ff6db8",
+      "verified_at": "2026-10-09T04:19:56.523702+00:00",
+      "rate_card_unchanged": true,
+      "rate_card": {
+        "sha256": "04717bf2e8974693977b01c55e58c77098ad07edb7e25dd5c5d096521e24ebea",
+        "links": 1,
+        "mode": 420,
+        "uid": 502
+      },
+      "isolated": true,
+      "harness_correction": "Removed forcedport0; inheritedLLMDASHvariables still cleared,default8787 allowed. No source changes between runs."
+    }
+  ],
+  "release_gate": {
+    "id": "spool-bundle-release-20261009-022224",
+    "stage": 5,
+    "feature": "trends-warming-scan-state",
+    "lane": "maintain",
+    "decision": "ship",
+    "build_count": 5,
+    "user_reply": "1",
+    "approved_at": "2026-10-09T04:26:06.541969+00:00"
+  },
+  "deployment": {
+    "release_sha": "5433f976ca126e1a767f2279e11b6c8f78c5332c",
+    "previous_good_sha": "1fccae6da77404be1c4af8ab6699c3f54bb20c44",
+    "verified_at": "2026-10-09T04:46:51.893524+00:00",
+    "url": "https://hephaestus-developer.giraffe-chuckwalla.ts.net:8787/",
+    "record": "/Users/developer/devwork/llmdash/data/weft-spool-deploy-20261009-044224/record.json",
+    "contained": true,
+    "peer_polling_blocked": true,
+    "provider_https_allowed": true,
+    "local_checks": 11,
+    "https_checks": 3
+  },
+  "runs_closed": true,
+  "ideas_built": true,
+  "closed_features": [
+    "bound-expiry-horizon",
+    "dev-rate-card-hardlink",
+    "claude-trends-background-cache",
+    "trends-range-guard",
+    "trends-warming-scan-state"
+  ],
+  "run_closure_verified_at": "2026-10-09T04:51:00.507665+00:00",
+  "documentation": {
+    "complete": true,
+    "scope": "one consolidated record-only closeout after all five runs closed",
+    "source_manifest": "data/weft-spool-release.json",
+    "source_manifest_sha256": "5debe9aa1953ec08fe97ace712268b1cc1482c8c97bf706392b77778bd126e96",
+    "release_record": "pipeline/spool-release.md",
+    "deployment_record": "pipeline/spool-deployment.md",
+    "production_restart_required": false
+  }
+}

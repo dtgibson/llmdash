@@ -41,7 +41,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   claimable when stale, claimed, or dismissed.
 - **Usage trends** — each tool group closes with its own vanilla-SVG limit burn,
   tokens-per-day, and cache-rate charts under one shared 24h / 7d / 30d range
-  switch.
+  switch, with cached loading replies and explicit Codex scan failures that retain
+  earlier data and its observation time.
 - **Claude reading freshness & auto-refresh** — the Claude limit reading shows
   its age in the tool header (flagged "aging" past 5 minutes, "stale" past 10)
   and keeps itself fresh automatically while Claude is active (including nested
@@ -155,16 +156,21 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Codex daily series are filtered from the poller's last published 30-day
-  scan (an explicit warming state until the first publish). Claude's three daily
-  ranges are aggregated cooperatively on the poller and published atomically;
-  requests read only that cache, report warming before its first complete publish,
-  and retain the last good data after refresh failures. Static assets are served `no-store`; the CSP
+  scan. Claude's three daily ranges are aggregated cooperatively on the poller
+  and published atomically;
+  requests read only published daily caches and briefly reuse warming answers,
+  with publication or scan-state changes visible immediately. A genuine cold scan
+  reports warming; a failed Codex scan reports a read failure through retries while
+  retaining last-good data and its original observation time until successful
+  recovery. Claude likewise retains its last good publication after refresh failure.
+  Static assets are served `no-store`; the CSP
   allows inline styles while scripts stay locked to `'self'`.
 - Startup binds the HTTP listener before any structured-log scan; the poller's
   first tick primes the insights and cost analytics, and poller scans over local
   logs yield to the event loop in short slices, so service readiness and request
   latency do not grow with the log corpus. Until the first scan publishes, local
-  Codex activity and insights read as loading, never as "no activity".
+  Codex activity and insights distinguish loading from scan failure, never presenting
+  either as "no activity".
 - Served on `0.0.0.0:8787` but **tailnet-only by default**: a connection is
   refused at accept unless it arrives on a loopback/Tailscale address from a
   loopback/Tailscale source (`LLMDASH_ALLOW_LAN=1` also admits LAN devices;
@@ -233,7 +239,8 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
   that reading's state and age) and is compared only with a current provider
   weekly reset; the Codex balance says its expiry is not reported, and Claude
   reports neither credits nor expiry. Nothing is inferred from grant times, the
-  30-day pattern, usage, plan, or billing period.
+  30-day pattern, usage, plan, or billing period; dates beyond the shared ten-year
+  plausibility horizon are missing evidence without reducing the available count.
 - **Configured subscription spend** is fixed access cost supplied by the owner;
   **API-equivalent values** are counterfactual estimates from retained local logs,
   not invoices or provider charges, and any missing source/rate coverage remains

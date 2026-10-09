@@ -1,5 +1,52 @@
 # Decisions — llmdash
 
+## Credit-expiry plausibility bound — 2026-10-08 (improve)
+
+**Decision:** Credit-standing and reset-credit expirations share one inclusive
+ten-year horizon (`10 * 365.25` days) at local and peer ingestion. An implausible
+reset date becomes missing evidence without lowering the authoritative available
+count; ordinary expired dates still subtract once, and invalid standing expiry
+remains `not-reported`.
+**Rationale:** A distant date or numeric-unit mismatch must not appear as provider
+evidence. This closes F3 from the 2026-10-02 expiry decision and strengthens its
+existing normalization contract without changing count semantics.
+**Implications:** The unobserved balance-expiry field and its guessed name/unit
+(F1), separate observation clock and explicit-null clearing (F2), and README
+disclosure remain open owner decisions. A plausibility bound does not establish
+that the provider reports the field.
+
+## Trends cache and scan failures — 2026-10-08 (improve/fix)
+
+**Decision:** Both tools' daily trends are background-owned; Claude publishes all
+three ranges atomically after a complete bounded scan and retains its last good
+publication after failure. Warming replies reuse work for two seconds, ready
+replies for sixty seconds, and publication, Codex scan-outcome changes, or reset
+invalidate immediately. Failed Codex scans remain explicit through retries while
+preserving earlier aggregates and their original observation time; accelerated
+retries apply only to genuine warming. Unsupported and inherited range names use
+the existing seven-day fallback.
+**Rationale:** This closes the 2026-10-01 Claude request-scan, uncached-warming,
+permanent-Codex-warming, and range-guard follow-ups. An inherited property had
+passed the range membership check and caused HTTP 500; own-key validation restores
+the existing fallback. Failure is distinct from cold loading and successful empty
+evidence, without exposing raw errors or changing chart calculations.
+**Implications:** Preserve bounded partial convergence and last-good evidence;
+scan outcome must never restamp retained data. A discovered local file that can
+become a FIFO needs a nonblocking open before descriptor validation. Faster first
+Codex limits remain separate work; these changes add no persistence or peer/menu
+contract.
+
+## Development rate-card identity repair — 2026-10-08 (fix)
+
+**Decision:** Repair the development checkout's hard-linked rate card by an atomic,
+byte-identical independent replacement, retaining its safe mode and ownership.
+**Rationale:** The secure reader correctly rejected a two-link file, causing the
+tracked-card validity and fixed-resource API checks to fail; the pricing bytes
+were valid. Writing through the shared inode or relaxing the reader was unnecessary.
+**Implications:** Hard-link, symlink, ownership, mode, and identity protections
+remain intact. Prices and the production rate card are unchanged; the other link
+and the cause of its creation remain uninvestigated under the approved scope.
+
 ## Usage credit expiry — reported instants only, stated absence, no invented dates — 2026-10-02 (feature)
 
 **Decision:** Show credit expiry only where a provider reports it. Research
