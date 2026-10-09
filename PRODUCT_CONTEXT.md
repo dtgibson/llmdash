@@ -155,8 +155,10 @@ Code (Max) and Codex (the live ChatGPT account tier) side by side.
 - Trends come from the same data (the snapshot series plus daily-bucketed log
   aggregation) via a separate `/api/trends?range=` endpoint, rendered as plain
   SVG. Codex daily series are filtered from the poller's last published 30-day
-  scan (an explicit warming state until the first publish); Claude's are still
-  read from transcripts per request. Static assets are served `no-store`; the CSP
+  scan (an explicit warming state until the first publish). Claude's three daily
+  ranges are aggregated cooperatively on the poller and published atomically;
+  requests read only that cache, report warming before its first complete publish,
+  and retain the last good data after refresh failures. Static assets are served `no-store`; the CSP
   allows inline styles while scripts stay locked to `'self'`.
 - Startup binds the HTTP listener before any structured-log scan; the poller's
   first tick primes the insights and cost analytics, and poller scans over local

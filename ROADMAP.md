@@ -64,11 +64,10 @@ never a date to infer.
   the credit standing now cross peers; still pass the `model-cap-expired` /
   `window-not-reported` fields (model, window, last-observed time), which the
   `src/hosts.js` normalizer drops today, with a peer-path test.
-- **Trends off the request path** — the Claude half of `/api/trends` still reads
-  transcripts per request (≈0.25 s at 7d, 0.8 s at 30d), uncached while Codex
-  warms; move it to a bounded poller-owned cache, give a failed Codex scan its own
-  unavailable state instead of permanent warming, and make the range guard an
-  own-key lookup.
+- **Trend cache and failure states** — cache warming answers, give a failed
+  Codex scan its own unavailable state instead of permanent warming, and make
+  the range guard an own-key lookup. Claude daily aggregation now runs only on
+  the poller and publishes all ranges together after a complete bounded scan.
 - **Faster first Codex limits after a cold start** — the first reading follows the
   first tick's analytics (17–33 s, badge shows `—` meanwhile); read limits first.
   The owner-settings save's synchronous cost refresh could likewise route through

@@ -365,8 +365,9 @@
   guarantee: if same-user ancestor replacement is in scope, use descriptor-relative
   traversal; otherwise document the narrower boundary.
   Parse caches shared by several ranges retain the widest active horizon, and HTTP
-  handlers never trigger a scan (the Claude half of `/api/trends` is the one known
-  exception, tracked on the roadmap).
+  trend handlers never trigger a scan: both tools' daily series read poller-owned
+  caches; Claude publishes all three ranges together after a complete bounded
+  refresh and retains the last good publication on failures.
 - **Readiness and request latency must never depend on log-corpus size.** The
   server binds its listener before any structured-log scan; the poller's first
   tick does the priming. Poller-driven scans are generators that yield to the
