@@ -8,6 +8,7 @@ import {
   normalizeDeviceHealth,
 } from '../src/hosts.js';
 import { setHost, getCombined, _reset } from '../src/host-cache.js';
+import { ACCOUNT_EXPIRY_MAX_AHEAD_MS } from '../src/account-credits.js';
 
 const iso = (msFromNow) => new Date(Date.now() + msFromNow).toISOString();
 
@@ -373,8 +374,9 @@ test('a peer\'s stale reset credits stay stale with a locally re-filtered count 
   });
 });
 
-test('peer reset credits are detached, canonical, bounded, and time-aware', () => {
+test('peer account expirations are detached, canonical, time-aware, and bounded to ten years', (t) => {
   const now = Date.UTC(2026, 6, 30, 12, 0, 0);
+  t.mock.method(Date, 'now', () => now);
   const first = new Date(now + 60_000).toISOString();
   const sharedOffset = new Date(now + 2 * 60_000).toISOString().replace('Z', '+00:00');
   const raw = {
@@ -425,6 +427,49 @@ test('peer reset credits are detached, canonical, bounded, and time-aware', () =
   }, Date.parse(first));
   assert.equal(atFirstBoundary.availableCount, 1);
   assert.deepEqual(atFirstBoundary.expirations, [new Date(Date.parse(sharedOffset)).toISOString()]);
+
+  const ceiling = new Date(now + ACCOUNT_EXPIRY_MAX_AHEAD_MS).toISOString();
+  const rejected = [
+    new Date(now + ACCOUNT_EXPIRY_MAX_AHEAD_MS + 1).toISOString(),
+    '9999-12-31T00:00:00.000Z', new Date(now * 1000).toISOString(),
+  ];
+  const distant = {
+    available: true, status: 'available', availableCount: 6,
+    expirations: [new Date(now - 1).toISOString(), first, ceiling.replace('Z', '+00:00'), ...rejected],
+    capturedAt: raw.capturedAt,
+  };
+  const partial = {
+    available: true, status: 'partial', availableCount: 5,
+    expirations: [first, ceiling], missingExpirationCount: 3,
+    capturedAt: '2026-07-30T12:00:00.000Z',
+  };
+  assert.deepEqual(normalizeResetCredits(distant, now), partial,
+    'the exact ceiling survives; only the past credit lowers the count');
+  assert.deepEqual(normalizeResetCredits(partial, now), partial,
+    'normalizing the result again does not subtract the past credit a second time');
+  assert.deepEqual(normalizeResetCredits({ ...distant, status: 'stale' }, now),
+    { ...partial, status: 'stale' }, 'stale and partial evidence keep their capture age');
+  assert.deepEqual(normalizeResetCredits({ ...distant, availableCount: 0 }, now), {
+    ...partial, status: 'zero', availableCount: 0, expirations: [], missingExpirationCount: 0,
+  });
+
+  for (const expiresAt of [first, ceiling, ...rejected]) {
+    const accountLimits = normalizePeerState({ tools: [{ source: 'codex', limits: {}, accountLimits: {
+      scope: 'account-wide', resetCredits: distant,
+      credits: {
+        status: 'available', balance: '5', capturedAt: raw.capturedAt,
+        expiry: { status: 'reported', expiresAt: expiresAt.replace('Z', '+00:00') },
+      },
+    } }] }).tools[0].accountLimits;
+    assert.deepEqual(accountLimits, {
+      scope: 'account-wide', resetCredits: partial,
+      credits: {
+        status: 'available', balance: '5', capturedAt: partial.capturedAt,
+        expiry: rejected.includes(expiresAt) ? { status: 'not-reported' }
+          : { status: 'reported', expiresAt },
+      },
+    }, 'the full peer ingestion path applies the same bound to both account facts');
+  }
 });
 
 test('peer model-limit collections and display strings are bounded before rendering', () => {

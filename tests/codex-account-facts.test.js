@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ACCOUNT_EXPIRY_MAX_AHEAD_MS } from '../src/account-credits.js';
 
 // One long-lived module instance receives several live app-server polls so the
 // test exercises the real sparse-update cache. The fake command records each
@@ -403,6 +404,54 @@ test('a reported credit expiry is canonical, future-only, sparse-retained, and c
   // A recognized plan change clears the reported instant with the standing.
   await poll({ planType: 'pro', credits: { hasCredits: true } });
   assert.deepEqual(codexCredits().expiry, { status: 'not-reported' });
+});
+
+test('local account expirations have an inclusive ten-year horizon without losing counts or expiry accounting', async (t) => {
+  const now = Date.UTC(2026, 9, 8, 12);
+  t.mock.method(Date, 'now', () => now);
+  const normal = now + 60_000;
+  const ceiling = now + ACCOUNT_EXPIRY_MAX_AHEAD_MS;
+  const rejected = [ceiling + 1, Date.parse('9999-12-31T00:00:00.000Z'), now * 1000];
+  const credits = [now - 1, normal, ceiling, ...rejected].map((ms) => ({
+    resetType: 'codexRateLimits', status: 'available', expiresAt: ms / 1000,
+  }));
+  await poll({ planType: 'pro', credits: { hasCredits: true, unlimited: false } }, {
+    availableCount: 6, credits,
+  });
+  const partial = {
+    available: true, status: 'partial', availableCount: 5,
+    expirations: [new Date(normal).toISOString(), new Date(ceiling).toISOString()],
+    missingExpirationCount: 3, capturedAt: new Date(now).toISOString(),
+  };
+  assert.deepEqual(codexResetCredits(now), partial,
+    'only the past credit lowers the count; rejected dates become missing evidence');
+  assert.deepEqual(codexResetCredits(now), partial, 'a repeat read does not subtract the past credit again');
+  assert.deepEqual(codexResetCredits(now + 1), partial,
+    'dates rejected at ingest do not reappear as the read clock advances');
+  assert.deepEqual(codexResetCredits(now + 10 * 60_000), {
+    ...partial, status: 'stale', availableCount: 4,
+    expirations: [new Date(ceiling).toISOString()], missingExpirationCount: 3,
+  }, 'stale evidence preserves the capture and subtracts the normally expired credit once');
+
+  for (const ms of [normal, ceiling]) {
+    await poll({ credits: { hasCredits: true, expiresAt: ms / 1000 } });
+    assert.deepEqual(codexCredits(now).expiry, { status: 'reported', expiresAt: new Date(ms).toISOString() });
+  }
+  await poll({ credits: { hasCredits: true, expires_at: new Date(ceiling).toISOString().replace('Z', '+00:00') } });
+  assert.deepEqual(codexCredits(now).expiry, { status: 'reported', expiresAt: new Date(ceiling).toISOString() });
+  for (const ms of rejected) {
+    for (const expiresAt of [ms / 1000, new Date(ms).toISOString()]) {
+      await poll({ credits: { hasCredits: true, expiresAt } });
+      assert.deepEqual(codexCredits(now).expiry, { status: 'not-reported' });
+      assert.deepEqual(codexCredits(now + 1).expiry, { status: 'not-reported' },
+        'rejected numeric and ISO standing expiries remain absent after ingestion');
+    }
+  }
+  await poll({}, { availableCount: 0, credits });
+  assert.deepEqual(codexResetCredits(now), {
+    available: true, status: 'zero', availableCount: 0, expirations: [],
+    missingExpirationCount: 0, capturedAt: new Date(now).toISOString(),
+  });
 });
 
 test.after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });

@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { toIso } from './claude-limits.js';
 import { resolveCommand } from './health.js';
 import {
-  boundedCreditBalance, creditExpiryFromIso, unsupportedCredits,
+  boundedAccountExpirationIso, boundedCreditBalance, creditExpiryFromIso, unsupportedCredits,
 } from './account-credits.js';
 
 // Why Codex limits are (un)available, for the startup log and /api/state.
@@ -143,12 +143,9 @@ function plainObject(value) {
   return proto === Object.prototype || proto === null;
 }
 
-function resetExpirationIso(value) {
+function resetExpirationIso(value, nowMs) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  const ms = value * 1000;
-  const date = new Date(ms);
-  if (!Number.isFinite(date.getTime())) return null;
-  try { return date.toISOString(); } catch { return null; }
+  return boundedAccountExpirationIso(value * 1000, nowMs);
 }
 
 // Normalize only the provider fields needed by the product. The internal
@@ -170,7 +167,7 @@ function normalizeResetCreditsObservation(raw, observedAtMs) {
     if (!plainObject(detail)) continue;
     if ((detail.resetType ?? detail.reset_type) !== 'codexRateLimits') continue;
     if (detail.status !== 'available') continue;
-    const iso = resetExpirationIso(detail.expiresAt ?? detail.expires_at);
+    const iso = resetExpirationIso(detail.expiresAt ?? detail.expires_at, observedAtMs);
     if (iso) expirations.push(iso);
   }
   expirations.sort((a, b) => Date.parse(a) - Date.parse(b));
@@ -314,8 +311,8 @@ function observeAccountFacts(result, rl) {
       // or null is a sparse update that keeps the prior value; a present but
       // unreadable value is recorded as unreadable, never as now.
       const rawExpiry = credits.expiresAt ?? credits.expires_at;
-      const expiryIso = typeof rawExpiry === 'number' ? resetExpirationIso(rawExpiry)
-        : typeof rawExpiry === 'string' ? toIso(rawExpiry)
+      const expiryIso = typeof rawExpiry === 'number' ? resetExpirationIso(rawExpiry, observedAtMs)
+        : typeof rawExpiry === 'string' ? boundedAccountExpirationIso(Date.parse(rawExpiry), observedAtMs)
           : undefined;
       if (expiryIso !== undefined) observedCreditExpiresAt = expiryIso;
     }
