@@ -337,6 +337,9 @@ export function buildCodexInsights(scan, range = '7d', nowMs = Date.now()) {
 // widest trends range; the records themselves are already held by the parse
 // cache, so this retains only references). null until the first publish.
 let cache = { activity: emptyActivity(), insights: new Map(), usage: null, generatedAt: null };
+// Separate scan outcome from retained data. Its identity changes on publication,
+// outcome transitions and reset, so consumers can invalidate without scanning.
+let scanStatus = Object.freeze({ state: 'warming', generatedAt: null });
 
 // Poller-owned refresh. Atomic replacement means a failed refresh keeps the
 // prior good view; HTTP getters below never scan the session tree.
@@ -368,25 +371,28 @@ function *refreshCodexAnalyticsSteps(nowMs, scanSteps, pacer) {
       partialOnBudget: true,
       ...(pacer ? { pacer } : {}),
     });
+    const usage = Array.isArray(scan?.usage) ? scan.usage : [];
+    const insights = new Map();
+    for (const range of Object.keys(CODEX_INSIGHT_RANGES)) {
+      if (pacer?.due()) yield;
+      insights.set(range, buildCodexInsights(scan, range, nowMs));
+    }
+    cache = { activity: activityFromUsage(usage, nowMs), insights, usage, generatedAt: new Date(nowMs).toISOString() };
+    scanStatus = Object.freeze({ state: 'ready', generatedAt: cache.generatedAt });
+    return true;
+  } catch {
+    if (scanStatus.state !== 'error') scanStatus = Object.freeze({ state: 'error', generatedAt: cache.generatedAt });
+    return false;
   }
-  catch { return false; }
-  const usage = Array.isArray(scan?.usage) ? scan.usage : [];
-  const insights = new Map();
-  for (const range of Object.keys(CODEX_INSIGHT_RANGES)) {
-    if (pacer?.due()) yield;
-    insights.set(range, buildCodexInsights(scan, range, nowMs));
-  }
-  cache = { activity: activityFromUsage(usage, nowMs), insights, usage, generatedAt: new Date(nowMs).toISOString() };
-  return true;
 }
 
 // Existing activity contract, now a pure cache read.
-export function computeCodexActivity() { return cache.activity; }
+export function computeCodexActivity() { return { ...cache.activity, scanState: scanStatus.state }; }
 
 export function getCodexInsights(range = '7d') {
   range = canonicalRange(range);
   const base = cache.insights.get(range) || unavailableInsights(range, cache.generatedAt);
-  return { ...base, account: codexAccountFacts() };
+  return { ...base, scanState: scanStatus.state, account: codexAccountFacts() };
 }
 
 // Trends reader: a pure read of the poller's last published 30-day usage set
@@ -400,5 +406,9 @@ export function readUsageRecords(sinceMs) {
 }
 
 export function codexUsageReady() { return Array.isArray(cache.usage); }
+export function codexScanStatus() { return scanStatus; }
 
-export function clearCodexStatsCache() { cache = { activity: emptyActivity(), insights: new Map(), usage: null, generatedAt: null }; }
+export function clearCodexStatsCache() {
+  cache = { activity: emptyActivity(), insights: new Map(), usage: null, generatedAt: null };
+  scanStatus = Object.freeze({ state: 'warming', generatedAt: null });
+}

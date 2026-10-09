@@ -16,7 +16,8 @@ import { config } from '../config.js';
 import { tailnetIPv4 } from './net.js';
 import {
   CREDIT_EXPIRY_STATUSES, CREDIT_FRESH_STATUSES, CREDIT_REASONS, CREDIT_STATUSES,
-  boundedCreditBalance, creditExpiryFromIso, creditExpiryNotReported, unsupportedCredits,
+  boundedAccountExpirationIso, boundedCreditBalance, creditExpiryFromIso,
+  creditExpiryNotReported, unsupportedCredits,
 } from './account-credits.js';
 
 // ── Host/port sanitizer ──────────────────────────────────────────────────────
@@ -229,7 +230,8 @@ const RESET_CREDIT_STATUSES = new Set(['available', 'zero', 'partial', 'stale', 
 
 // Normalize one peer's account reset evidence into a detached, bounded shape.
 // The local clock filters known expirations and lowers the effective count by
-// exactly those records; missing dates remain missing rather than guessed.
+// exactly those records; missing or implausibly distant dates remain missing
+// rather than guessed and never lower the authoritative count.
 export function normalizeResetCredits(value, nowMs = Date.now()) {
   if (!isPlainObject(value) || !RESET_CREDIT_STATUSES.has(value.status)) {
     return unsupportedResetCredits();
@@ -244,16 +246,16 @@ export function normalizeResetCredits(value, nowMs = Date.now()) {
     return unsupportedResetCredits();
   }
 
+  const now = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
   const allExpirations = [];
   const input = Array.isArray(value.expirations) ? value.expirations.slice(0, 128) : [];
   for (const raw of input) {
     if (typeof raw !== 'string') continue;
-    const iso = normalizeIso(raw);
+    const iso = boundedAccountExpirationIso(Date.parse(raw), now);
     if (iso) allExpirations.push(iso);
   }
   allExpirations.sort((a, b) => Date.parse(a) - Date.parse(b));
   const bounded = allExpirations.slice(0, Math.min(128, count));
-  const now = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
   const expiredCount = bounded.reduce((sum, iso) => sum + (Date.parse(iso) <= now ? 1 : 0), 0);
   const availableCount = Math.max(0, count - Math.min(count, expiredCount));
   const expirations = bounded.filter((iso) => Date.parse(iso) > now)

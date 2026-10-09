@@ -11,6 +11,7 @@ import { readHostsConfig } from './host-config.js';
 import { refreshCostAnalysisAsync } from './cost-analysis.js';
 import { refreshAccountConfig } from './account-config.js';
 import { refreshDeviceHealth } from './device-health.js';
+import { refreshClaudeTrendsAsync } from './trends.js';
 
 function snapshot(live) {
   if (!live) return 0;
@@ -99,6 +100,11 @@ export async function pollPeers(remotes, nowMs = Date.now(), fetchImpl = fetchPe
 // cache), done here on the interval rather than per request.
 export async function pollOnce() {
   const nowMs = Date.now();
+  // All Claude trend ranges publish together. Requests only read this cache,
+  // and a failed/unfinished bounded pass leaves its last-good series intact.
+  try {
+    if (!(await refreshClaudeTrendsAsync(nowMs))) console.error('claude trends: refresh failed; keeping the last good snapshot');
+  } catch (e) { console.error('claude trends:', e.message); }
   // Local structured-log work happens before any external async probe. One
   // 30-day scan (normally only the active file reparses) fills existing Codex
   // activity plus every insight range atomically. The scan is cooperative: it

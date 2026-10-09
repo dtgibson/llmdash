@@ -1072,6 +1072,8 @@ function modelCapExpiredNoteHtml(tool) {
   return `<p class="evidence-note">${modelCapExpiredSentence(d)}</p>`;
 }
 
+const CODEX_SCAN_ERROR_COPY = "This machine's local Codex session logs could not be read.";
+
 function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetailsTitleId(tool), weeklyResetSelection = null, includePacing = true) {
   const a = tool.activity;
   // Reading-age status pill: warn "aging", crit "stale" — text first (NFR-08),
@@ -1083,6 +1085,7 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
     : '';
   const sub = `${esc(tool.plan)}${tool.dataAt ? ' · ' + fmtAge(tool.dataAt) : ''}${agePill}`;
   const hasActivity = a && a.hasData !== false;
+  const activityFailed = tool.source === 'codex' && a?.scanState === 'error';
   // A local producer that has not finished its first scan since the server
   // started sends hasData:false with generatedAt explicitly null (peer-normalized
   // activity omits the field, so a peer keeps the existing note). That is a
@@ -1092,8 +1095,11 @@ function toolCoreHtml(tool, activityScope = 'this machine', titleId = toolDetail
   // DO record usage locally once used). Never claim the limits are live here —
   // the gauges above speak for themselves.
   const activityBlock = hasActivity
-    ? (tilesHtml(a) + mixHtml(a))
-    : activityWarming
+    ? (tilesHtml(a) + mixHtml(a)
+      + (activityFailed ? `<p class="evidence-note">${CODEX_SCAN_ERROR_COPY} Showing the last successfully read activity.</p>` : ''))
+    : activityFailed
+      ? `<div class="empty-note">${CODEX_SCAN_ERROR_COPY}</div>`
+      : activityWarming
       ? `<div class="empty-note">Reading this machine's local ${esc(tool.label)} session logs — token stats appear once the first scan finishes.</div>`
       : `<div class="empty-note">No ${esc(tool.label)} sessions have been recorded on this machine yet — token stats fill in once you use ${esc(tool.label)} here (read from its local session logs).</div>`;
   const summary = tool.source === 'claude-code'
@@ -2005,7 +2011,10 @@ function renderCodexInsights(data, announce = true) {
   const surface = document.getElementById('insights-surface');
   if (!surface) return;
   const account = insightAccountHtml(data && data.account);
-  if (data && data.hasData !== true && data.generatedAt === null) {
+  const scanFailed = data?.scanState === 'error';
+  if (scanFailed && data.hasData !== true) {
+    surface.innerHTML = account + `<div class="insights-state insights-error">${CODEX_SCAN_ERROR_COPY}</div>`;
+  } else if (data && data.hasData !== true && data.generatedAt === null) {
     // The server's first local scan since start has not published yet (the
     // poller primes insights after the listener binds). Not a no-activity claim.
     surface.innerHTML = account + `<div class="insights-state">Reading local Codex session metadata…</div>`;
@@ -2014,13 +2023,14 @@ function renderCodexInsights(data, announce = true) {
     surface.innerHTML = account + `<div class="insights-state">No supported Codex activity was recorded in ${rangeCopy} on this machine.</div>`;
   } else {
     surface.innerHTML = account + insightSummaryHtml(data.summary)
-      + insightDetailsHtml(data) + insightDailyHtml(data.daily);
+      + insightDetailsHtml(data) + insightDailyHtml(data.daily)
+      + (scanFailed ? `<p class="evidence-note">${CODEX_SCAN_ERROR_COPY} Showing the last successfully read insights.</p>` : '');
   }
   surface.setAttribute('aria-busy', 'false');
   const status = document.getElementById('insights-status');
   if (status) {
-    status.textContent = announce ? `Updated · ${INSIGHT_RANGE_COPY[INSIGHT_RANGE]}` : '';
-    if (announce) {
+    status.textContent = scanFailed ? 'Local scan failed' : announce ? `Updated · ${INSIGHT_RANGE_COPY[INSIGHT_RANGE]}` : '';
+    if (announce && !scanFailed) {
       const request = insightRequestSequence;
       setTimeout(() => {
         if (request === insightRequestSequence && status.textContent.startsWith('Updated ·')) status.textContent = '';
@@ -2176,6 +2186,7 @@ function trendToolHtml(t, range) {
 // lookup only: an absent, 'ready', or unknown state keeps the existing render.
 const TREND_ACTIVITY_COPY = Object.freeze({
   warming: (label) => `Reading this machine's local ${esc(label)} session logs — token trends appear once the first scan finishes.`,
+  error: () => CODEX_SCAN_ERROR_COPY,
 });
 
 function trendActivityNote(t) {
@@ -2211,11 +2222,10 @@ function trendContentHtml(t, range) {
     cards.push(chartCard('Tokens per day', codex ? 'local logs · UTC buckets' : 'local logs', tokens, legendHtml([['cr', crLab], ['in', 'Input'], ['out', 'Output']])));
     cards.push(chartCard('Cache hit rate', codex ? 'local logs · cached ÷ input' : 'local logs', rate, ''));
   }
-  const note = (hasLimits && !hasActivity)
-    ? (activityNote
-      ? `<div class="empty-note">${activityNote}</div>`
-      : `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>`)
-    : '';
+  const note = activityNote
+    ? `<div class="empty-note">${activityNote}${t.activityState === 'error' && hasActivity ? ' Showing the last successfully read token trends.' : ''}</div>`
+    : (hasLimits && !hasActivity)
+      ? `<div class="empty-note">Token-based trends aren't available for ${esc(t.label)} — limits only.</div>` : '';
   return `<div class="charts">${cards.join('')}</div>${note}`;
 }
 
@@ -2249,7 +2259,12 @@ async function fetchTrends() {
     if (!renderedInGroups && fallback) fallback.innerHTML = (data.tools || []).map((tool) => trendToolHtml(tool, data.range)).join('');
     // While the server's first local scan is still running, check back sooner
     // than the regular cadence so the warming note is replaced promptly.
-    if (trendWarmingRetry === null && (Array.isArray(data.tools) ? data.tools : []).some(trendActivityNote)) {
+    const warming = (Array.isArray(data.tools) ? data.tools : []).some(tool => tool.activityState === 'warming');
+    if (!warming && trendWarmingRetry !== null) {
+      clearTimeout(trendWarmingRetry);
+      trendWarmingRetry = null;
+    }
+    if (trendWarmingRetry === null && warming) {
       trendWarmingRetry = setTimeout(() => { trendWarmingRetry = null; fetchTrends(); }, TREND_WARMING_RETRY_MS);
     }
   } catch { /* keep the previous render */ }

@@ -1,0 +1,2 @@
+warn	danger-html-injection	public/app.js	raw HTML sink in added line
+SCAN-RESULT findings=1 tool=grep

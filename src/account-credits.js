@@ -9,6 +9,20 @@ export const CREDIT_STATUSES = new Set(['unlimited', 'available', 'none', 'stale
 export const CREDIT_FRESH_STATUSES = new Set(['unlimited', 'available', 'none']);
 export const CREDIT_REASONS = new Set(['never-observed', 'not-reported', 'peer-omitted']);
 export const CREDIT_BALANCE_MAX_CODE_POINTS = 64;
+// One inclusive plausibility ceiling for credit-standing and reset-credit
+// expirations at every ingest boundary, relative to the supplied clock.
+export const ACCOUNT_EXPIRY_MAX_AHEAD_MS = 10 * 365.25 * 24 * 60 * 60 * 1000;
+
+// Canonical ISO or null. Past instants remain valid here because reset-credit
+// accounting must subtract them from the authoritative count exactly once.
+// The credit-standing wrapper below additionally requires a future instant.
+export function boundedAccountExpirationIso(ms, nowMs) {
+  const now = Number(nowMs);
+  if (!Number.isFinite(ms) || !Number.isFinite(now)
+    || ms - now > ACCOUNT_EXPIRY_MAX_AHEAD_MS) return null;
+  const date = new Date(ms);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
 
 // Returns undefined for a non-string (the caller ignores it and retains any
 // prior observation), null when nothing is left after stripping, else the
@@ -42,14 +56,16 @@ export function creditExpiryNotReported() {
 }
 
 // The one normalizer for a candidate expiry instant that is an ISO (or
-// ISO-parseable) string: canonical ISO and strictly in the future at `nowMs`,
-// else not-reported. Never defaults to now. Both trust boundaries (the local
-// Codex producer and the peer normalizer) call this; converting a provider's
+// ISO-parseable) string: canonical ISO and strictly in the future, within the
+// shared horizon at `nowMs`, else not-reported. Never defaults to now. Both
+// trust boundaries (the local Codex producer and the peer normalizer) call this;
+// converting a provider's
 // epoch-seconds convention stays with that provider's reader.
 export function creditExpiryFromIso(value, nowMs) {
   if (typeof value !== 'string') return creditExpiryNotReported();
   const ms = Date.parse(value);
   const now = Number(nowMs);
   if (!Number.isFinite(ms) || !Number.isFinite(now) || ms <= now) return creditExpiryNotReported();
-  return { status: 'reported', expiresAt: new Date(ms).toISOString() };
+  const expiresAt = boundedAccountExpirationIso(ms, now);
+  return expiresAt ? { status: 'reported', expiresAt } : creditExpiryNotReported();
 }
