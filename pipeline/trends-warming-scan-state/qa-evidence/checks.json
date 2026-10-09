@@ -1,0 +1,49 @@
+{
+  "recordedAt": "2026-10-09T04:06:54.000Z",
+  "nodeVersion": "v24.18.0",
+  "isolation": {
+    "inheritedLlmdashCleared": true,
+    "temporaryRoots": true,
+    "emptyHosts": true,
+    "autoRefresh": false,
+    "providerCommands": "/usr/bin/false"
+  },
+  "syntax": [
+    {
+      "file": "src/trends.js",
+      "status": 0,
+      "output": ""
+    },
+    {
+      "file": "src/codex-stats.js",
+      "status": 0,
+      "output": ""
+    },
+    {
+      "file": "public/app.js",
+      "status": 0,
+      "output": ""
+    },
+    {
+      "file": "pipeline/trends-warming-scan-state/verify.mjs",
+      "status": 0,
+      "output": ""
+    }
+  ],
+  "focused": {
+    "command": "node --test tests/trends.test.js tests/codex-insights.test.js tests/codex-insights-client.test.js",
+    "status": 0,
+    "signal": null,
+    "error": null,
+    "summary": [
+      "ℹ tests 40",
+      "ℹ suites 0",
+      "ℹ pass 40",
+      "ℹ fail 0",
+      "ℹ cancelled 0",
+      "ℹ skipped 0",
+      "ℹ todo 0",
+      "ℹ duration_ms 169.328041"
+    ]
+  }
+}

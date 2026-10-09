@@ -1,0 +1,117 @@
+{
+  "verifiedAt": "2026-10-09T04:07:06.109Z",
+  "nodeVersion": "v24.18.0",
+  "isolation": {
+    "inheritedLlmdashVariablesCleared": true,
+    "temporaryRoots": true,
+    "hostsConfEmpty": true,
+    "listener": "127.0.0.1:ephemeral",
+    "pollerStarted": false,
+    "autoRefreshDisabled": true,
+    "cliCommands": "/usr/bin/false",
+    "liveLogs": false,
+    "peers": false,
+    "physicalDevices": false
+  },
+  "phases": [
+    {
+      "phase": "cold",
+      "scanState": "warming",
+      "activityState": "warming",
+      "hasData": false,
+      "weekTokens": 0,
+      "generatedAt": null,
+      "insightGeneratedAt": null,
+      "trendActivityGeneratedAt": null,
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "cold-failure",
+      "scanState": "error",
+      "activityState": "error",
+      "hasData": false,
+      "weekTokens": 0,
+      "generatedAt": null,
+      "insightGeneratedAt": null,
+      "trendActivityGeneratedAt": null,
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "persistent-failure",
+      "scanState": "error",
+      "activityState": "error",
+      "hasData": false,
+      "weekTokens": 0,
+      "generatedAt": null,
+      "insightGeneratedAt": null,
+      "trendActivityGeneratedAt": null,
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "retry-in-flight",
+      "scanState": "error",
+      "activityState": "error",
+      "hasData": false,
+      "weekTokens": 0,
+      "generatedAt": null,
+      "insightGeneratedAt": null,
+      "trendActivityGeneratedAt": null,
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "missing-root-success",
+      "scanState": "ready",
+      "activityState": "ready",
+      "hasData": false,
+      "weekTokens": 0,
+      "generatedAt": "2026-10-09T04:07:06.033Z",
+      "insightGeneratedAt": "2026-10-09T04:07:06.033Z",
+      "trendActivityGeneratedAt": "2026-10-09T04:07:06.033Z",
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "empty-tree-success",
+      "scanState": "ready",
+      "activityState": "ready",
+      "hasData": false,
+      "weekTokens": 0,
+      "generatedAt": "2026-10-09T04:07:06.034Z",
+      "insightGeneratedAt": "2026-10-09T04:07:06.034Z",
+      "trendActivityGeneratedAt": "2026-10-09T04:07:06.034Z",
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "published",
+      "scanState": "ready",
+      "activityState": "ready",
+      "hasData": true,
+      "weekTokens": 110,
+      "generatedAt": "2026-10-09T04:07:06.035Z",
+      "insightGeneratedAt": "2026-10-09T04:07:06.035Z",
+      "trendActivityGeneratedAt": "2026-10-09T04:07:06.035Z",
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "last-good-failure",
+      "scanState": "error",
+      "activityState": "error",
+      "hasData": true,
+      "weekTokens": 110,
+      "generatedAt": "2026-10-09T04:07:06.035Z",
+      "insightGeneratedAt": "2026-10-09T04:07:06.035Z",
+      "trendActivityGeneratedAt": "2026-10-09T04:07:06.035Z",
+      "renderChecksPassed": true
+    },
+    {
+      "phase": "recovered",
+      "scanState": "ready",
+      "activityState": "ready",
+      "hasData": true,
+      "weekTokens": 110,
+      "generatedAt": "2026-10-09T04:07:06.037Z",
+      "insightGeneratedAt": "2026-10-09T04:07:06.037Z",
+      "trendActivityGeneratedAt": "2026-10-09T04:07:06.037Z",
+      "renderChecksPassed": true
+    }
+  ]
+}

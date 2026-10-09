@@ -1,0 +1,197 @@
+{
+  "recordedAt": "2026-10-09T03:51:08.389Z",
+  "nodeVersion": "v24.18.0",
+  "confirmed": {
+    "warmingAnswersUncached": true,
+    "coldScanFailuresStillRenderReading": true,
+    "lastGoodDataRetained": true,
+    "recoveryWorks": true,
+    "readyAnswersCached": true
+  },
+  "isolation": {
+    "inheritedLlmdashVariablesCleared": true,
+    "temporaryTrees": true,
+    "hostsConfEmpty": true,
+    "loopbackOnly": true,
+    "ephemeralPort": true,
+    "pollerStarted": false,
+    "autoRefreshDisabled": true,
+    "cliCommands": "/usr/bin/false",
+    "liveLogsRead": false,
+    "peerRequests": false
+  },
+  "repeats": [
+    {
+      "phase": "both-cold",
+      "range": "24h",
+      "requests": 3,
+      "seriesQueries": 12,
+      "reusedAnswer": false,
+      "generatedAtChanged": true
+    },
+    {
+      "phase": "both-cold",
+      "range": "7d",
+      "requests": 3,
+      "seriesQueries": 12,
+      "reusedAnswer": false,
+      "generatedAtChanged": true
+    },
+    {
+      "phase": "both-cold",
+      "range": "30d",
+      "requests": 3,
+      "seriesQueries": 12,
+      "reusedAnswer": false,
+      "generatedAtChanged": true
+    },
+    {
+      "phase": "claude-cold-codex-ready",
+      "range": "24h",
+      "requests": 3,
+      "seriesQueries": 12,
+      "reusedAnswer": false,
+      "generatedAtChanged": true
+    },
+    {
+      "phase": "claude-cold-codex-ready",
+      "range": "7d",
+      "requests": 3,
+      "seriesQueries": 12,
+      "reusedAnswer": false,
+      "generatedAtChanged": true
+    },
+    {
+      "phase": "claude-cold-codex-ready",
+      "range": "30d",
+      "requests": 3,
+      "seriesQueries": 12,
+      "reusedAnswer": false,
+      "generatedAtChanged": true
+    }
+  ],
+  "initial": {
+    "activity": {
+      "hasData": false,
+      "generatedAt": null,
+      "weekTokens": 0
+    },
+    "insights": {
+      "hasData": false,
+      "generatedAt": null
+    },
+    "trends": [
+      {
+        "source": "claude-code",
+        "activityState": "warming",
+        "dailyRows": 0
+      },
+      {
+        "source": "codex",
+        "activityState": "warming",
+        "dailyRows": 0
+      }
+    ]
+  },
+  "failedAttempts": [
+    false,
+    false
+  ],
+  "coldFailure": {
+    "activity": {
+      "hasData": false,
+      "generatedAt": null,
+      "weekTokens": 0
+    },
+    "insights": {
+      "hasData": false,
+      "generatedAt": null
+    },
+    "trends": [
+      {
+        "source": "claude-code",
+        "activityState": "warming",
+        "dailyRows": 0
+      },
+      {
+        "source": "codex",
+        "activityState": "warming",
+        "dailyRows": 0
+      }
+    ]
+  },
+  "failedHttp": {
+    "insightsStatus": 200,
+    "trendsStatus": 200
+  },
+  "renderedColdFailure": "<div class=\"insights-state\">Reading local Codex session metadata…</div>",
+  "firstGood": {
+    "activity": {
+      "hasData": true,
+      "generatedAt": "2026-10-09T03:51:08.341Z",
+      "weekTokens": 110
+    },
+    "insights": {
+      "hasData": true,
+      "generatedAt": "2026-10-09T03:51:08.341Z"
+    },
+    "trends": [
+      {
+        "source": "claude-code",
+        "activityState": "warming",
+        "dailyRows": 0
+      },
+      {
+        "source": "codex",
+        "activityState": "ready",
+        "dailyRows": 1
+      }
+    ]
+  },
+  "transientFailure": {
+    "activity": {
+      "hasData": true,
+      "generatedAt": "2026-10-09T03:51:08.341Z",
+      "weekTokens": 110
+    },
+    "insights": {
+      "hasData": true,
+      "generatedAt": "2026-10-09T03:51:08.341Z"
+    },
+    "trends": [
+      {
+        "source": "claude-code",
+        "activityState": "warming",
+        "dailyRows": 0
+      },
+      {
+        "source": "codex",
+        "activityState": "ready",
+        "dailyRows": 1
+      }
+    ]
+  },
+  "recovered": {
+    "activity": {
+      "hasData": true,
+      "generatedAt": "2026-10-09T03:51:08.343Z",
+      "weekTokens": 110
+    },
+    "insights": {
+      "hasData": true,
+      "generatedAt": "2026-10-09T03:51:08.343Z"
+    },
+    "trends": [
+      {
+        "source": "claude-code",
+        "activityState": "warming",
+        "dailyRows": 0
+      },
+      {
+        "source": "codex",
+        "activityState": "ready",
+        "dailyRows": 1
+      }
+    ]
+  }
+}

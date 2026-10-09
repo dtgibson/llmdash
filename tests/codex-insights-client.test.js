@@ -73,7 +73,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function makeBrowser(insightFetch) {
+async function makeBrowser(insightFetch, trendFetch = null) {
   const els = {
     headroom: element('headroom'), tools: element('tools'), hosts: element('hosts'),
     age: element('age'), freshness: element('freshness'), trends: element('trends'),
@@ -103,6 +103,7 @@ async function makeBrowser(insightFetch) {
   };
   const insightUrls = [];
   const intervals = [];
+  const timeouts = [], clearedTimeouts = [];
   const fetch = async (url) => {
     const value = String(url);
     if (value.startsWith('/api/codex-insights')) {
@@ -112,19 +113,26 @@ async function makeBrowser(insightFetch) {
     if (value.startsWith('/api/hosts')) {
       return { ok: true, json: async () => ({ hosts: [], generatedAt: '2026-07-12T20:00:00.000Z' }) };
     }
+    if (value.startsWith('/api/trends') && trendFetch) return trendFetch(value);
     return { ok: true, json: async () => ({ tools: [], range: '7d' }) };
   };
   const sandbox = {
     document, fetch, console, Date, Math, JSON, Number, String, Array, Object, Map, Set,
     encodeURIComponent,
     setInterval: (callback, delay) => { intervals.push({ callback, delay }); return intervals.length; },
-    setTimeout: (callback, delay) => delay >= 1000 ? 0 : setTimeout(callback, delay),
+    setTimeout: (callback, delay) => {
+      if (delay < 1000) return setTimeout(callback, delay);
+      const id = timeouts.length + 1;
+      timeouts.push({ id, callback, delay });
+      return id;
+    },
+    clearTimeout: id => clearedTimeouts.push(id),
     queueMicrotask,
   };
   vm.createContext(sandbox);
   vm.runInContext(appJs, sandbox);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { sandbox, els, buttons, range, insightUrls, intervals };
+  return { sandbox, els, buttons, range, insightUrls, intervals, timeouts, clearedTimeouts };
 }
 
 test('Codex insight shell is dashboard-only, scoped, independently ranged, and initially honest', () => {
@@ -185,6 +193,66 @@ test('a never-published (warming) cache reads as loading, never as no activity',
   const html = els['insights-surface'].innerHTML;
   assert.match(html, /Reading local Codex session metadata/);
   assert.doesNotMatch(html, /No supported Codex activity/);
+});
+
+test('scan errors precede cold loading and qualify retained activity, insights and charts; recovery clears notes', async () => {
+  const cold = insightPayload('7d', { hasData: false, generatedAt: null, scanState: 'error' });
+  const { sandbox, els } = await makeBrowser(async () => ({ ok: true, json: async () => cold }));
+  assert.match(els['insights-surface'].innerHTML, /insights-error.*local Codex session logs could not be read/);
+  assert.doesNotMatch(els['insights-surface'].innerHTML, /Reading local|No supported Codex activity/);
+  assert.equal(els['insights-status'].textContent, 'Local scan failed');
+  sandbox.tool = { source: 'codex', label: 'Codex', plan: 'ChatGPT Pro', activity: {
+    hasData: false, generatedAt: null, scanState: 'error',
+  } };
+  const activityHtml = () => vm.runInContext('toolCoreHtml(tool, undefined, undefined, null, false)', sandbox);
+  assert.match(activityHtml(), /local Codex session logs could not be read/);
+  assert.doesNotMatch(activityHtml(), /Reading this machine|No Codex sessions/);
+  sandbox.tool.activity = { hasData: true, generatedAt: '2026-07-12T20:00:00.000Z', scanState: 'error',
+    tokens: { last5h: 110, week: 110, today: 110 }, sessionsToday: 1, cacheHitRate: 0.4 };
+  assert.match(activityHtml(), /stat-grid/);
+  assert.match(activityHtml(), /evidence-note.*Showing the last successfully read activity/);
+  sandbox.payload = insightPayload('7d', { scanState: 'error' });
+  vm.runInContext('renderCodexInsights(payload, false)', sandbox);
+  assert.match(els['insights-surface'].innerHTML, /insights-summary/);
+  assert.match(els['insights-surface'].innerHTML, /insight-chart/);
+  assert.match(els['insights-surface'].innerHTML, /evidence-note.*Showing the last successfully read insights/);
+  sandbox.trend = { source: 'codex', label: 'Codex', activityState: 'error', limits: {}, daily: [
+    { day: '2026-07-12T00:00:00.000Z', tokens: 110, input: 60, output: 10, cacheRead: 40, cacheHitRate: 0.4 },
+  ] };
+  const trendHtml = () => vm.runInContext('trendContentHtml(trend, "7d")', sandbox);
+  assert.match(trendHtml(), /Tokens per day/);
+  assert.match(trendHtml(), /Showing the last successfully read token trends/);
+  for (const state of ['ready', 'constructor', 'toString', '__proto__']) {
+    sandbox.payload.scanState = state; sandbox.tool.activity.scanState = state; sandbox.trend.activityState = state;
+    vm.runInContext('renderCodexInsights(payload, false)', sandbox);
+    for (const html of [els['insights-surface'].innerHTML, activityHtml(), trendHtml()]) {
+      assert.doesNotMatch(html, /could not be read|Showing the last successfully read|\[object/);
+    }
+  }
+});
+
+test('accelerated trends retry schedules only genuine warming and cancels on failure or recovery', async () => {
+  const tool = activityState => ({ source: 'codex', label: 'Codex', activityState,
+    daily: [], limits: { five_hour: [], seven_day: [] } });
+  let trends = { range: '7d', tools: [tool('error')] };
+  const { sandbox, els, timeouts, clearedTimeouts } = await makeBrowser(
+    async () => ({ ok: true, json: async () => insightPayload() }),
+    async () => ({ ok: true, json: async () => trends }));
+  assert.match(els.trends.innerHTML, /local Codex session logs could not be read/);
+  const retries = () => timeouts.filter(timer => timer.delay === 15_000);
+  assert.equal(retries().length, 0);
+  trends.tools = [tool('warming')];
+  await vm.runInContext('fetchTrends()', sandbox);
+  assert.equal(retries().length, 1);
+  const pending = retries()[0].id;
+  trends.tools = [tool('error')];
+  await vm.runInContext('fetchTrends()', sandbox);
+  assert.ok(clearedTimeouts.includes(pending));
+  for (const activityState of ['error', 'ready', 'constructor', 'toString', '__proto__']) {
+    trends.tools = [tool(activityState)];
+    await vm.runInContext('fetchTrends()', sandbox);
+  }
+  assert.equal(retries().length, 1, 'errors and unknown enum keys cannot create a retry loop');
 });
 
 test('tool, compaction, and timing evidence renders even when token summaries are unavailable', async () => {

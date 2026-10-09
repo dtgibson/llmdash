@@ -185,8 +185,23 @@ test('the aggregate contract drops raw IDs, content, paths, and tool payloads', 
   assert.deepEqual(out.mix.tools.items.map((item) => item.label), ['Shell']);
 });
 
-test('refresh scans once for all ranges; getters are pure cache reads and a failure preserves good data', () => {
+test('refresh scans once for all ranges; failures and retries preserve good data and publication time until recovery', async () => {
   clearCodexStatsCache();
+  assert.equal(computeCodexActivity().scanState, 'warming');
+  assert.equal(refreshCodexAnalytics(NOW, () => { throw new Error('/private/cold-scan'); }), false);
+  for (const value of [computeCodexActivity(), getCodexInsights()]) {
+    assert.equal(value.scanState, 'error');
+    assert.equal(value.hasData, false);
+    assert.equal(value.generatedAt, null);
+    assert.doesNotMatch(JSON.stringify(value), /private|cold-scan/);
+  }
+  const pacer = { due: () => true, resume() {} };
+  const retry = refreshCodexAnalyticsAsync(NOW, {
+    pacer, scanSteps: function *retryScan() { yield; yield; throw new Error('retry failed'); },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(getCodexInsights().scanState, 'error', 'retry in flight never disguises a failure as warming');
+  assert.equal(await retry, false);
   let calls = 0;
   let options;
   const scan = (_sinceMs, value) => { calls++; options = value; return fixture(); };
@@ -201,9 +216,27 @@ test('refresh scans once for all ranges; getters are pure cache reads and a fail
   // the insights account object carries the plan only (FR-28, QA-29).
   assert.deepEqual(Object.keys(getCodexInsights('7d').account).sort(), ['plan', 'scope']);
   assert.equal(computeCodexActivity().hasData, true);
+  assert.equal(computeCodexActivity().scanState, 'ready');
+  const goodActivity = computeCodexActivity();
+  const goodInsights = getCodexInsights('7d');
   assert.equal(calls, 1, 'cache getters never rescan');
   assert.equal(refreshCodexAnalytics(NOW + 1, () => { throw new Error('boom'); }), false);
   assert.equal(getCodexInsights('7d').summary.turns.count, 2, 'last good snapshot survives');
+  assert.deepEqual(computeCodexActivity(), { ...goodActivity, scanState: 'error' });
+  assert.deepEqual(getCodexInsights('7d'), { ...goodInsights, scanState: 'error' });
+  const recovery = refreshCodexAnalyticsAsync(NOW + 2, {
+    pacer, scanSteps: function *recoverScan() { yield; yield; return fixture(); },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(computeCodexActivity(), { ...goodActivity, scanState: 'error' });
+  assert.equal(await recovery, true);
+  assert.equal(getCodexInsights().scanState, 'ready');
+  assert.equal(computeCodexActivity().generatedAt, new Date(NOW + 2).toISOString());
+  // Supported partial and changing-file results are publishable, not failures.
+  for (const scanIncomplete of ['scan_budget_total_bytes', 'active_rollout_pending']) {
+    assert.equal(refreshCodexAnalytics(NOW + 3, () => ({ ...fixture(), scanIncomplete })), true);
+    assert.equal(computeCodexActivity().scanState, 'ready');
+  }
 });
 
 test('cooperative refresh serves the honest cold state until it publishes, then matches the synchronous refresh', async () => {

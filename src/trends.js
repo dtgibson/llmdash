@@ -1,6 +1,6 @@
 import { getSeries } from './db.js';
 import { aggregate as aggClaude } from './stats.js';
-import { readUsageRecords as readCodex, aggregate as aggCodex, codexUsageReady } from './codex-stats.js';
+import { readUsageRecords as readCodex, aggregate as aggCodex, codexUsageReady, codexScanStatus } from './codex-stats.js';
 import { scanClaudeTrendRecordsSteps, claudeTrendLimits, clearClaudeTrendFileCache } from './claude-trend-cache.js';
 import { createPacer, runCooperatively, runToCompletion } from './cooperative.js';
 
@@ -95,20 +95,28 @@ function limitSeries(source, sinceIso) {
   return out;
 }
 
-let cache = new Map(); // range -> { at, value }
+let cache = new Map(); // at most the three canonical ranges
 const TTL = 60_000;
+const WARMING_TTL = 2_000;
+let lastCodexStatus = null;
 
 export function buildTrends(range = '7d', nowMs = Date.now()) {
   if (!Object.hasOwn(RANGES, range)) range = '7d';
+  const codexStatus = codexScanStatus();
+  if (lastCodexStatus !== codexStatus) {
+    clearTrendsCache();
+    lastCodexStatus = codexStatus;
+  }
   const hit = cache.get(range);
-  if (hit && nowMs - hit.at < TTL) return hit.value;
+  if (hit && nowMs - hit.at < hit.ttl) return hit.value;
 
   const since = nowMs - RANGES[range];
   const sinceIso = new Date(since).toISOString();
   // Codex daily usage comes from the poller's published 30-day scan (the widest
   // trends range), never from a request-path scan. Until the first scan after
   // start publishes, say so with an explicit state instead of empty data that
-  // would read as "no activity". activityState is an enum: 'ready' | 'warming'.
+  // would read as "no activity". Failed scans retain last-good usage and carry
+  // a distinct 'error' outcome until a successful publication.
   const codexReady = codexUsageReady();
   const claudeReady = claudeDaily !== null;
 
@@ -119,13 +127,13 @@ export function buildTrends(range = '7d', nowMs = Date.now()) {
       {
         source: 'codex', label: 'Codex', limits: limitSeries('codex', sinceIso),
         daily: codexReady ? dailySeries(readCodex(since), aggCodex, { utc: true, subset: true }) : [],
-        activityState: codexReady ? 'ready' : 'warming',
+        activityState: codexStatus.state, activityGeneratedAt: codexStatus.generatedAt,
       },
     ],
     generatedAt: new Date(nowMs).toISOString(),
   };
-  // A warming answer is not cached, so the next request sees the first publish.
-  if (codexReady && claudeReady) cache.set(range, { at: nowMs, value });
+  const ttl = value.tools.some(t => t.activityState === 'warming') ? WARMING_TTL : TTL;
+  cache.set(range, { at: nowMs, ttl, value });
   return value;
 }
 

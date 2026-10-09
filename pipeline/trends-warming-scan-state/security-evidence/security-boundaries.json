@@ -1,0 +1,21 @@
+{
+  "result": "PASSED",
+  "nodeVersion": "v24.18.0",
+  "checks": [
+    "frozen allowlisted state; cold thrown message omitted from all three payloads",
+    "synthetic private identifiers/content remain internal; aggregate publication succeeds",
+    "aggregation exception retains last-good aggregates/time; exception content stays private",
+    "same-timestamp recovery changes identity and clears cached failure immediately",
+    "client maps only own enum keys; errors use fixed text and warming labels are escaped"
+  ],
+  "isolation": {
+    "clearedLlmdash": true,
+    "disposableRoots": true,
+    "emptyHosts": true,
+    "autoRefresh": false,
+    "providerCommands": "/usr/bin/false",
+    "scannerCallbacks": "synthetic only",
+    "httpListener": false,
+    "vm": "note helper only; no browser/layout claim"
+  }
+}

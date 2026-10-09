@@ -10,6 +10,7 @@ import { claudeTrendCacheStats, claudeTrendLimits } from '../src/claude-trend-ca
 import { aggregate as aggClaude, readUsageRecords as readClaude } from '../src/stats.js';
 import { aggregate as aggCodex, clearCodexStatsCache, readUsageRecords as readCodex, refreshCodexAnalytics } from '../src/codex-stats.js';
 import { scanCodexRollouts } from '../src/codex-events.js';
+import { getDb } from '../src/db.js';
 
 // Hermetic: trends also reads the snapshot DB and Claude transcripts. Point
 // both at an empty temp tree before anything opens them.
@@ -61,12 +62,81 @@ test('trends normalizes inherited and unknown range keys before and after daily 
       }
       const week = buildTrends('7d', NOW);
       for (const range of fallbackRanges) {
-        assert.deepEqual(buildTrends(range, NOW), week, `${phase}: ${String(range)}`);
+        assert.equal(buildTrends(range, NOW), week, `${phase}: ${String(range)} reuses the canonical cache entry`);
       }
     }
   } finally {
     clearClaudeTrendsCache();
     clearCodexStatsCache();
+  }
+});
+
+test('trends cache warming for exactly 2s, ready for 60s, and immediately reveal publications, failures and resets', async () => {
+  const NOW = Date.UTC(2026, 6, 12, 12);
+  clearClaudeTrendsCache(); clearCodexStatsCache();
+  const db = getDb(), prepare = db.prepare;
+  let queries = 0;
+  db.prepare = function(sql, ...args) {
+    if (sql.includes('captured_at >= ?')) queries++;
+    return prepare.call(this, sql, ...args);
+  };
+  const ranges = ['24h', '7d', '30d'];
+  const values = at => Object.fromEntries(ranges.map(range => [range, buildTrends(range, at)]));
+  const scan = () => ({ usage: [{ tsMs: NOW - 1000, input: 100, output: 10, cached: 40 }],
+    completions: [], compactions: [], tools: [], capabilities: {} });
+  try {
+    const cold = values(NOW);
+    assert.equal(queries, 12);
+    for (const range of ranges) assert.equal(buildTrends(range, NOW + 1999), cold[range]);
+    assert.equal(queries, 12, 'warming hits skip all snapshot queries');
+    const expired = values(NOW + 2000);
+    for (const range of ranges) assert.notEqual(expired[range], cold[range]);
+    assert.equal(queries, 24, 'warming expires at exactly 2000ms');
+    // Publish Codex inside the warming TTL, while Claude is still cold.
+    assert.equal(refreshCodexAnalytics(NOW, scan), true);
+    const mixed = values(NOW + 2001);
+    for (const range of ranges) {
+      assert.equal(mixed[range].tools[0].activityState, 'warming');
+      assert.equal(mixed[range].tools[1].activityState, 'ready');
+      assert.equal(mixed[range].tools[1].daily[0].tokens, 110);
+    }
+    const pricing = Object.getOwnPropertyDescriptor(config, 'openaiPricing');
+    try {
+      Object.defineProperty(config, 'openaiPricing', { configurable: true,
+        get() { throw new Error('daily aggregation must not run on cache hits'); } });
+      for (const range of ranges) assert.equal(buildTrends(range, NOW + 4000), mixed[range]);
+    } finally { Object.defineProperty(config, 'openaiPricing', pricing); }
+    const mixedExpired = values(NOW + 4001);
+    for (const range of ranges) assert.notEqual(mixedExpired[range], mixed[range]);
+    await refreshClaudeTrendsAsync(NOW);
+    const ready = values(NOW + 4002);
+    for (const range of ranges) {
+      assert.ok(ready[range].tools.every(t => t.activityState === 'ready'));
+      assert.equal(buildTrends(range, NOW + 64001), ready[range]);
+      assert.notEqual(buildTrends(range, NOW + 64002), ready[range]);
+    }
+    assert.equal(refreshCodexAnalytics(NOW, () => { throw new Error('/private/scan-error'); }), false);
+    const failed = values(NOW + 64003);
+    for (const range of ranges) {
+      const tool = failed[range].tools[1];
+      assert.equal(tool.activityState, 'error');
+      assert.deepEqual(tool.daily, ready[range].tools[1].daily);
+      assert.equal(tool.activityGeneratedAt, new Date(NOW).toISOString());
+    }
+    assert.equal(refreshCodexAnalytics(NOW, scan), true, 'same timestamp still invalidates on publication');
+    const recovered = values(NOW + 64004);
+    for (const range of ranges) assert.equal(recovered[range].tools[1].activityState, 'ready');
+    clearCodexStatsCache();
+    const codexReset = values(NOW + 64005);
+    for (const range of ranges) assert.equal(codexReset[range].tools[1].activityState, 'warming');
+    clearClaudeTrendsCache();
+    const bothReset = values(NOW + 64006);
+    for (const range of ranges) assert.ok(bothReset[range].tools.every(t => t.activityState === 'warming'));
+    clearTrendsCache();
+    for (const range of ranges) assert.notEqual(buildTrends(range, NOW + 64006), bothReset[range]);
+  } finally {
+    db.prepare = prepare;
+    clearClaudeTrendsCache(); clearCodexStatsCache();
   }
 });
 
@@ -87,7 +157,7 @@ test('trends never scan on the request path: Codex reads the poller-published us
   ];
   assert.equal(refreshCodexAnalytics(NOW, () => { scans++; return { usage, completions: [], compactions: [], tools: [], capabilities: {} }; }), true);
   const week = buildTrends('7d', NOW).tools.find((t) => t.source === 'codex');
-  assert.equal(week.activityState, 'ready', 'a warming answer is not cached past the first publish');
+  assert.equal(week.activityState, 'ready', 'first publication immediately invalidates the warming answer');
   assert.deepEqual(week.daily.map((d) => [d.tokens, d.input, d.cacheRead]), [[110, 60, 40]]);
   assert.equal(buildTrends('30d', NOW).tools.find((t) => t.source === 'codex').daily.length, 2);
   assert.equal(scans, 1, 'trend requests read the published scan; they never rescan');

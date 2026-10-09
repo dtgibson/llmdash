@@ -1,0 +1,12 @@
+TIER 2
+TIERNAME Full weave
+CLASSES logic,interface
+TRIGGERS -
+BASE 7ff4088a61e1b95845eb3f236cbc889e31c9fca3
+FILES 6
+FILE logic public/app.js
+FILE interface src/codex-stats.js
+FILE logic src/trends.js
+FILE logic tests/codex-insights-client.test.js
+FILE logic tests/codex-insights.test.js
+FILE logic tests/trends.test.js
