@@ -1,0 +1,619 @@
+{
+  "recordedAt": "2026-10-09T03:29:53.648Z",
+  "nodeVersion": "v24.18.0",
+  "confirmedBug": true,
+  "isolation": {
+    "loopbackOnly": true,
+    "ephemeralPort": true,
+    "temporaryData": true,
+    "inheritedLlmdashVariablesCleared": true,
+    "hostsConfEmpty": true,
+    "pollerStarted": false,
+    "autoRefreshDisabled": true,
+    "cliCommands": "/usr/bin/false"
+  },
+  "observations": [
+    {
+      "phase": "cold",
+      "route": "/api/trends",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=24h",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "24h",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 1,
+            "sevenDayRows": 1
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 1,
+            "sevenDayRows": 1
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=7d",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=30d",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "30d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 3,
+            "sevenDayRows": 3
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 3,
+            "sevenDayRows": 3
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=bogus",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=7D",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "warming",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=constructor",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=toString",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=__proto__",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=hasOwnProperty",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=__defineGetter__",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=valueOf",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=constructor",
+      "method": "HEAD",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": ""
+    },
+    {
+      "phase": "cold",
+      "route": "/api/trends?range=30d",
+      "method": "HEAD",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": ""
+    },
+    {
+      "phase": "cold",
+      "directRange": "constructor",
+      "error": "RangeError: Invalid time value"
+    },
+    {
+      "phase": "cold",
+      "directRange": "toString",
+      "error": "RangeError: Invalid time value"
+    },
+    {
+      "phase": "cold",
+      "directRange": "__proto__",
+      "error": "RangeError: Invalid time value"
+    },
+    {
+      "phase": "cold",
+      "directRange": "bogus",
+      "returnedRange": "7d"
+    },
+    {
+      "phase": "cold",
+      "directRange": "(omitted)",
+      "returnedRange": "7d"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=24h",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "24h",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 1,
+            "sevenDayRows": 1
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 1,
+            "sevenDayRows": 1
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=7d",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=30d",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "30d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 3,
+            "sevenDayRows": 3
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 3,
+            "sevenDayRows": 3
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=bogus",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=7D",
+      "method": "GET",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": {
+        "range": "7d",
+        "tools": [
+          {
+            "source": "claude-code",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          },
+          {
+            "source": "codex",
+            "activityState": "ready",
+            "dailyRows": 0,
+            "fiveHourRows": 2,
+            "sevenDayRows": 2
+          }
+        ]
+      }
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=constructor",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=toString",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=__proto__",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=hasOwnProperty",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=__defineGetter__",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=valueOf",
+      "method": "GET",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": "error"
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=constructor",
+      "method": "HEAD",
+      "status": 500,
+      "contentType": null,
+      "cacheControl": null,
+      "nosniff": "nosniff",
+      "body": ""
+    },
+    {
+      "phase": "published-empty",
+      "route": "/api/trends?range=30d",
+      "method": "HEAD",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "no-store",
+      "nosniff": "nosniff",
+      "body": ""
+    },
+    {
+      "phase": "published-empty",
+      "directRange": "constructor",
+      "error": "RangeError: Invalid time value"
+    },
+    {
+      "phase": "published-empty",
+      "directRange": "toString",
+      "error": "RangeError: Invalid time value"
+    },
+    {
+      "phase": "published-empty",
+      "directRange": "__proto__",
+      "error": "RangeError: Invalid time value"
+    },
+    {
+      "phase": "published-empty",
+      "directRange": "bogus",
+      "returnedRange": "7d"
+    },
+    {
+      "phase": "published-empty",
+      "directRange": "(omitted)",
+      "returnedRange": "7d"
+    }
+  ]
+}

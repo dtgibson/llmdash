@@ -99,7 +99,7 @@ let cache = new Map(); // range -> { at, value }
 const TTL = 60_000;
 
 export function buildTrends(range = '7d', nowMs = Date.now()) {
-  if (!RANGES[range]) range = '7d';
+  if (!Object.hasOwn(RANGES, range)) range = '7d';
   const hit = cache.get(range);
   if (hit && nowMs - hit.at < TTL) return hit.value;
 

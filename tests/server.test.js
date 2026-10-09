@@ -3,8 +3,31 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
+import { config } from '../config.js';
 import { resolveStaticPath, toolWrap, server } from '../src/server.js';
+import { getDb, insertSnapshot } from '../src/db.js';
+import { clearClaudeTrendsCache, refreshClaudeTrendsAsync } from '../src/trends.js';
+import { clearCodexStatsCache, refreshCodexAnalytics } from '../src/codex-stats.js';
+
+// Real-socket tests must never read or change the developer's data/log trees.
+// Importing the server does not start its poller; fixtures remain local-only.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llmdash-server-'));
+config.dataDir = path.join(tmp, 'data');
+config.claudeDir = path.join(tmp, 'claude');
+config.codexDir = path.join(tmp, 'codex');
+config.hostsRaw = '';
+config.claudeCmd = config.codexCmd = '/usr/bin/false';
+config.claudeAutoRefresh = false;
+for (const dir of [config.dataDir, config.projectsDir, config.codexSessionsDir]) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+fs.writeFileSync(config.hostsFile, '');
+test.after(() => {
+  getDb().close();
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -88,6 +111,60 @@ test('/api/hosts returns the combined shape (hosts[] + generatedAt), a pure cach
   const body = JSON.parse(r.body);
   assert.ok(Array.isArray(body.hosts));
   assert.equal(typeof body.generatedAt, 'string');
+});
+
+test('/api/trends preserves range cutoffs and normalizes inherited keys for GET/HEAD, cold and published', async () => {
+  const now = Date.now(), DAY = 86_400_000;
+  for (const source of ['claude-code', 'codex']) {
+    for (const window of ['five_hour', 'seven_day']) {
+      for (const age of [40, 20, 3, 0.5]) {
+        insertSnapshot({ capturedAt: iso(now - age * DAY), source, window,
+          usedPct: 25, resetsAt: null });
+      }
+    }
+  }
+  const ranges = [undefined, '', '24h', '7d', '30d', 'bogus', '7D', 'constructor',
+    'toString', '__proto__', 'hasOwnProperty', '__defineGetter__', 'valueOf'];
+  clearClaudeTrendsCache();
+  clearCodexStatsCache();
+  try {
+    for (const phase of ['warming', 'ready']) {
+      if (phase === 'ready') {
+        assert.equal(await refreshClaudeTrendsAsync(now), true);
+        assert.equal(refreshCodexAnalytics(now, () => ({ usage: [], completions: [],
+          compactions: [], tools: [], capabilities: {} })), true);
+      }
+      for (const range of ranges) {
+        const route = '/api/trends' + (range === undefined ? '' : '?range=' + encodeURIComponent(range));
+        const expectedRange = ['24h', '7d', '30d'].includes(range) ? range : '7d';
+        for (const method of ['GET', 'HEAD']) {
+          const response = await hit(route, method);
+          assert.equal(response.status, 200, `${phase}: ${method} ${route}`);
+          assert.equal(response.headers['content-type'], 'application/json; charset=utf-8');
+          assert.equal(response.headers['cache-control'], 'no-store');
+          assert.equal(response.headers['x-content-type-options'], 'nosniff');
+          assert.equal(response.headers['referrer-policy'], 'no-referrer');
+          assert.match(response.headers['content-security-policy'], /default-src 'self'/);
+          if (method === 'HEAD') { assert.equal(response.body, ''); continue; }
+          const body = JSON.parse(response.body);
+          assert.deepEqual(Object.keys(body).sort(), ['generatedAt', 'range', 'tools']);
+          assert.equal(body.range, expectedRange);
+          assert.deepEqual(body.tools.map(tool => tool.source), ['claude-code', 'codex']);
+          for (const tool of body.tools) {
+            assert.equal(tool.activityState, phase);
+            assert.deepEqual(tool.daily, []);
+            for (const window of ['five_hour', 'seven_day']) {
+              assert.equal(tool.limits[window].length, { '24h': 1, '7d': 2, '30d': 3 }[expectedRange]);
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    clearClaudeTrendsCache();
+    clearCodexStatsCache();
+    getDb().exec('DELETE FROM usage_snapshots');
+  }
 });
 
 test('/api/codex-insights is a bounded local-machine cache endpoint', async () => {

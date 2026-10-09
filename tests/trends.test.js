@@ -41,6 +41,35 @@ test('dailySeries handles empty input', () => {
   assert.deepEqual(dailySeries([], () => ({})), []);
 });
 
+test('trends normalizes inherited and unknown range keys before and after daily caches publish', async () => {
+  const NOW = Date.UTC(2026, 6, 12, 12);
+  const fallbackRanges = [undefined, '', 'bogus', '7D', 'constructor', 'toString',
+    '__proto__', 'hasOwnProperty', '__defineGetter__', 'valueOf'];
+  clearClaudeTrendsCache();
+  clearCodexStatsCache();
+  try {
+    for (const phase of ['warming', 'ready']) {
+      if (phase === 'ready') {
+        assert.equal(await refreshClaudeTrendsAsync(NOW), true);
+        assert.equal(refreshCodexAnalytics(NOW, () => ({ usage: [], completions: [],
+          compactions: [], tools: [], capabilities: {} })), true);
+      }
+      for (const range of ['24h', '7d', '30d']) {
+        const value = buildTrends(range, NOW);
+        assert.equal(value.range, range);
+        assert.ok(value.tools.every(tool => tool.activityState === phase));
+      }
+      const week = buildTrends('7d', NOW);
+      for (const range of fallbackRanges) {
+        assert.deepEqual(buildTrends(range, NOW), week, `${phase}: ${String(range)}`);
+      }
+    }
+  } finally {
+    clearClaudeTrendsCache();
+    clearCodexStatsCache();
+  }
+});
+
 test('trends never scan on the request path: Codex reads the poller-published usage and reports warming until the first publish', () => {
   const NOW = Date.UTC(2026, 6, 12, 12);
   clearCodexStatsCache();

@@ -1,0 +1,202 @@
+TAP version 13
+# Subtest: malformed request targets return 400 instead of escaping the request callback
+ok 1 - malformed request targets return 400 instead of escaping the request callback
+  ---
+  duration_ms: 35.726167
+  type: 'test'
+  ...
+# Subtest: static path confinement accepts children and rejects traversal plus public-prefix siblings
+ok 2 - static path confinement accepts children and rejects traversal plus public-prefix siblings
+  ---
+  duration_ms: 0.267625
+  type: 'test'
+  ...
+# Subtest: encoded traversal-shaped requests cannot reach files outside the fixed static routes
+ok 3 - encoded traversal-shaped requests cannot reach files outside the fixed static routes
+  ---
+  duration_ms: 7.032542
+  type: 'test'
+  ...
+# Subtest: /api/hosts carries the baseline security headers and is no-store (QA-26)
+ok 4 - /api/hosts carries the baseline security headers and is no-store (QA-26)
+  ---
+  duration_ms: 1.33725
+  type: 'test'
+  ...
+# Subtest: /api/hosts rejects non-GET/HEAD with 405 (QA-26)
+ok 5 - /api/hosts rejects non-GET/HEAD with 405 (QA-26)
+  ---
+  duration_ms: 1.235292
+  type: 'test'
+  ...
+# Subtest: /api/hosts returns the combined shape (hosts[] + generatedAt), a pure cache read
+ok 6 - /api/hosts returns the combined shape (hosts[] + generatedAt), a pure cache read
+  ---
+  duration_ms: 1.130458
+  type: 'test'
+  ...
+# Subtest: /api/trends preserves range cutoffs and normalizes inherited keys for GET/HEAD, cold and published
+ok 7 - /api/trends preserves range cutoffs and normalizes inherited keys for GET/HEAD, cold and published
+  ---
+  duration_ms: 70.264708
+  type: 'test'
+  ...
+# Subtest: /api/codex-insights is a bounded local-machine cache endpoint
+ok 8 - /api/codex-insights is a bounded local-machine cache endpoint
+  ---
+  duration_ms: 1.409625
+  type: 'test'
+  ...
+# Subtest: /api/codex-insights normalizes unknown ranges and supports HEAD
+ok 9 - /api/codex-insights normalizes unknown ranges and supports HEAD
+  ---
+  duration_ms: 1.600917
+  type: 'test'
+  ...
+# Subtest: /api/cost-analysis is a no-store local-machine cache endpoint with HEAD parity
+ok 10 - /api/cost-analysis is a no-store local-machine cache endpoint with HEAD parity
+  ---
+  duration_ms: 14.131167
+  type: 'test'
+  ...
+# Subtest: /api/cost-analysis defaults unknown ranges without creating a write surface
+ok 11 - /api/cost-analysis defaults unknown ranges without creating a write surface
+  ---
+  duration_ms: 2.319917
+  type: 'test'
+  ...
+# Subtest: no HTTP config-mutation endpoint: mutating methods on host paths are 405 (QA-22)
+ok 12 - no HTTP config-mutation endpoint: mutating methods on host paths are 405 (QA-22)
+  ---
+  duration_ms: 14.354625
+  type: 'test'
+  ...
+# Subtest: the would-be write routes are not even GET-served (no write surface exists, QA-22)
+ok 13 - the would-be write routes are not even GET-served (no write surface exists, QA-22)
+  ---
+  duration_ms: 2.129334
+  type: 'test'
+  ...
+# Subtest: no HTTP display-mutation endpoint: display write paths are 405/404 (serve-only preserved)
+ok 14 - no HTTP display-mutation endpoint: display write paths are 405/404 (serve-only preserved)
+  ---
+  duration_ms: 12.048292
+  type: 'test'
+  ...
+# Subtest: server.js source contains no host-config write path (write lives in the badge, QA-22)
+ok 15 - server.js source contains no host-config write path (write lives in the badge, QA-22)
+  ---
+  duration_ms: 0.567083
+  type: 'test'
+  ...
+# Subtest: no HTTP service/uninstall endpoint: mutating methods on service paths are 405 (QA-24)
+ok 16 - no HTTP service/uninstall endpoint: mutating methods on service paths are 405 (QA-24)
+  ---
+  duration_ms: 12.099083
+  type: 'test'
+  ...
+# Subtest: the would-be service/uninstall routes are not GET-served either (no such handler, QA-24)
+ok 17 - the would-be service/uninstall routes are not GET-served either (no such handler, QA-24)
+  ---
+  duration_ms: 2.261709
+  type: 'test'
+  ...
+# Subtest: server.js source runs no launchctl / uninstall work on the request path (QA-28)
+ok 18 - server.js source runs no launchctl / uninstall work on the request path (QA-28)
+  ---
+  duration_ms: 0.369666
+  type: 'test'
+  ...
+# Subtest: toolWrap exposes a per-window projection (five_hour + seven_day shown at once)
+ok 19 - toolWrap exposes a per-window projection (five_hour + seven_day shown at once)
+  ---
+  duration_ms: 0.425791
+  type: 'test'
+  ...
+# Subtest: a window with no reset time yields a null projection for that window only
+ok 20 - a window with no reset time yields a null projection for that window only
+  ---
+  duration_ms: 0.089208
+  type: 'test'
+  ...
+# Subtest: toolWrap exposes model-specific limits without affecting account windows
+ok 21 - toolWrap exposes model-specific limits without affecting account windows
+  ---
+  duration_ms: 0.135459
+  type: 'test'
+  ...
+# Subtest: startup binds the listener before any structured-log scan; the poller primes after listen
+ok 22 - startup binds the listener before any structured-log scan; the poller primes after listen
+  ---
+  duration_ms: 0.172167
+  type: 'test'
+  ...
+# Subtest: dailySeries buckets records by day, preserves totals, sorts ascending
+ok 23 - dailySeries buckets records by day, preserves totals, sorts ascending
+  ---
+  duration_ms: 1.972791
+  type: 'test'
+  ...
+# Subtest: dailySeries handles empty input
+ok 24 - dailySeries handles empty input
+  ---
+  duration_ms: 0.073583
+  type: 'test'
+  ...
+# Subtest: trends normalizes inherited and unknown range keys before and after daily caches publish
+ok 25 - trends normalizes inherited and unknown range keys before and after daily caches publish
+  ---
+  duration_ms: 4.67
+  type: 'test'
+  ...
+# Subtest: trends never scan on the request path: Codex reads the poller-published usage and reports warming until the first publish
+ok 26 - trends never scan on the request path: Codex reads the poller-published usage and reports warming until the first publish
+  ---
+  duration_ms: 1.0835
+  type: 'test'
+  ...
+# Subtest: Claude published ranges exactly match former records, local days, ordering and totals; requests never read or aggregate transcripts
+ok 27 - Claude published ranges exactly match former records, local days, ordering and totals; requests never read or aggregate transcripts
+  ---
+  duration_ms: 5.006917
+  type: 'test'
+  ...
+# Subtest: Claude bounded passes converge cooperatively, single-flight and publish all ranges atomically; failures retain the last good series
+ok 28 - Claude bounded passes converge cooperatively, single-flight and publish all ranges atomically; failures retain the last good series
+  ---
+  duration_ms: 5.998708
+  type: 'test'
+  ...
+# Subtest: Claude traversal, byte, event, record, cache and time ceilings fail closed; missing roots publish authoritative empty
+ok 29 - Claude traversal, byte, event, record, cache and time ceilings fail closed; missing roots publish authoritative empty
+  ---
+  duration_ms: 2.674667
+  type: 'test'
+  ...
+# Subtest: Claude descriptor validation rejects a changing file and oversized daily results without publishing
+ok 30 - Claude descriptor validation rejects a changing file and oversized daily results without publishing
+  ---
+  duration_ms: 1.733125
+  type: 'test'
+  ...
+# Subtest: Claude FIFO replacement at open fails promptly without cache pollution or publication
+ok 31 - Claude FIFO replacement at open fails promptly without cache pollution or publication
+  ---
+  duration_ms: 69.620917
+  type: 'test'
+  ...
+# Subtest: cached Codex trend records equal the former request-path scan for 24h, 7d, and 30d
+ok 32 - cached Codex trend records equal the former request-path scan for 24h, 7d, and 30d
+  ---
+  duration_ms: 4.674458
+  type: 'test'
+  ...
+1..32
+# tests 32
+# suites 0
+# pass 32
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 256.078291
